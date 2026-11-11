@@ -1,0 +1,286 @@
+import type { SQLiteDBConnection } from '@capacitor-community/sqlite'
+import type { Appointment, AppointmentService, AppointmentStatus, UUID } from '@shared/types'
+import { generateUUID, nowISO, calcEndAt, appointmentsOverlap, tomanToStorage } from '@shared/utils/helpers'
+import { addToOutbox } from '@sync/outbox/outbox.repository'
+
+// ── Input types ───────────────────────────────────────────────────────────────
+
+export interface AppointmentServiceInput {
+  service_id?: string | null
+  service_name_snapshot: string
+  price: number          // Toman (display)
+  duration_minutes?: number | null
+}
+
+export interface CreateAppointmentInput {
+  customer_id?: string | null
+  title: string
+  start_at: string       // ISO-8601
+  duration_minutes: number
+  notes?: string | null
+  services: AppointmentServiceInput[]
+}
+
+export interface UpdateAppointmentInput {
+  customer_id?: string | null
+  title?: string
+  start_at?: string
+  duration_minutes?: number
+  notes?: string | null
+  status?: AppointmentStatus
+}
+
+export interface ConflictResult {
+  hasConflict: boolean
+  conflictingAppointment?: Appointment
+}
+
+// ── Repository ────────────────────────────────────────────────────────────────
+
+export class AppointmentRepository {
+  constructor(
+    private readonly db: SQLiteDBConnection,
+    private readonly userId: UUID
+  ) {}
+
+  // ── Read ──────────────────────────────────────────────────────────────────
+
+  async findById(id: UUID): Promise<Appointment | null> {
+    const result = await this.db.query(
+      `SELECT * FROM appointments WHERE id = ? AND user_id = ? AND deleted_at IS NULL LIMIT 1`,
+      [id, this.userId]
+    )
+    return (result.values?.[0] as Appointment) ?? null
+  }
+
+  /** Appointments for a date range (ISO-8601 start/end of day) */
+  async findByDateRange(startISO: string, endISO: string): Promise<Appointment[]> {
+    const result = await this.db.query(
+      `SELECT * FROM appointments
+       WHERE user_id = ?
+         AND deleted_at IS NULL
+         AND status NOT IN ('cancelled', 'no_show')
+         AND start_at >= ? AND start_at < ?
+       ORDER BY start_at ASC`,
+      [this.userId, startISO, endISO]
+    )
+    return (result.values as Appointment[]) ?? []
+  }
+
+  /** All non-cancelled appointments for a single day */
+  async findByDay(dateISO: string): Promise<Appointment[]> {
+    const start = `${dateISO}T00:00:00.000Z`
+    const end   = `${dateISO}T23:59:59.999Z`
+    return this.findByDateRange(start, end)
+  }
+
+  /** Appointments for a week starting from mondayISO */
+  async findByWeek(mondayISO: string): Promise<Appointment[]> {
+    const start = `${mondayISO}T00:00:00.000Z`
+    // 7 days later
+    const endDate = new Date(mondayISO)
+    endDate.setDate(endDate.getDate() + 7)
+    const end = endDate.toISOString()
+    return this.findByDateRange(start, end)
+  }
+
+  async findServicesForAppointment(appointmentId: UUID): Promise<AppointmentService[]> {
+    const result = await this.db.query(
+      `SELECT * FROM appointment_services WHERE appointment_id = ? AND user_id = ?`,
+      [appointmentId, this.userId]
+    )
+    return (result.values as AppointmentService[]) ?? []
+  }
+
+  // ── Conflict detection ────────────────────────────────────────────────────
+
+  /**
+   * Returns true if placing an appointment at [start_at, end_at) conflicts
+   * with an existing non-cancelled appointment of the same user.
+   * excludeId can be passed when editing an existing appointment.
+   */
+  async checkConflict(
+    startAt: string,
+    endAt: string,
+    excludeId?: UUID
+  ): Promise<ConflictResult> {
+    // Fetch appointments that could overlap: those starting before our end
+    // and potentially ending after our start
+    const result = await this.db.query(
+      `SELECT * FROM appointments
+       WHERE user_id = ?
+         AND deleted_at IS NULL
+         AND status NOT IN ('cancelled', 'no_show')
+         AND id != ?
+         AND start_at < ?
+         AND end_at > ?`,
+      [this.userId, excludeId ?? '', endAt, startAt]
+    )
+    const candidates = (result.values as Appointment[]) ?? []
+
+    for (const candidate of candidates) {
+      if (appointmentsOverlap({ start_at: startAt, end_at: endAt }, candidate)) {
+        return { hasConflict: true, conflictingAppointment: candidate }
+      }
+    }
+    return { hasConflict: false }
+  }
+
+  // ── Write ─────────────────────────────────────────────────────────────────
+
+  async create(input: CreateAppointmentInput): Promise<Appointment> {
+    const now = nowISO()
+    const endAt = calcEndAt(input.start_at, input.duration_minutes)
+
+    const appointment: Appointment = {
+      id: generateUUID(),
+      user_id: this.userId,
+      customer_id: input.customer_id ?? null,
+      title: input.title.trim(),
+      start_at: input.start_at,
+      duration_minutes: input.duration_minutes,
+      end_at: endAt,
+      status: 'reserved',
+      notes: input.notes?.trim() ?? null,
+      created_at: now,
+      updated_at: now,
+      deleted_at: null,
+    }
+
+    await this.db.run(
+      `INSERT INTO appointments
+        (id, user_id, customer_id, title, start_at, duration_minutes, end_at, status, notes, created_at, updated_at, deleted_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)`,
+      [
+        appointment.id, appointment.user_id, appointment.customer_id,
+        appointment.title, appointment.start_at, appointment.duration_minutes,
+        appointment.end_at, appointment.status, appointment.notes,
+        appointment.created_at, appointment.updated_at,
+      ]
+    )
+
+    // Insert services
+    for (const svc of input.services) {
+      const svcId = generateUUID()
+      await this.db.run(
+        `INSERT INTO appointment_services
+          (id, user_id, appointment_id, service_id, service_name_snapshot, price, duration_minutes, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          svcId, this.userId, appointment.id,
+          svc.service_id ?? null, svc.service_name_snapshot,
+          tomanToStorage(svc.price), svc.duration_minutes ?? null,
+          now, now,
+        ]
+      )
+    }
+
+    await addToOutbox(this.db, {
+      entity_type: 'appointments',
+      entity_id: appointment.id,
+      operation: 'insert',
+      payload: JSON.stringify(appointment),
+    })
+
+    return appointment
+  }
+
+  async updateStatus(id: UUID, status: AppointmentStatus): Promise<void> {
+    const now = nowISO()
+    await this.db.run(
+      `UPDATE appointments SET status = ?, updated_at = ? WHERE id = ? AND user_id = ?`,
+      [status, now, id, this.userId]
+    )
+    await addToOutbox(this.db, {
+      entity_type: 'appointments',
+      entity_id: id,
+      operation: 'update',
+      payload: JSON.stringify({ id, status, updated_at: now }),
+    })
+  }
+
+  async update(id: UUID, input: UpdateAppointmentInput): Promise<Appointment | null> {
+    const existing = await this.findById(id)
+    if (!existing) return null
+
+    const now = nowISO()
+    const newStartAt = input.start_at ?? existing.start_at
+    const newDuration = input.duration_minutes ?? existing.duration_minutes
+    const newEndAt = calcEndAt(newStartAt, newDuration)
+
+    const updated: Appointment = {
+      ...existing,
+      customer_id: input.customer_id !== undefined ? input.customer_id : existing.customer_id,
+      title: input.title?.trim() ?? existing.title,
+      start_at: newStartAt,
+      duration_minutes: newDuration,
+      end_at: newEndAt,
+      status: input.status ?? existing.status,
+      notes: input.notes !== undefined ? (input.notes?.trim() ?? null) : existing.notes,
+      updated_at: now,
+    }
+
+    await this.db.run(
+      `UPDATE appointments
+       SET customer_id = ?, title = ?, start_at = ?, duration_minutes = ?, end_at = ?,
+           status = ?, notes = ?, updated_at = ?
+       WHERE id = ? AND user_id = ?`,
+      [
+        updated.customer_id, updated.title, updated.start_at, updated.duration_minutes,
+        updated.end_at, updated.status, updated.notes, updated.updated_at,
+        id, this.userId,
+      ]
+    )
+
+    await addToOutbox(this.db, {
+      entity_type: 'appointments',
+      entity_id: id,
+      operation: 'update',
+      payload: JSON.stringify(updated),
+    })
+
+    return updated
+  }
+
+  async softDelete(id: UUID): Promise<void> {
+    const now = nowISO()
+    await this.db.run(
+      `UPDATE appointments SET deleted_at = ?, updated_at = ?, status = 'cancelled'
+       WHERE id = ? AND user_id = ?`,
+      [now, now, id, this.userId]
+    )
+    await addToOutbox(this.db, {
+      entity_type: 'appointments',
+      entity_id: id,
+      operation: 'delete',
+      payload: JSON.stringify({ id, deleted_at: now }),
+    })
+  }
+
+  /** Count today's appointments */
+  async countToday(todayISO: string): Promise<number> {
+    const result = await this.db.query(
+      `SELECT COUNT(*) as cnt FROM appointments
+       WHERE user_id = ? AND deleted_at IS NULL
+         AND status NOT IN ('cancelled','no_show')
+         AND start_at >= ? AND start_at <= ?`,
+      [this.userId, `${todayISO}T00:00:00.000Z`, `${todayISO}T23:59:59.999Z`]
+    )
+    return (result.values?.[0] as { cnt: number })?.cnt ?? 0
+  }
+
+  /** Next upcoming appointment from now */
+  async findNext(): Promise<Appointment | null> {
+    const now = nowISO()
+    const result = await this.db.query(
+      `SELECT * FROM appointments
+       WHERE user_id = ? AND deleted_at IS NULL
+         AND status IN ('reserved','confirmed')
+         AND start_at >= ?
+       ORDER BY start_at ASC
+       LIMIT 1`,
+      [this.userId, now]
+    )
+    return (result.values?.[0] as Appointment) ?? null
+  }
+}

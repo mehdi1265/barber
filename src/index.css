@@ -1,0 +1,141 @@
+/* ── Design tokens ──────────────────────────────────────────────────────────── */
+:root {
+  /* Colors */
+  --color-primary:          #2563eb;
+  --color-primary-dark:     #1d4ed8;
+  --color-primary-light:    #dbeafe;
+
+  --color-bg:               #f8fafc;
+  --color-surface:          #ffffff;
+  --color-surface-raised:   #f1f5f9;
+
+  --color-text:             #0f172a;
+  --color-text-secondary:   #64748b;
+  --color-text-disabled:    #94a3b8;
+
+  --color-border:           #e2e8f0;
+  --color-border-focus:     #2563eb;
+
+  --color-success:          #16a34a;
+  --color-success-light:    #dcfce7;
+  --color-warning:          #d97706;
+  --color-warning-light:    #fef9c3;
+  --color-error:            #dc2626;
+  --color-error-light:      #fee2e2;
+  --color-info:             #0284c7;
+  --color-info-light:       #e0f2fe;
+
+  /* Spacing */
+  --space-1:  4px;
+  --space-2:  8px;
+  --space-3:  12px;
+  --space-4:  16px;
+  --space-5:  20px;
+  --space-6:  24px;
+  --space-8:  32px;
+  --space-10: 40px;
+  --space-12: 48px;
+
+  /* Typography */
+  --font-family:    'Vazirmatn', 'Tahoma', system-ui, sans-serif;
+  --font-size-xs:   0.7rem;
+  --font-size-sm:   0.85rem;
+  --font-size-base: 1rem;
+  --font-size-lg:   1.125rem;
+  --font-size-xl:   1.25rem;
+  --font-size-2xl:  1.5rem;
+  --font-size-3xl:  1.875rem;
+
+  --font-weight-normal:  400;
+  --font-weight-medium:  500;
+  --font-weight-semibold: 600;
+  --font-weight-bold:    700;
+
+  /* Radius */
+  --radius-sm:   6px;
+  --radius-md:   10px;
+  --radius-lg:   16px;
+  --radius-full: 9999px;
+
+  /* Shadows */
+  --shadow-sm: 0 1px 3px 0 rgb(0 0 0 / 0.08);
+  --shadow-md: 0 4px 12px 0 rgb(0 0 0 / 0.1);
+  --shadow-lg: 0 8px 24px 0 rgb(0 0 0 / 0.12);
+
+  /* Layout */
+  --bottom-nav-height: 64px;
+  --header-height:     56px;
+}
+
+/* ── Reset ──────────────────────────────────────────────────────────────────── */
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  font-size: 16px;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+body {
+  font-family: var(--font-family);
+  font-size: var(--font-size-base);
+  color: var(--color-text);
+  background: var(--color-bg);
+  direction: rtl;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden; /* Capacitor handles scroll within pages */
+}
+
+#root {
+  height: 100dvh;
+  overflow: hidden;
+}
+
+/* ── Typography ─────────────────────────────────────────────────────────────── */
+h1, h2, h3, h4, h5, h6 {
+  font-weight: var(--font-weight-semibold);
+  line-height: 1.3;
+}
+
+a {
+  color: var(--color-primary);
+  text-decoration: none;
+}
+
+button {
+  font-family: inherit;
+  cursor: pointer;
+}
+
+input, textarea, select {
+  font-family: inherit;
+  font-size: inherit;
+}
+
+/* ── Utility classes ─────────────────────────────────────────────────────────── */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border-width: 0;
+}
+
+.text-toman::after {
+  content: ' تومان';
+}
+
+/* Number display — always LTR even in RTL layout */
+.ltr {
+  direction: ltr;
+  display: inline-block;
+}

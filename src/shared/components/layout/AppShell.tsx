@@ -1,0 +1,61 @@
+/**
+ * AppShell — the main application shell with bottom navigation.
+ * All authenticated pages render inside this layout.
+ */
+
+import { Outlet, NavLink, useLocation } from 'react-router-dom'
+import { useSyncStore } from '@state/sync.store'
+import styles from './AppShell.module.css'
+
+const navItems = [
+  { to: '/dashboard', label: 'خانه', icon: '🏠' },
+  { to: '/appointments', label: 'تقویم', icon: '📅' },
+  { to: '/customers', label: 'مشتریان', icon: '👥' },
+  { to: '/color-formulas', label: 'رنگ', icon: '🎨' },
+  { to: '/finance', label: 'مالی', icon: '💰' },
+]
+
+export function AppShell() {
+  const { status, pendingCount } = useSyncStore()
+  const location = useLocation()
+
+  return (
+    <div className={styles.shell} dir="rtl">
+      {/* Top sync indicator */}
+      {status === 'syncing' && (
+        <div className={styles.syncBanner} role="status" aria-live="polite">
+          در حال همگام‌سازی…
+        </div>
+      )}
+      {status === 'offline' && pendingCount > 0 && (
+        <div className={styles.offlineBanner} role="status">
+          آفلاین — {pendingCount} تغییر در انتظار
+        </div>
+      )}
+
+      {/* Page content */}
+      <main className={styles.main}>
+        <Outlet />
+      </main>
+
+      {/* Bottom navigation */}
+      <nav className={styles.bottomNav} aria-label="پیمایش اصلی">
+        {navItems.map(item => (
+          <NavLink
+            key={item.to}
+            to={item.to}
+            className={({ isActive }) =>
+              [styles.navItem, isActive ? styles.navItemActive : ''].join(' ')
+            }
+            aria-current={location.pathname.startsWith(item.to) ? 'page' : undefined}
+          >
+            <span className={styles.navIcon} aria-hidden="true">
+              {item.icon}
+            </span>
+            <span className={styles.navLabel}>{item.label}</span>
+          </NavLink>
+        ))}
+      </nav>
+    </div>
+  )
+}

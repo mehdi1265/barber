@@ -1,0 +1,198 @@
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import {
+  AppointmentRepository,
+  type CreateAppointmentInput,
+  type UpdateAppointmentInput,
+} from '@database/repositories/appointment.repository'
+import { useAuthStore } from '@state/auth.store'
+import { getDatabase } from '@database/sqlite/database'
+import { scheduleAppointmentReminder, cancelAppointmentReminder } from '@services/notifications/local-notifications'
+import type { AppointmentStatus } from '@shared/types'
+
+export const appointmentKeys = {
+  day:    (uid: string, date: string)  => ['appointments', uid, 'day',  date]  as const,
+  week:   (uid: string, date: string)  => ['appointments', uid, 'week', date]  as const,
+  detail: (uid: string, id: string)    => ['appointments', uid, id]            as const,
+  next:   (uid: string)                => ['appointments', uid, 'next']        as const,
+  services: (uid: string, apptId: string) => ['appointment-services', uid, apptId] as const,
+}
+
+async function getRepo(userId: string) {
+  const db = await getDatabase()
+  return new AppointmentRepository(db, userId)
+}
+
+// ── Queries ───────────────────────────────────────────────────────────────────
+
+export function useAppointmentsByDay(dateISO: string) {
+  const userId = useAuthStore(s => s.userId)!
+  return useQuery({
+    queryKey: appointmentKeys.day(userId, dateISO),
+    queryFn: async () => {
+      const repo = await getRepo(userId)
+      return repo.findByDay(dateISO)
+    },
+    enabled: !!userId && !!dateISO,
+    staleTime: 1000 * 20,
+  })
+}
+
+export function useAppointmentsByWeek(mondayISO: string) {
+  const userId = useAuthStore(s => s.userId)!
+  return useQuery({
+    queryKey: appointmentKeys.week(userId, mondayISO),
+    queryFn: async () => {
+      const repo = await getRepo(userId)
+      return repo.findByWeek(mondayISO)
+    },
+    enabled: !!userId && !!mondayISO,
+    staleTime: 1000 * 20,
+  })
+}
+
+export function useAppointment(id: string) {
+  const userId = useAuthStore(s => s.userId)!
+  return useQuery({
+    queryKey: appointmentKeys.detail(userId, id),
+    queryFn: async () => {
+      const repo = await getRepo(userId)
+      return repo.findById(id)
+    },
+    enabled: !!userId && !!id,
+  })
+}
+
+export function useAppointmentServices(appointmentId: string) {
+  const userId = useAuthStore(s => s.userId)!
+  return useQuery({
+    queryKey: appointmentKeys.services(userId, appointmentId),
+    queryFn: async () => {
+      const repo = await getRepo(userId)
+      return repo.findServicesForAppointment(appointmentId)
+    },
+    enabled: !!userId && !!appointmentId,
+  })
+}
+
+export function useNextAppointment() {
+  const userId = useAuthStore(s => s.userId)!
+  return useQuery({
+    queryKey: appointmentKeys.next(userId),
+    queryFn: async () => {
+      const repo = await getRepo(userId)
+      return repo.findNext()
+    },
+    enabled: !!userId,
+    staleTime: 1000 * 60,
+    refetchInterval: 1000 * 60 * 5, // refresh every 5 min
+  })
+}
+
+// ── Mutations ─────────────────────────────────────────────────────────────────
+
+export function useCreateAppointment() {
+  const qc = useQueryClient()
+  const userId = useAuthStore(s => s.userId)!
+
+  return useMutation({
+    mutationFn: async (input: CreateAppointmentInput) => {
+      const repo = await getRepo(userId)
+
+      // Check conflict first
+      const endAt = new Date(input.start_at)
+      endAt.setMinutes(endAt.getMinutes() + input.duration_minutes)
+      const { hasConflict, conflictingAppointment } = await repo.checkConflict(
+        input.start_at,
+        endAt.toISOString()
+      )
+      if (hasConflict) {
+        throw new Error(
+          `تداخل با نوبت «${conflictingAppointment?.title ?? ''}» در همین ساعت`
+        )
+      }
+
+      const appt = await repo.create(input)
+      await scheduleAppointmentReminder(appt)
+      return appt
+    },
+    onSuccess: (appt) => {
+      const dateISO = appt.start_at.slice(0, 10)
+      void qc.invalidateQueries({ queryKey: appointmentKeys.day(userId, dateISO) })
+      void qc.invalidateQueries({ queryKey: appointmentKeys.next(userId) })
+    },
+  })
+}
+
+export function useUpdateAppointmentStatus() {
+  const qc = useQueryClient()
+  const userId = useAuthStore(s => s.userId)!
+
+  return useMutation({
+    mutationFn: async ({ id, status }: { id: string; status: AppointmentStatus }) => {
+      const repo = await getRepo(userId)
+      await repo.updateStatus(id, status)
+      if (status === 'cancelled') await cancelAppointmentReminder(id)
+      return { id, status }
+    },
+    onSuccess: ({ id }) => {
+      void qc.invalidateQueries({ queryKey: appointmentKeys.detail(userId, id) })
+      void qc.invalidateQueries({ queryKey: ['appointments', userId] })
+    },
+  })
+}
+
+export function useUpdateAppointment() {
+  const qc = useQueryClient()
+  const userId = useAuthStore(s => s.userId)!
+
+  return useMutation({
+    mutationFn: async ({ id, input }: { id: string; input: UpdateAppointmentInput }) => {
+      const repo = await getRepo(userId)
+
+      // Check conflict when time is changing
+      if (input.start_at || input.duration_minutes) {
+        const existing = await repo.findById(id)
+        if (existing) {
+          const newStart = input.start_at ?? existing.start_at
+          const newDuration = input.duration_minutes ?? existing.duration_minutes
+          const newEnd = new Date(newStart)
+          newEnd.setMinutes(newEnd.getMinutes() + newDuration)
+          const { hasConflict, conflictingAppointment } = await repo.checkConflict(
+            newStart,
+            newEnd.toISOString(),
+            id
+          )
+          if (hasConflict) {
+            throw new Error(
+              `تداخل با نوبت «${conflictingAppointment?.title ?? ''}» در همین ساعت`
+            )
+          }
+        }
+      }
+
+      return repo.update(id, input)
+    },
+    onSuccess: (updated) => {
+      if (!updated) return
+      void qc.invalidateQueries({ queryKey: appointmentKeys.detail(userId, updated.id) })
+      void qc.invalidateQueries({ queryKey: ['appointments', userId] })
+    },
+  })
+}
+
+export function useDeleteAppointment() {
+  const qc = useQueryClient()
+  const userId = useAuthStore(s => s.userId)!
+
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const repo = await getRepo(userId)
+      await repo.softDelete(id)
+      await cancelAppointmentReminder(id)
+      return id
+    },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['appointments', userId] })
+    },
+  })
+}

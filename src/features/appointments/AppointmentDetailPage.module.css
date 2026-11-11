@@ -1,0 +1,77 @@
+.page {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.content {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+.statusBanner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-md);
+  border: 1px solid;
+}
+.statusText { font-weight: var(--font-weight-semibold); font-size: var(--font-size-base); }
+
+.card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-4) var(--space-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.sectionTitle {
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.infoRow {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: var(--space-1) 0;
+  border-bottom: 1px solid var(--color-border);
+}
+.infoRow:last-child { border-bottom: none; }
+.infoLabel { font-size: var(--font-size-sm); color: var(--color-text-secondary); }
+.infoValue { font-size: var(--font-size-sm); font-weight: var(--font-weight-medium); }
+
+.serviceRow {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: var(--space-1) 0;
+  border-bottom: 1px dashed var(--color-border);
+}
+.serviceRow:last-child { border-bottom: none; }
+.serviceName  { font-size: var(--font-size-sm); color: var(--color-text); }
+.servicePrice { font-size: var(--font-size-sm); color: var(--color-success); font-weight: var(--font-weight-medium); }
+
+.totalRow { border-top: 1px solid var(--color-border) !important; border-bottom: none !important; padding-top: var(--space-2) !important; }
+.totalLabel  { font-weight: var(--font-weight-semibold); }
+.totalAmount { font-weight: var(--font-weight-bold); color: var(--color-success); font-size: var(--font-size-base); }
+
+.notes { color: var(--color-text); font-size: var(--font-size-sm); line-height: 1.6; white-space: pre-wrap; }
+
+.dangerActions { display: flex; gap: var(--space-3); }
+
+.notFound {
+  display: flex; flex-direction: column; align-items: center;
+  justify-content: center; height: 100%; gap: var(--space-4);
+  color: var(--color-text-secondary);
+}
