@@ -27,7 +27,7 @@ export default function RegisterPage() {
     if (error) {
       setServerError(error.message)
     } else {
-      navigate('/dashboard', { replace: true })
+      void navigate('/dashboard', { replace: true })
     }
   }
 
@@ -40,7 +40,13 @@ export default function RegisterPage() {
           <p className={styles.subtitle}>اطلاعاتت رو وارد کن تا شروع کنیم</p>
         </div>
 
-        <form onSubmit={handleSubmit(onSubmit)} noValidate className={styles.form}>
+        <form
+          onSubmit={e => {
+            void handleSubmit(onSubmit)(e)
+          }}
+          noValidate
+          className={styles.form}
+        >
           <FormField
             label="نام نمایشی"
             type="text"

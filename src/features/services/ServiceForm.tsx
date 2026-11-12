@@ -48,7 +48,9 @@ export function ServiceForm({
 
   return (
     <form
-      onSubmit={handleSubmit(data => onSubmit(data as unknown as ServiceFormData))}
+      onSubmit={e => {
+        void handleSubmit(data => onSubmit(data as unknown as ServiceFormData))(e)
+      }}
       noValidate
       className={styles.form}
     >

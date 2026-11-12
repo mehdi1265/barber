@@ -3,7 +3,7 @@
  */
 import { useFieldArray, useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
-import { useState } from 'react'
+import { useState, type ChangeEvent } from 'react'
 import { appointmentSchema, type AppointmentFormData } from './appointments.schemas'
 import { FormField } from '@shared/components/forms/FormField'
 import { Button } from '@shared/components/ui/Button'
@@ -104,7 +104,9 @@ export function AppointmentForm({
 
   return (
     <form
-      onSubmit={handleSubmit(data => onSubmit(data as unknown as AppointmentFormData))}
+      onSubmit={e => {
+        void handleSubmit(data => onSubmit(data as unknown as AppointmentFormData))(e)
+      }}
       noValidate
       className={styles.form}
     >
@@ -157,7 +159,7 @@ export function AppointmentForm({
             min={1}
             required
             {...register('duration_minutes', { onChange: updatePreview })}
-            error={errors.duration_minutes as never}
+            error={errors.duration_minutes}
           />
         </div>
         {previewEnd && (
@@ -190,7 +192,8 @@ export function AppointmentForm({
               <select
                 className={styles.select}
                 {...register(`services.${index}.service_id`, {
-                  onChange: e => handleServiceSelect(index, e.target.value),
+                  onChange: (e: ChangeEvent<HTMLSelectElement>) =>
+                    handleServiceSelect(index, e.target.value),
                 })}
               >
                 <option value="">— انتخاب خدمت —</option>
@@ -209,7 +212,7 @@ export function AppointmentForm({
             />
             {errors.services?.[index]?.service_name_snapshot && (
               <p className={styles.fieldError}>
-                {errors.services[index]!.service_name_snapshot!.message}
+                {errors.services[index].service_name_snapshot.message}
               </p>
             )}
 

@@ -12,7 +12,7 @@ function createMockDb() {
   }
 
   const db = {
-    query: vi.fn(async (sql: string, params: unknown[]) => {
+    query: vi.fn((sql: string, params: unknown[]) => {
       const s = sql.toLowerCase()
 
       if (s.includes('from appointments')) {
@@ -46,11 +46,11 @@ function createMockDb() {
 
         // conflict check: start_at < endAt AND end_at > startAt
         if (s.includes('start_at <') && s.includes('end_at >')) {
-          const [userId2, _excludeId, _endAt, _startAt] = params as string[]
+          const [userId2, excludeId] = params as string[]
           const rows = tables.appointments.filter(
             r => r.user_id === userId2 && !r.deleted_at &&
               r.status !== 'cancelled' && r.status !== 'no_show' &&
-              r.id !== _excludeId
+              r.id !== excludeId
           )
           return { values: rows }
         }
@@ -73,7 +73,7 @@ function createMockDb() {
       return { values: [] }
     }),
 
-    run: vi.fn(async (sql: string, params: unknown[]) => {
+    run: vi.fn((sql: string, params: unknown[]) => {
       const s = sql.toLowerCase()
 
       if (s.startsWith('insert into appointments')) {
@@ -92,7 +92,7 @@ function createMockDb() {
           const row = tables.appointments.find(r => r.id === id)
           if (row) { row.deleted_at = params[0]; row.status = 'cancelled' }
         } else if (s.includes('status =')) {
-          const [status, _updated, id] = params as string[]
+          const [status, , id] = params as string[]
           const row = tables.appointments.find(r => r.id === id)
           if (row) row.status = status
         }
@@ -124,7 +124,7 @@ describe('AppointmentRepository', () => {
 
   beforeEach(() => {
     db = createMockDb()
-    repo = new AppointmentRepository(db as unknown as SQLiteDBConnection, USER_ID)
+    repo = new AppointmentRepository(db, USER_ID)
   })
 
   describe('create', () => {

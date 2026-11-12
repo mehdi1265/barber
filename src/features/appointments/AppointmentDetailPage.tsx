@@ -59,7 +59,7 @@ export default function AppointmentDetailPage() {
 
   const handleDelete = async () => {
     await deleteMutation.mutateAsync(id!)
-    navigate('/appointments', { replace: true })
+    void navigate('/appointments', { replace: true })
   }
   void handleDelete // referenced via delete button added in Phase 4
 
@@ -69,7 +69,7 @@ export default function AppointmentDetailPage() {
     return (
       <div className={styles.notFound}>
         <p>نوبت پیدا نشد</p>
-        <Button variant="ghost" onClick={() => navigate('/appointments')}>بازگشت</Button>
+        <Button variant="ghost" onClick={() => { void navigate('/appointments') }}>بازگشت</Button>
       </div>
     )
   }
@@ -97,7 +97,7 @@ export default function AppointmentDetailPage() {
           {nextStatus && (
             <Button
               size="sm"
-              onClick={() => handleStatusChange(nextStatus)}
+              onClick={() => { void handleStatusChange(nextStatus) }}
               loading={updateStatusMutation.isPending}
             >
               {NEXT_STATUS_LABEL[appointment.status]}
@@ -183,7 +183,7 @@ export default function AppointmentDetailPage() {
         confirmLabel="بله، لغو شود"
         cancelLabel="نه"
         danger
-        onConfirm={handleCancel}
+        onConfirm={() => { void handleCancel() }}
         onCancel={() => setShowCancelConfirm(false)}
       />
 
@@ -195,7 +195,7 @@ export default function AppointmentDetailPage() {
         confirmLabel="بله"
         cancelLabel="انصراف"
         danger
-        onConfirm={handleNoShow}
+        onConfirm={() => { void handleNoShow() }}
         onCancel={() => setShowNoShowConfirm(false)}
       />
     </div>

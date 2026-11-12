@@ -17,7 +17,7 @@ export default function NotFoundPage() {
     >
       <h1 style={{ fontSize: '4rem', margin: 0 }}>۴۰۴</h1>
       <p>صفحه‌ای که دنبالش می‌گردی پیدا نشد.</p>
-      <button onClick={() => navigate('/', { replace: true })}>بازگشت به خانه</button>
+      <button onClick={() => { void navigate('/', { replace: true }) }}>بازگشت به خانه</button>
     </div>
   )
 }

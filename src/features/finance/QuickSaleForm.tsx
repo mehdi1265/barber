@@ -45,7 +45,9 @@ export function QuickSaleForm({ onSubmit, onCancel, error }: QuickSaleFormProps)
 
   return (
     <form
-      onSubmit={handleSubmit(d => onSubmit(d as unknown as QuickSaleFormData))}
+      onSubmit={e => {
+        void handleSubmit(d => onSubmit(d as unknown as QuickSaleFormData))(e)
+      }}
       noValidate
       className={styles.form}
     >
@@ -65,7 +67,7 @@ export function QuickSaleForm({ onSubmit, onCancel, error }: QuickSaleFormProps)
         required
         placeholder="مثلاً: 150000"
         {...register('amount')}
-        error={errors.amount as never}
+        error={errors.amount}
       />
 
       <div className={styles.field}>
@@ -87,7 +89,7 @@ export function QuickSaleForm({ onSubmit, onCancel, error }: QuickSaleFormProps)
         placeholder={watchAmount || 'مثلاً: 100000 (اختیاری)'}
         hint="خالی = کل مبلغ دریافت شده"
         {...register('paid_amount')}
-        error={errors.paid_amount as never}
+        error={errors.paid_amount}
       />
 
       <div className={styles.field}>

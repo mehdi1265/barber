@@ -85,7 +85,7 @@ export default function CustomersPage() {
             <li key={customer.id} className={styles.listItem}>
               <button
                 className={styles.customerBtn}
-                onClick={() => navigate(`/customers/${customer.id}`)}
+                onClick={() => { void navigate(`/customers/${customer.id}`) }}
                 aria-label={`مشاهده پرونده ${customer.name}`}
               >
                 {/* Avatar */}

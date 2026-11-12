@@ -11,7 +11,7 @@ function createMockDb() {
   }
 
   const db = {
-    query: vi.fn(async (sql: string, params: unknown[]) => {
+    query: vi.fn((sql: string, params: unknown[]) => {
       const s = sql.toLowerCase()
 
       if (s.includes('from services')) {
@@ -42,7 +42,7 @@ function createMockDb() {
       return { values: [] }
     }),
 
-    run: vi.fn(async (sql: string, params: unknown[]) => {
+    run: vi.fn((sql: string, params: unknown[]) => {
       const s = sql.toLowerCase()
 
       if (s.startsWith('insert into services')) {
@@ -62,11 +62,11 @@ function createMockDb() {
           const [name, default_price, suggested_duration_minutes, is_active, updated_at, id] = params
           const row = tables.services.find(r => r.id === id)
           if (row) {
-            row.name = name as string
-            row.default_price = default_price as number | null
-            row.suggested_duration_minutes = suggested_duration_minutes as number | null
+            row.name = name
+            row.default_price = default_price
+            row.suggested_duration_minutes = suggested_duration_minutes
             row.is_active = !!is_active
-            row.updated_at = updated_at as string
+            row.updated_at = updated_at
           }
         }
       }
@@ -90,7 +90,7 @@ describe('ServiceRepository', () => {
 
   beforeEach(() => {
     db = createMockDb()
-    repo = new ServiceRepository(db as unknown as SQLiteDBConnection, USER_ID)
+    repo = new ServiceRepository(db, USER_ID)
   })
 
   describe('create', () => {

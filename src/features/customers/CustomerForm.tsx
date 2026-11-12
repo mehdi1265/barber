@@ -33,7 +33,13 @@ export function CustomerForm({
   })
 
   return (
-    <form onSubmit={handleSubmit(onSubmit)} noValidate className={styles.form}>
+    <form
+      onSubmit={e => {
+        void handleSubmit(onSubmit)(e)
+      }}
+      noValidate
+      className={styles.form}
+    >
       <FormField
         label="نام"
         type="text"

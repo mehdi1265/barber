@@ -31,7 +31,7 @@ export default function CustomerDetailPage() {
 
   const handleDelete = async () => {
     await deleteMutation.mutateAsync(id!)
-    navigate('/customers', { replace: true })
+    void navigate('/customers', { replace: true })
   }
 
   if (isLoading) return <LoadingScreen message="در حال بارگذاری پرونده…" />
@@ -40,7 +40,7 @@ export default function CustomerDetailPage() {
     return (
       <div className={styles.notFound}>
         <p>مشتری پیدا نشد</p>
-        <Button variant="ghost" onClick={() => navigate('/customers')}>
+        <Button variant="ghost" onClick={() => { void navigate('/customers') }}>
           بازگشت
         </Button>
       </div>
@@ -141,7 +141,7 @@ export default function CustomerDetailPage() {
         confirmLabel="بله، حذف شود"
         cancelLabel="انصراف"
         danger
-        onConfirm={handleDelete}
+        onConfirm={() => { void handleDelete() }}
         onCancel={() => setShowDeleteConfirm(false)}
       />
     </div>

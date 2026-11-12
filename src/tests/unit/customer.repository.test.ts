@@ -18,7 +18,7 @@ function createMockDb() {
   }
 
   const db = {
-    query: vi.fn(async (sql: string, params: unknown[]) => {
+    query: vi.fn((sql: string, params: unknown[]) => {
       const sqlLower = sql.toLowerCase().trim()
 
       // COUNT(*)
@@ -53,7 +53,7 @@ function createMockDb() {
               r.user_id === userId &&
               r.deleted_at === null &&
               (String(r.name).includes(likeParam) ||
-                String(r.phone ?? '').includes(likeParam))
+                String((r.phone as string | null) ?? '').includes(likeParam))
           )
           return { values: rows }
         }
@@ -69,7 +69,7 @@ function createMockDb() {
       return { values: [] }
     }),
 
-    run: vi.fn(async (sql: string, params: unknown[]) => {
+    run: vi.fn((sql: string, params: unknown[]) => {
       const sqlLower = sql.toLowerCase().trim()
 
       if (sqlLower.startsWith('insert into customers')) {
@@ -85,18 +85,18 @@ function createMockDb() {
           const id = params[2] as string
           const row = tables.customers.find(r => r.id === id)
           if (row) {
-            row.deleted_at = params[0] as string
-            row.updated_at = params[1] as string
+            row.deleted_at = params[0]
+            row.updated_at = params[1]
           }
         } else {
           // update
           const [name, phone, notes, updated_at, id] = params
           const row = tables.customers.find(r => r.id === id)
           if (row) {
-            row.name = name as string
-            row.phone = phone as string | null
-            row.notes = notes as string | null
-            row.updated_at = updated_at as string
+            row.name = name
+            row.phone = phone
+            row.notes = notes
+            row.updated_at = updated_at
           }
         }
       }
@@ -122,7 +122,7 @@ describe('CustomerRepository', () => {
 
   beforeEach(() => {
     db = createMockDb()
-    repo = new CustomerRepository(db as unknown as SQLiteDBConnection, USER_ID)
+    repo = new CustomerRepository(db, USER_ID)
   })
 
   describe('create', () => {

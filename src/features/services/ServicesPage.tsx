@@ -137,7 +137,7 @@ export default function ServicesPage() {
         confirmLabel="غیرفعال شود"
         cancelLabel="انصراف"
         danger
-        onConfirm={handleDeactivate}
+        onConfirm={() => { void handleDeactivate() }}
         onCancel={() => setDeactivatingId(null)}
       />
     </div>

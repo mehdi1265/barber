@@ -27,7 +27,7 @@ export default function LoginPage() {
     if (error) {
       setServerError(error.message)
     } else {
-      navigate('/dashboard', { replace: true })
+      void navigate('/dashboard', { replace: true })
     }
   }
 
@@ -41,7 +41,13 @@ export default function LoginPage() {
           <p className={styles.subtitle}>خوش برگشتی! اطلاعاتت رو وارد کن</p>
         </div>
 
-        <form onSubmit={handleSubmit(onSubmit)} noValidate className={styles.form}>
+        <form
+          onSubmit={e => {
+            void handleSubmit(onSubmit)(e)
+          }}
+          noValidate
+          className={styles.form}
+        >
           <FormField
             label="ایمیل"
             type="email"

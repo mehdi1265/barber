@@ -175,7 +175,7 @@ export default function AppointmentsPage() {
                 <li key={appt.id} className={styles.apptItem}>
                   <button
                     className={styles.apptCard}
-                    onClick={() => navigate(`/appointments/${appt.id}`)}
+                    onClick={() => { void navigate(`/appointments/${appt.id}`) }}
                     aria-label={`نوبت ${appt.title}`}
                   >
                     {/* Time column */}

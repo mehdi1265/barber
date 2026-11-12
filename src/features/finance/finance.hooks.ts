@@ -4,7 +4,6 @@ import { VisitRepository, type CreateVisitInput, type AddPaymentInput } from '@d
 import { ExpenseRepository, type CreateExpenseInput } from '@database/repositories/expense.repository'
 import { useAuthStore } from '@state/auth.store'
 import { getDatabase } from '@database/sqlite/database'
-import { todayISO } from '@shared/utils/jalali'
 
 // ── Query keys ────────────────────────────────────────────────────────────────
 

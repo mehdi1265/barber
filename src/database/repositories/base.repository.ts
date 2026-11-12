@@ -7,6 +7,7 @@ import type { SQLiteDBConnection } from '@capacitor-community/sqlite'
 import type { BaseEntity, UUID } from '@shared/types'
 import { generateUUID, nowISO } from '@shared/utils/helpers'
 import { addToOutbox } from '@sync/outbox/outbox.repository'
+import { useAuthStore } from '@state/auth.store'
 
 export abstract class BaseRepository<T extends BaseEntity> {
   constructor(
@@ -15,8 +16,6 @@ export abstract class BaseRepository<T extends BaseEntity> {
   ) {}
 
   protected get userId(): string {
-    // Lazily imported to avoid circular deps — resolved at call time
-    const { useAuthStore } = require('@state/auth.store') as typeof import('@state/auth.store')
     const uid = useAuthStore.getState().userId
     if (!uid) throw new Error('Not authenticated')
     return uid
