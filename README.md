@@ -1,33 +1,22 @@
-# React + TypeScript + Vite
+# Barber App
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+اپلیکیشن موبایل برای مدیریت شخصی کارهای روزانه آرایشگر: نوبت‌ها، مشتریان، خدمات، فرمول رنگ، پرداخت‌ها و هزینه‌ها.
 
-Currently, two official plugins are available:
+**محدوده محصول:** هر آرایشگر حساب مستقل خودش را دارد. نسخه فعلی مدیریت سالن، کارکنان، کمیسیون یا گزارش آرایشگرهای دیگر را شامل نمی‌شود.
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+## ترتیب مطالعه
+1. `docs/01-project-brief.md` معرفی محصول
+2. `docs/02-prd.md` نیازمندی‌ها و رفتار امکانات
+3. `docs/03-user-flow.md` مسیرهای استفاده
+4. `docs/04-wireframes.md` چیدمان صفحه‌ها
+5. `docs/05-technical-architecture.md` معماری فنی
+6. `docs/06-database-api-design.md` دیتابیس و ارتباط با سرور
+7. `docs/07-development-roadmap.md` مراحل توسعه
+8. `docs/08-ai-agent-specification.md` مشخصات AI
+9. `docs/09-open-questions.md` موارد باز
+10. `docs/10-decisions-log.md` تصمیم‌های قطعی
 
-## React Compiler
+## دستور شروع برای ایجنت برنامه‌نویس
+تمام اسناد را پیش از کدنویسی بخوان. تصمیم‌های `10-decisions-log.md` را قطعی در نظر بگیر و موارد `09-open-questions.md` را با فرض‌های موقت آن مدیریت کن. ابتدا کد و وضعیت مخزن را بررسی کن؛ سپس طبق Roadmap مرحله‌به‌مرحله بساز. از بازنویسی بی‌دلیل کد سالم خودداری کن. بعد از هر مرحله تست اجرا کن و نتیجه، فایل‌های تغییرکرده و مشکلات باقی‌مانده را گزارش بده. اگر ابهام روی امنیت، صحت مالی یا ساختار داده اثر دارد، قبل از تصمیم‌گیری سؤال بپرس.
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the Oxlint configuration
-
-If you are developing a production application, we recommend enabling type-aware lint rules by installing `oxlint-tsgolint` and editing `.oxlintrc.json`:
-
-```json
-{
-  "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": ["react", "typescript", "oxc"],
-  "options": {
-    "typeAware": true
-  },
-  "rules": {
-    "react/rules-of-hooks": "error",
-    "react/only-export-components": ["warn", { "allowConstantExport": true }]
-  }
-}
-```
-
-See the [Oxlint rules documentation](https://oxc.rs/docs/guide/usage/linter/rules) for the full list of rules and categories.
-# barber
+**اصل معماری:** برنامه Offline-first است. اطلاعات ابتدا در SQLite گوشی ذخیره می‌شود و پس از اتصال اینترنت با Supabase همگام می‌شود.
