@@ -1,0 +1,203 @@
+# REQUIREMENTS MATRIX — Barber App
+
+> **Purpose:** single source of truth for *what the product must do* and *how much of it exists*.
+> **Baseline:** `877ebde`. **Audit date:** 2026-11-12.
+> **Rule:** every row is derived from `docs/` (01-project-brief, 02-prd, 03-user-flow, 04-wireframes, 05-technical-architecture, 06-database-api-design, 07-development-roadmap, 08-ai-agent-specification, 09-open-questions, 10-decisions-log) or from already-agreed decisions. No new requirement was invented.
+
+---
+
+## Legend
+
+**Status**
+
+| Value | Meaning |
+|---|---|
+| **Complete** | Implemented for the stated scope and backed by unit tests or direct code evidence. Runtime may still be blocked at platform level (see BUG-01); that is tracked as a bug, not as missing feature work. |
+| **Partially implemented** | Code exists for part of the requirement; usable only after the listed gaps are closed. |
+| **Not implemented** | No user-facing implementation; at most schema/types/placeholders. |
+| **Needs verification** | Implementation exists but cannot be confirmed in this environment (runtime, device, or live backend required). |
+| **Blocked** | Cannot be completed or verified until a P0 prerequisite is resolved. |
+
+**Priority:** `P0` = required for the first usable MVP / data safety; `P1` = required for MVP completeness; `P2` = post-MVP / polish.
+
+**Source shorthand:** `B` brief · `P` PRD · `U` user flow · `W` wireframes · `A` architecture · `D` database/API design · `R` roadmap · `AI` agent spec · `Q` open questions · `L` decisions log. Section numbers refer to the corresponding file in `docs/`.
+
+**Summary:** 48 requirements — **8 Complete, 25 Partially implemented, 13 Not implemented, 1 Needs verification, 1 Blocked.**
+
+---
+
+## 1. Account, session, and isolation (R-01…R-07)
+
+| ID | Requirement | Src | Pri | Status | Evidence (files) | Missing work | Deps | Acceptance criteria |
+|---|---|---|---|---|---|---|---|---|
+| R-01 | Register a new owner account with email + password; Persian validation messages; create local profile row | P §3, U §1 | P0 | Partially implemented | `features/auth/RegisterPage.tsx`, `auth.usecases.ts:20-68`, `auth.schemas.ts`, `profile.repository.ts` | Email-confirmation redirect handling; profile creation failure leaves no retry; no usecase tests | R-06 | Registering a fresh email lands on `/dashboard` (or a documented "check your email" screen); a `profiles` row exists locally; invalid input shows Persian Zod messages |
+| R-02 | Log in with email + password; persist session across app restarts | P §3, U §1 | P0 | Needs verification | `LoginPage.tsx`, `auth.usecases.ts:5-18`, `bootstrap.ts:25-47`, `state/auth.store.ts` | Cannot execute because app boot is blocked (BUG-01); refresh-failure path untested | R-48 | After login, `/dashboard` renders; killing and reopening the app keeps the user signed in; expired token is refreshed or user is redirected to `/login` |
+| R-03 | Warn before logout if unsynced changes exist; clear session; never lose queued work silently | P §7, U §7, L | P1 | Partially implemented | `auth.usecases.ts:72-90`, `AppShell.tsx` (no logout control), `sync.store.ts` | No logout UI; warning is `console.warn` only; outbox count never displayed; no confirm dialog | R-04, R-38 | Logout button asks for confirmation when pending outbox > 0; on confirm the session clears and queued rows remain for the same user |
+| R-04 | Logout | U §7 | P1 | Partially implemented | `auth.usecases.ts:72-90` | Not wired to any UI; no cache/database reset on account switch | R-02 | A visible action signs the user out and returns to `/login` |
+| R-05 | Password reset via email link | P §3, U §2 | P1 | Not implemented | No page, no route, no `resetPasswordForEmail` call | Reset-request screen, `/reset-password` route, token handling, translations | R-02 | "Forgot password" sends a Supabase email; the link opens a screen that sets a new password and allows login |
+| R-06 | Ensure a local `profiles` row exists for every authenticated user (including users created before the profile table, or whose registration profile write failed) | L §2, D §2 | P1 | Not implemented | `auth.usecases.ts:51-66` creates profile **only** on register | Idempotent `ensureProfile()` on bootstrap/login; repair path | R-01 | Any logged-in user has exactly one local `profiles` row; deleting it and restarting recreates it without duplicating on the server |
+| R-07 | Strict per-owner data isolation, locally and in Postgres | P §9, D §3 | P0 | Partially implemented | `*.repository.ts` filter by `user_id`; `supabase/migrations/001_initial_schema.sql` (RLS on all 12 tables) | RLS never executed against a live DB; no integration test proving cross-user access fails; storage policies untested | R-02 | User B cannot read/update/delete User A rows via supabase-js, and local queries never return another `user_id` |
+
+---
+
+## 2. Dashboard (R-08…R-10)
+
+| ID | Requirement | Src | Pri | Status | Evidence (files) | Missing work | Deps | Acceptance criteria |
+|---|---|---|---|---|---|---|---|---|
+| R-08 | Dashboard shows today's counts and money: appointments, completed visits, received, expenses, net, total debt | P §4, W §1 | P1 | Not implemented | `features/dashboard/DashboardPage.tsx` is a 3-line placeholder; data exists via `appointment.repository.ts:261-271`, `finance.hooks.ts` | Whole page; summary cards; loading/empty states | R-28, R-30, R-13 | Opening `/dashboard` shows the six values for the current **local** day and matches the finance page for the same day |
+| R-09 | Show the next upcoming appointment | P §4, W §1 | P1 | Not implemented | `appointment.repository.ts:273` (`findNext`), `appointments.hooks.ts:77` (`useNextAppointment`) | Card UI; empty state | R-13 | With a future appointment, the card shows customer, time, and service; with none, a Persian empty state appears |
+| R-10 | Show sync status and pending count in the shell | P §4, A §7 | P2 | Partially implemented | `AppShell.tsx:19-39` reads `sync.store.ts`; store is **never** mutated anywhere | Sync engine to drive the store; error/offline states | R-39 | Banner reflects idle/syncing/error; pending count matches `sync_outbox` pending rows |
+
+---
+
+## 3. Appointments (R-11…R-19)
+
+| ID | Requirement | Src | Pri | Status | Evidence (files) | Missing work | Deps | Acceptance criteria |
+|---|---|---|---|---|---|---|---|---|
+| R-11 | Create an appointment with customer, title, date/time, duration, multiple services (price + duration snapshot), notes | P §5, U §3, D §2 | P0 | Partially implemented | `AppointmentForm.tsx`, `appointments.hooks.ts:93`, `appointment.repository.ts:131-186` | No transaction (BUG-06); child rows not queued (BUG-07); no edit mode wiring; no duplicate-submit guard | R-03, R-12 | Saving creates one `appointments` row + N `appointment_services` rows atomically, with `end_at = start_at + duration`; double-tap does not duplicate |
+| R-12 | Prevent overlapping appointments for the same owner; touching endpoints are allowed; cancelled appointments do not block | P §5, D §2 | P0 | Complete | `appointment.repository.ts:102-129`; `helpers.appointmentsOverlap`; tests `appointment.repository.test.ts` (overlap, adjacency, cancelled) | Add DB-level guard/unique strategy or transactional re-check to close race conditions | — | Creating an overlapping appointment returns a Persian conflict message and writes nothing; adjacent bookings succeed |
+| R-13 | Day and week agenda views with Jalali display and date navigation | P §5, W §2, U §3 | P0 | Partially implemented | `AppointmentsPage.tsx` (day/week toggle, `todayISO`, week helpers); `jalali.ts` | Day boundaries use UTC (BUG-05); date input is Gregorian (`<input type="date">`); no month view | R-11 | Agenda for the selected local day shows exactly that day's appointments, across DST and midnight boundaries; dates render in Jalali |
+| R-14 | Appointment detail with service list, totals, status, and actions | P §5, W §3 | P0 | Partially implemented | `AppointmentDetailPage.tsx`, `appointments.hooks.ts:53-91` | No edit entry point; delete suppressed (`:64`); total not shown if services missing | R-11 | Detail shows customer, Jalali date/time, services with prices, total, status; actions match the allowed transitions |
+| R-15 | Edit an existing appointment (reschedule, change services) | P §5, U §4 | P1 | Partially implemented | `appointment.repository.ts:202-243`, `appointments.hooks.ts:144` | Repository updates **only** the parent row; services cannot be replaced; no UI | R-11, R-12 | Editing from detail updates the appointment and its service lines atomically; conflicts are re-checked |
+| R-16 | Cancel and delete an appointment (soft delete + outbox tombstone) | P §5, U §4 | P1 | Partially implemented | `appointment.repository.ts:188-200` (status), `:245-259` (soft delete); `appointments.hooks.ts:183`; `handleDelete` suppressed in `AppointmentDetailPage.tsx:60-64` | Delete button not rendered; cancel/no-show confirmations exist | R-14 | Cancel sets `status='cancelled'`; delete sets `deleted_at` and removes it from lists; both enqueue exactly one outbox row |
+| R-17 | Status lifecycle: reserved → confirmed → completed, plus cancelled / no_show | P §5, W §3 | P0 | Complete | `AppointmentDetailPage.tsx:18-32`, `NEXT_STATUS` map; `appointment.repository.ts:188-200` | Not runtime-verified (BUG-01) | — | Illegal transitions are impossible in the UI; each change persists and appears in lists |
+| R-18 | Walk-in / direct visit without an appointment | P §6, U §5 | P1 | Not implemented | `visit.repository.ts:107-163` + `Visit` tables exist | Visit creation UI (customer, services, payment), routing, hook | R-26, R-31 | A walk-in can be recorded in one flow, appears in that day's visits, and produces a payment/debt record |
+| R-19 | Local notification reminder before an appointment | P §5, U §3 | P1 | Partially implemented | `appointments.hooks.ts:115,134,191` schedule on create and cancel on cancel/delete; `local-notifications.ts:27-73` | `requestNotificationPermission` has no caller; editing time does not reschedule; completed/no_show do not cancel; no Android channel config | R-11, R-15 | Booking asks permission once, schedules one reminder at the chosen lead time, and editing/cancelling replaces/cancels it |
+
+---
+
+## 4. Customers (R-20…R-22)
+
+| ID | Requirement | Src | Pri | Status | Evidence (files) | Missing work | Deps | Acceptance criteria |
+|---|---|---|---|---|---|---|---|---|
+| R-20 | Customer create/edit/soft-delete with name, phone, notes | P §5, U §3, D §2 | P0 | Complete | `CustomersPage.tsx`, `CustomerDetailPage.tsx`, `CustomerForm.tsx`, `customer.repository.ts`; 11 repo + 6 schema tests | None for scope | R-02 | CRUD works offline; deleted customers disappear from lists but remain for history |
+| R-21 | Search customers by name or phone, Persian/Arabic digit tolerant | P §5, W §2 | P1 | Complete | `customer.repository.ts:38-48` (`LIKE`), `CustomersPage` + `useCustomerSearch` | Index is on `(user_id, name)` / `(user_id, phone)`; `%term%` cannot use them at scale | R-20 | Typing "۰۹۱۲" finds a customer stored as "0912…" within 300 ms for ≤5,000 customers |
+| R-22 | Customer detail shows appointment and visit history | W §3, P §5 | P1 | Partially implemented | `CustomerDetailPage.tsx:94` explicit placeholder | History queries + UI (appointments, visits, formulas, photos) | R-13, R-18 | Detail lists past/upcoming appointments and visits with Jalali dates and amounts |
+
+---
+
+## 5. Services (R-23…R-25)
+
+| ID | Requirement | Src | Pri | Status | Evidence (files) | Missing work | Deps | Acceptance criteria |
+|---|---|---|---|---|---|---|---|---|
+| R-23 | Service create/edit/deactivate with price and suggested duration | P §5, U §6, D §2 | P0 | Complete | `ServicesPage.tsx`, `ServiceForm.tsx`, `service.repository.ts`; 8 repo + schema tests | None for scope | R-02 | Active services appear in the appointment form; deactivated services disappear from new bookings but remain in history |
+| R-24 | Appointment lines snapshot service name/price/duration so later price edits do not rewrite history | D §2 | P0 | Complete | `appointment_services` schema (`001_initial.sql:69-80`); insert at `appointment.repository.ts:166-177`; `service_name_snapshot`, `price`, `duration_minutes` | — | R-11 | Changing a service price does not alter any existing appointment or visit amount |
+| R-25 | Service management is reachable from Settings | W §6, U §6 | P2 | Partially implemented | Route `/settings/services` exists (`router.tsx:158`); `SettingsPage.tsx` is a placeholder with no link | Settings page + link | R-23 | Tapping "Services" in Settings opens the management page |
+
+---
+
+## 6. Finance (R-26…R-32)
+
+| ID | Requirement | Src | Pri | Status | Evidence (files) | Missing work | Deps | Acceptance criteria |
+|---|---|---|---|---|---|---|---|---|
+| R-26 | Record payments against a visit (cash/card/other, partial allowed) | P §6, D §2 | P1 | Partially implemented | `visit.repository.ts:165-198`, `finance.hooks.ts` (`useAddPayment`) | Payment UI; over-payment guard; receipt editing | R-18 | A visit accepts multiple payments; paid total and remaining debt update immediately |
+| R-27 | Record/edit/delete expenses with category and date | P §6, D §2 | P1 | Partially implemented | `expense.repository.ts:45-123`, `finance.hooks.ts` | Expense UI; category list; validation | R-48 | An expense appears in the day report and net calculation, and survives restart |
+| R-28 | Daily report: service total, received, expenses, net, debt for a **local** day | P §6, W §4 | P1 | Partially implemented | `finance.calculator.ts:104-127`, `finance.repository.ts:80-103`, `finance.hooks.ts:38` | Finance page UI; local-day fix (BUG-05); empty state | R-26, R-27 | Report totals equal the sum of visible visits/payments/expenses for that local day |
+| R-29 | Weekly and monthly summary with date range | P §6, W §4 | P1 | Partially implemented | `finance.calculator.ts:33-57` (`weekRange`, `monthRange`), `getSummary` (`finance.repository.ts:105-141`) | UI; Jalali month boundaries; range picker | R-28 | Selecting a Jalali month shows the same totals as the per-day reports summed |
+| R-30 | Outstanding debt per customer | P §6, W §4 | P1 | Partially implemented | `finance.repository.ts:124-142` (`getTotalOpenDebt`), `finance.hooks.ts:63` (`useTotalOpenDebt`) | Debt list UI; per-customer breakdown | R-26 | Total debt equals unpaid balances across visits and is attributable per customer |
+| R-31 | One-step quick sale: create visit + service lines + payment | P §6, U §5 | P1 | Partially implemented | `QuickSaleForm.tsx` (dead: not routed, imports missing `./FinanceForm.module.css`), `visit.repository.ts:107-198` | Repo use-case, routing, missing CSS module, transaction | R-18, R-26 | One form records a paid walk-in and returns to the day list with correct totals |
+| R-32 | Money encoded consistently as integer Toman × 100, displayed as Toman with Persian separators | D §4, L §5 | P0 | Complete | `helpers.ts` (`formatToman`, `tomanToStorage`, `storageToToman`), tests in `helpers.test.ts`; `service.repository.ts` storage ×100 test | Naming (`amountCents`) is misleading but behaviour is correct; no rounding policy for discounts | — | Storing 50,000 Toman yields `5000000`; display returns "۵۰٬۰۰۰ تومان"; no float drift |
+
+---
+
+## 7. Color formulas (R-33…R-34)
+
+| ID | Requirement | Src | Pri | Status | Evidence (files) | Missing work | Deps | Acceptance criteria |
+|---|---|---|---|---|---|---|---|---|
+| R-33 | Create/edit color formulas for a customer, with multiple items (brand, code, amount, ratio) and notes | P §7, D §2 | P1 | Not implemented | Tables `color_formulas`, `color_formula_items`; types only; `ColorFormulasPage.tsx` / `ColorFormulaDetailPage.tsx` are placeholders | Repository, hooks, forms, list/detail UI, outbox for items | R-03, R-22 | A formula with 3 items saves offline, reopens correctly, and appears in the customer's history |
+| R-34 | Reuse a previous formula as a template for a new one | P §7, U §6 | P2 | Not implemented | none | Duplicate/clone flow | R-33 | "Duplicate" prefills a new formula without modifying the original |
+
+---
+
+## 8. Photos (R-35)
+
+| ID | Requirement | Src | Pri | Status | Evidence (files) | Missing work | Deps | Acceptance criteria |
+|---|---|---|---|---|---|---|---|---|
+| R-35 | Capture/attach before/after photos, store bytes in Supabase Storage, keep local path when offline | P §7, D §5 | P1 | Not implemented | `customer_photos` table + types; storage bucket/policies SQL (`supabase/migrations/001_initial_schema.sql:248-266`); **no** `supabase.storage` calls in `src/` | Camera integration, upload queue, local file handling, gallery UI, bucket provisioning | R-39, R-40 | A photo taken offline is visible immediately, uploads after reconnect, and is retrievable on a second device |
+
+---
+
+## 9. Notifications (R-36)
+
+| ID | Requirement | Src | Pri | Status | Evidence (files) | Missing work | Deps | Acceptance criteria |
+|---|---|---|---|---|---|---|---|---|
+| R-36 | Request notification permission and schedule/cancel local reminders reliably | P §5, A §8 | P1 | Partially implemented | `local-notifications.ts:17-73`; call sites in `appointments.hooks.ts` | `requestNotificationPermission` has no caller; no channel config; edit does not reschedule (cancel/delete do); errors swallowed; no test | R-19 | On Android 13+, permission is requested contextually; reminders fire with the app closed; cancelling removes the notification |
+
+---
+
+## 10. Search (R-37)
+
+| ID | Requirement | Src | Pri | Status | Evidence (files) | Missing work | Deps | Acceptance criteria |
+|---|---|---|---|---|---|---|---|---|
+| R-37 | Global search across customers, services, appointments, formulas | P §8, W §5 | P2 | Partially implemented | `customer.repository.ts:38`, `service.repository.ts:39`, `CustomersPage` search bar; `matchesSearch` helper | Appointments/formulas queries; unified results UI; indexing | R-33 | One query returns grouped results from all four domains, tolerant of Persian digits |
+
+---
+
+## 11. Synchronization and recovery (R-38…R-41)
+
+| ID | Requirement | Src | Pri | Status | Evidence (files) | Missing work | Deps | Acceptance criteria |
+|---|---|---|---|---|---|---|---|---|
+| R-38 | Capture every local write in `sync_outbox` with entity, operation, payload, timestamp, status | A §6, D §3 | P0 | Partially implemented | `outbox.repository.ts:1-70`; writes in customer/service/appointment/visit/expense repos | `updated_at` column mismatch (BUG-04); child rows never enqueued (BUG-07); update/delete payloads incomplete for server upsert | R-11 | Any create/update/delete of a synced entity produces exactly one correct outbox row, including child tables |
+| R-39 | Push outbox to Supabase with retry/backoff, idempotency, and status updates | A §6, D §3 | P0 | Not implemented | `getPendingOutbox` exists but has **zero** callers; no `supabase.from()` anywhere | Worker (foreground + background), mapping to PG schema, conflict handling, `markOutbox*` correctness, UI triggers | R-38 | With network, pending rows drain to `done`; a forced 500 leaves rows `failed` with `last_error` and they retry later; no duplicates on retry |
+| R-40 | Pull/restore all owner data on a new device | P §10, A §6 | P0 | Not implemented | No `select` calls; no `sync_state` table locally | Initial full pull, incremental cursor, merge rules, progress UI | R-39 | Logging in on a wiped device restores customers, services, appointments, visits, payments, expenses, formulas, and photos |
+| R-41 | Conflict policy and manual "sync now" control | A §6, L §6 | P1 | Not implemented | none | Documented last-write-wins or field-merge rule, tombstones, manual trigger, error surface | R-39, R-40 | Concurrent edits on two devices converge deterministically; the user can trigger and observe a sync |
+
+---
+
+## 12. Platform, security, and quality (R-42…R-48)
+
+| ID | Requirement | Src | Pri | Status | Evidence (files) | Missing work | Deps | Acceptance criteria |
+|---|---|---|---|---|---|---|---|---|
+| R-42 | Offline-first: reads and writes work with no network | B §2, A §2 | P0 | Partially implemented | All repositories are SQLite-only; no network in the write path | Login/session must tolerate offline after first login; sync state UI | R-02, R-39 | Airplane mode: existing user can open the app, view and edit data; changes queue and later sync |
+| R-43 | Local database encrypted (SQLCipher) with a device-bound key | A §9, L §7 | P1 | Partially implemented | `database.ts:24-46` (`getPassphrase`), `:64-73` (encryption flags + `PRAGMA key`) | Correct order/API (`setEncryptionSecret` before open); web strategy; key in secure storage instead of `localStorage` | R-48 | DB file is unreadable without the app; key survives restart and is not in plain `localStorage` on device |
+| R-44 | Web build persists data across reload | A §2 | P2 | Not implemented | `jeep-sqlite` used in-memory; no `saveToStore`/`loadFromStore` call | Persist/export store on write, restore on boot | R-48 | Creating a customer in the browser and reloading keeps it |
+| R-45 | No secrets or credentials committed | B §9, L §8 | P0 | Complete | `.env.example` uses placeholders; `.gitignore` excludes `.env*`; no keys in source or git history | Add secret scanning to CI | — | `git grep` for key patterns finds no real credentials; `.env` is never tracked |
+| R-46 | Persian RTL UI with Jalali dates and Persian digits | B §4, W §1, L §9 | P1 | Partially implemented | `index.css` RTL, `AppShell` Persian labels, `jalali.ts` display helpers | Date **inputs** are Gregorian `<input type="date">`; mixed Latin digits in places; no i18n layer | R-13 | Every displayed and entered date is Jalali; layout is RTL; numbers use Persian digits where specified |
+| R-47 | Quality gates: type-check, lint, format, tests, build, CI | A §10, R §7 | P0 | Not implemented | `package.json` scripts are broken/vacuous; no `.github/workflows`; see PROJECT_STATUS §2 | T01 (see backlog) | — | A clean clone passes type-check, lint, format check, tests, build in CI on every push |
+| R-48 | App builds and runs on web (dev) and Android | B §1, R §1 | P0 | Blocked | Boot blockers BUG-01/BUG-02; no `android/` project; build fails | T01 + T02 + `npx cap add android` | R-47 | `npm run dev` shows login; `npm run build && npx cap sync android` installs and launches on a device/emulator |
+
+---
+
+## Appendix — Persian UI vocabulary (verbatim from source)
+
+The product is Persian-first. These strings are quoted exactly so the next agent preserves tone and terminology rather than retranslating:
+
+| English meaning | Persian (verbatim) | Source |
+|---|---|---|
+| Service name is required | `نام خدمت الزامی است` | `appointments.schemas.ts:7` |
+| Appointment title is required | `عنوان نوبت الزامی است` | `:29` |
+| Date is required | `تاریخ الزامی است` | `:32` |
+| Time is required | `ساعت الزامی است` | `:35` |
+| Invalid time format | `فرمت ساعت صحیح نیست` | `:36` |
+| Duration must be greater than zero | `مدت نوبت باید بزرگ‌تر از صفر باشد` | `:42` |
+| At least one service is required | `حداقل یک خدمت الزامی است` | `:53` |
+| Reserved | `رزرو شده` | `:61` |
+| Confirmed | `تأیید شده` | `:62` |
+| Completed | `انجام شده` | `:63` |
+| Cancelled | `لغو شده` | `:64` |
+| No-show | `عدم مراجعه` | `:65` |
+
+New UI text must match this vocabulary (for example, never “کنسل” when the domain says `لغو شده`). Any new term should be added here and to the relevant feature file in the same commit.
+
+---
+
+## Cross-reference: requirement → backlog task
+
+| Requirements | Task |
+|---|---|
+| R-47, R-45 | T01 |
+| R-48, R-42, R-43, R-44 | T02 |
+| R-38 (+ integrity for R-11, R-31) | T03 |
+| R-13, R-28, R-29, R-46 | T04 |
+| R-01…R-07 | T05 |
+| R-11…R-17 | T06 |
+| R-18, R-26…R-32 | T07 |
+| R-08, R-09, R-10 | T08 |
+| R-39 | T09 |
+| R-40, R-41 | T10 |
+| R-33, R-34 | T11 |
+| R-35 | T12 |
+| R-19, R-36 | T13 |
+| R-22, R-25 | T14 |
+| R-37 | T15 |
+| All | T16 |
