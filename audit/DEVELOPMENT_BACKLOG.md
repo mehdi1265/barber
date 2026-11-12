@@ -44,9 +44,13 @@ Tickets are numbered in **recommended execution order**. Dependencies are hard p
 
 ## T01 — Quality Gates
 
+**Status: complete locally (2026-11-12); first remote CI run pending push authorization.**
+
+**Completion note (2026-11-12):** all gates exit 0 locally and tests remain 71/71. Removing the unused `oxlint` dependency regenerated the lockfile (`npm ci` verified). The Prettier commit is formatting-only but **not whitespace-only**, because Prettier removes semicolons and normalises quotes, so `git diff -w` is non-empty by design. Logic equivalence was checked by comparing TypeScript emit for all 52 changed `.ts/.tsx` files and PostCSS ASTs for all 16 changed `.css` files: **0 differences**.
+
 **Size:** M · **Priority:** P0 · **Requirements:** R-47, R-45 · **Fixes:** BUG-03, TD-01…TD-04, TD-13, TD-20
 
-**Read first:** `package.json`, `tsconfig.json`, `tsconfig.app.json`, `eslint.config.js`, `.oxlintrc.json`, `.prettierrc`, `src/features/finance/finance.hooks.ts:1-10`, `PROJECT_STATUS.md §2`.
+**Read first:** `package.json`, `tsconfig.json`, `tsconfig.app.json`, `eslint.config.js`, `.prettierrc`, `src/features/finance/finance.hooks.ts:1-10`, `PROJECT_STATUS.md §2`.
 
 **Goal:** a clean clone can prove its own health with one command per gate, and CI enforces it.
 
@@ -61,7 +65,7 @@ Tickets are numbered in **recommended execution order**. Dependencies are hard p
 4. Apply the Prettier baseline (`npm run format`) in a **separate formatting-only commit**; `format:check` must pass.
 5. Add `.github/workflows/ci.yml`: Node 24, `npm ci`, `type-check`, `lint`, `format:check`, `test`, `build`. Cache npm.
 6. Add a root `README.md` that points to `docs/`, `audit/AGENT_HANDOVER.md`, install steps, and the command table.
-7. Decide the linter story: keep ESLint only, or add a real `lint:oxlint` script. Do not leave an installed linter with no script.
+7. Resolve the linter story: completed in T01 by removing `oxlint` and keeping ESLint only. Do not leave an installed linter with no script.
 8. Use `fileURLToPath` for Vite aliases (`vite.config.ts`) to remove the Windows `file://` risk.
 
 **Out of scope:** deleting `App.tsx`/`base.repository.ts`, adding tests for untested features, changing app behaviour.

@@ -236,7 +236,7 @@ Answers must be recorded in `docs/10-decisions-log.md` (or a new decision entry)
 ## 11. What the next agent must not do
 
 - Do not start with dashboard/finance UI because it "looks empty". The data path is broken.
-- Do not add features while the build is red or the browser app cannot boot.
+- Do not add features while any quality gate is red or the browser app cannot boot.
 - Do not delete dead code, rename tables, or "clean up" architecture in a feature ticket.
 - Do not rewrite `001` migrations.
 - Do not push, force-push, merge, or tag without explicit authorization.

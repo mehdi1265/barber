@@ -2,7 +2,11 @@
 
 > **Read this file first.** It is written for a new coding agent with no access to previous conversations.
 > **Audit date:** 2026-11-12 · **Code baseline:** `877ebde` · **Audit documents commit:** `git log -1 --format=%H -- audit/AGENT_HANDOVER.md`
-> **Status:** audit complete, no feature implemented, nothing pushed.
+> **Status:** audit complete, T01 quality gates complete locally, no product feature implemented, nothing pushed.
+
+> **T01 update (2026-11-12):** `npm ci`, `type-check`, `lint`, `format:check`, `test` (71/71), and
+> `build` are green. CI was added at `.github/workflows/ci.yml`; the first remote run is pending
+> push authorization. Root `README.md` was added. **Next action: T02 when assigned.**
 
 ---
 
@@ -38,7 +42,7 @@
 | Dates | date-fns + date-fns-jalali | 4.1.0 |
 | Router | react-router-dom | 7.0.2 |
 | Tests | Vitest + Testing Library | 3.1.4 |
-| Lint/format | ESLint 9 (flat) + Prettier (+ unused oxlint) | 9.17.0 / 3.4.2 |
+| Lint/format | ESLint 9 (flat) + Prettier | 9.17.0 / 3.4.2 |
 
 Environment used for the audit: Windows, Node `v24.18.0`, npm `11.16.0`, git `2.52.0`.
 
@@ -103,9 +107,9 @@ Product requirements remain the eleven files in `docs/` (Persian). If this hando
 
 ### Maturity
 
-**Pre-alpha. ~30 % of MVP by weighted effort. 0 % of the cloud-recovery promise.** It is a coherent scaffold with two complete vertical slices, not a usable product. The build is red, the browser app cannot boot, and nothing syncs.
+**Pre-alpha. ~30 % of MVP by weighted effort. 0 % of the cloud-recovery promise.** It is a coherent scaffold with two complete vertical slices, not a usable product. The build is green locally, but the browser app cannot boot and nothing syncs.
 
-Requirement status: **8 Complete · 25 Partially implemented · 13 Not implemented · 1 Needs verification · 1 Blocked** (48 total).
+Requirement status: **9 Complete · 25 Partially implemented · 12 Not implemented · 1 Needs verification · 1 Blocked** (48 total).
 
 ### What works (code-complete with evidence)
 
@@ -118,6 +122,7 @@ Requirement status: **8 Complete · 25 Partially implemented · 13 Not implement
 - **UI foundation:** RTL shell, bottom navigation, reusable modal/confirm/field/empty/loading components.
 - **Auth (code):** login, register, session restore, auth-state listener.
 - **No secrets committed:** `.env` ignored, placeholders only.
+- **Quality gates (T01):** type-check, lint, format check, tests, build, and CI workflow; all green locally.
 
 ### What partially works
 
@@ -144,7 +149,7 @@ Requirement status: **8 Complete · 25 Partially implemented · 13 Not implement
 |---|---|---|
 | BUG-01 | Web boot never resolves | `database.ts:53` + `index.html` missing `<jeep-sqlite>` |
 | BUG-02 | SQLCipher init wrong / web unsupported | `database.ts:63-74` opens then sets `PRAGMA key` |
-| BUG-03 | Build fails | `finance.hooks.ts:7` unused `todayISO` |
+| BUG-03 | Build fails — **resolved in T01** | `finance.hooks.ts:7` unused `todayISO` |
 | BUG-04 | Outbox completion writes missing column | `outbox.repository.ts:51` → no `updated_at` in schema |
 | BUG-05 | UTC day boundaries | `todayISO()` + `T00:00:00.000Z…T23:59:59.999Z` |
 | BUG-06 | No transactions | no `beginTransaction` anywhere; multi-table writes |
@@ -355,21 +360,17 @@ Tests use hand-written SQL mocks; they do **not** execute SQL or SQLite. Do not 
 ### Build commands
 
 ```bash
-npm run build                 # fails today; must pass after T01
+npm run build                 # type-check + production bundle (green after T01)
 npx vite build                # bundles only, no type-check
 npm run dev                   # dev server (blocked by BUG-01)
 npx cap sync android          # after T02 creates the platform
 ```
 
-### Known command failures (as received)
+### Known command failures (after T01)
 
 | Command | Failure | Fix owner |
 |---|---|---|
-| `npm run build` | TS6133 unused `todayISO` | T01 (one-line) |
-| `npm run lint` | `Invalid option '--ext'` | T01 |
-| `npx eslint src` | 53 errors, 16 warnings | T01 |
-| `npm run format:check` | 92 files | T01 |
-| `npm run type-check` | No error, but checks zero files | T01 |
+| `npm run build`, `npm run lint`, `npm run format:check`, `npm run type-check` | Resolved in T01; all exit 0 locally | — |
 | `npm run dev` | Blank page (bootstrap hangs) | T02 |
 | `npm run cap:android` | No `android/` directory | T02 |
 
@@ -383,7 +384,7 @@ Priorities and full acceptance criteria: `audit/DEVELOPMENT_BACKLOG.md`. Require
 
 | # | Ticket | Depends on | Primary outcome |
 |---|---|---|---|
-| 1 | **T01 Quality gates** | — | Green build/lint/format/tests + CI |
+| 1 | **T01 Quality gates (done)** | — | Green build/lint/format/tests + CI (remote run pending) |
 | 2 | **T02 Runtime DB bootstrap** | T01 | App boots on web + Android; correct encryption/pragma |
 | 3 | **T03 Data integrity** | T02 | Transactions, fixed outbox, child rows, idempotency |
 | 4 | **T04 Local-day & Jalali** | T03 | Correct "today" everywhere; Jalali input |
@@ -435,9 +436,11 @@ A barber installs the Android app, registers, manages customers/services, books 
 
 ### T01 — Quality Gates
 
+**Status: complete locally (2026-11-12). First remote CI run pending push authorization.**
+
 **Goal:** make the repository capable of proving its own health. No product feature, no refactor.
 
-**Start by reading:** `package.json`, `tsconfig.json`, `tsconfig.app.json`, `eslint.config.js`, `.oxlintrc.json`, `.prettierrc`, `src/features/finance/finance.hooks.ts` (lines 1–10), `audit/PROJECT_STATUS.md §2`, `audit/DEVELOPMENT_BACKLOG.md#t01`.
+**Start by reading:** `package.json`, `tsconfig.json`, `tsconfig.app.json`, `eslint.config.js`, `.prettierrc`, `src/features/finance/finance.hooks.ts` (lines 1–10), `audit/PROJECT_STATUS.md §2`, `audit/DEVELOPMENT_BACKLOG.md#t01`.
 
 ### What T01 includes
 
@@ -447,7 +450,7 @@ A barber installs the Android app, registers, manages customers/services, books 
 4. **Apply the formatting baseline.** Run `npm run format`, then commit as a **formatting-only** commit. `npm run format:check` must pass. Keep it isolated so reviewers can ignore it.
 5. **Add CI.** `.github/workflows/ci.yml`: Node 24, `npm ci`, then `type-check`, `lint`, `format:check`, `test`, `build`. Cache npm. (A green GitHub run requires push authorization; until then, local parity is the acceptance.)
 6. **Add a root `README.md`** with install, env, commands, and pointers to `docs/` and `audit/`.
-7. **Resolve the linter story.** `oxlint` is installed with `.oxlintrc.json` but has no script. Either add a real `lint:oxlint` script or remove oxlint and its config. Do not leave a half-configured second linter.
+7. **Resolve the linter story.** Completed in T01: the unused `oxlint` dependency and `.oxlintrc.json` were removed; ESLint is the single linter. Do not reintroduce a half-configured second linter.
 8. **Fix Vite aliases on Windows.** Replace `new URL(...).pathname` with `fileURLToPath(new URL(...))` in `vite.config.ts`.
 
 ### Explicitly out of scope for T01
@@ -494,7 +497,7 @@ git diff --stat 877ebde..HEAD
 4. `style: apply prettier baseline (TD-03)` — no logic changes
 5. `ci: add quality-gate workflow and root readme (TD-01, TD-20)`
 
-Stop after T01 is green and committed. Do not continue into T02 without a new instruction.
+T01 is complete. Stop here; do not continue into T02 without a new instruction.
 
 ---
 
@@ -517,4 +520,4 @@ Answering Q1/Q2/Q5 before T09 and Q3 before T07 avoids rework. Record answers in
 
 ---
 
-**End of handover.** Next action: **T01**. Stop after T01; do not start implementation beyond it.
+**End of handover.** Next action: **T02** when assigned. Do not start implementation beyond it.

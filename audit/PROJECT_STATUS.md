@@ -6,6 +6,13 @@
 > **Audit type:** read-only inspection plus non-destructive verification commands. No application code, migration, schema, or product requirement was changed.
 > **Entry point for the next agent:** [`AGENT_HANDOVER.md`](./AGENT_HANDOVER.md)
 
+> **Post-audit update — T01 complete locally (2026-11-12):** The quality gates now pass: `npm ci`,
+> `npm run type-check` (real project build), `npm run lint`, `npm run format:check`, `npm test`
+> (71/71), and `npm run build`. A GitHub Actions workflow and root `README.md` were added.
+> C-03/BUG-03 is resolved. The first remote CI run is pending push authorization. Sections 1–8
+> below preserve the original audit snapshot where they differ; use this block and
+> [`REQUIREMENTS_MATRIX.md`](./REQUIREMENTS_MATRIX.md) for current status.
+
 ---
 
 ## 1. Repository snapshot
@@ -39,7 +46,7 @@
 | Forms | react-hook-form + Zod | `^7.54.0` / `^3.24.1` | 7.54.0 / 3.24.1 |
 | Dates | date-fns + date-fns-jalali | `^4.1.0` / `^4.1.0-0` | same |
 | Tests | Vitest + Testing Library | `^3.1.4` | 3.1.4 |
-| Lint | ESLint 9 flat config + oxlint | `^9.17.0` / `^1.90.0` | same |
+| Lint | ESLint 9 flat config | `^9.17.0` | 9.17.0 (oxlint removed in T01) |
 
 Verification environment: Windows, Node `v24.18.0`, npm `11.16.0`, git `2.52.0`.
 
@@ -66,6 +73,19 @@ Every command below was executed in a fresh clone on `develop`.
 
 **No destructive database command was run. No secret was read or printed. No remote branch was modified and nothing was pushed.**
 
+**Post-T01 re-verification (2026-11-12, same machine):**
+
+| Check | Command | Result | Detail |
+|---|---|---|---|
+| Install | `npm ci` | **PASS** | 430 packages; lockfile regenerated after removing the unused `oxlint` dependency. |
+| Type check | `npm run type-check` | **PASS** | `tsc -b`. A deliberate `string`→`number` error failed the gate and was reverted. |
+| Lint | `npm run lint` | **PASS** | 0 errors, 0 warnings (`eslint .`). |
+| Formatting | `npm run format:check` | **PASS** | All `src/**/*.{ts,tsx,css}` files match Prettier. |
+| Unit tests | `npm test` | **PASS** | 7 files, **71/71 tests**. |
+| Production build | `npm run build` | **PASS** | `tsc -b && vite build`; 522 modules, `dist/` emitted. |
+| Formatting equivalence | TS emit + PostCSS AST comparison | **PASS** | 52 `.ts/.tsx` files produced identical TypeScript emit; 16 `.css` files produced identical PostCSS ASTs. |
+| CI workflow | `.github/workflows/ci.yml` | **PENDING REMOTE RUN** | Mirrors the local gates on Node 24; first GitHub run requires push authorization. |
+
 ---
 
 ## 3. Maturity assessment
@@ -74,7 +94,7 @@ Every command below was executed in a fresh clone on `develop`.
 
 | Dimension | Score | Basis |
 |---|---|---|
-| Requirements coverage | ~30 % | 8 complete, 25 partial, 13 not implemented, 1 needs verification, 1 blocked (48 requirements) |
+| Requirements coverage | ~30 % | 9 complete, 25 partial, 12 not implemented, 1 needs verification, 1 blocked (48 requirements; post-T01) |
 | Architecture conformance | ~45 % | Layers/folders exist; application/use-case and sync layers absent |
 | Data integrity | ~20 % | No transactions, FK enforcement not applied per connection, outbox write path defective, child rows not queued |
 | Cloud / synchronization | ~5 % | Full RLS SQL, **zero** client data calls to Supabase (Auth only) |
@@ -97,7 +117,7 @@ Treat the next phase as **stabilisation + infrastructure**, not feature delivery
 |---|---|---|---|
 | C-01 | Web bootstrap never resolves | `src/database/sqlite/database.ts:53` calls `initWebStore()`; plugin's web implementation awaits `customElements.whenDefined('jeep-sqlite')`; `index.html` loads no `<jeep-sqlite>` element or script | Blank screen in browser, no error surfaced, nothing testable in `npm run dev` |
 | C-02 | SQLCipher init is wrong on both targets | `database.ts:64-73` creates an **encrypted** connection, opens it, then runs `PRAGMA key`; native requires `setEncryptionSecret()` **before** `open()`; web does not support encrypted DBs | Native open fails or is unencrypted; web cannot open the DB |
-| C-03 | Build fails | `finance.hooks.ts:7` unused import; `tsc -b` exits 1 | No shippable artifact, no CI signal |
+| C-03 | Build fails | `finance.hooks.ts:7` unused import; `tsc -b` exits 1 | No shippable artifact, no CI signal. **Resolved in T01 (2026-11-12).** |
 | C-04 | No sync engine while outbox rows are written | Only `src/sync/outbox/outbox.repository.ts`; `getPendingOutbox` has no caller; zero `supabase.from/storage/rpc` in `src/` | Data never leaves the device; new-phone recovery impossible |
 | C-05 | Outbox update SQL targets a missing column | `outbox.repository.ts:51` sets `updated_at`; `sync_outbox` has no such column (`src/database/migrations/001_initial.sql:203-213`) | First sync attempt crashes |
 | C-06 | No transactions around multi-table writes | `appointment.repository.ts:151-183` (parent + N services + outbox as separate `run()` calls); `visit.repository.ts:107-162` | Partial rows after interruption; impossible to repair deterministically |
@@ -112,7 +132,7 @@ Treat the next phase as **stabilisation + infrastructure**, not feature delivery
 
 | Feature | Status | One-line evidence |
 |---|---|---|
-| Scaffold / tooling | Partially implemented | Runs, but build red, lint script broken, no CI |
+| Scaffold / tooling | Partially implemented | Post-T01: local gates green and CI workflow added; first remote CI run pending push authorization |
 | Authentication | Partially implemented | Login/register work in code; no logout UI, no reset flow, no profile bootstrap |
 | SQLite bootstrap | Partially implemented | Schema + runner are good; runtime blocked (C-01, C-02) |
 | Repositories | Partially implemented | 7 repositories; no formulas/photos; no transaction unit |

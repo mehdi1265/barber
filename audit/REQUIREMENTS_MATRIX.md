@@ -22,7 +22,7 @@
 
 **Source shorthand:** `B` brief · `P` PRD · `U` user flow · `W` wireframes · `A` architecture · `D` database/API design · `R` roadmap · `AI` agent spec · `Q` open questions · `L` decisions log. Section numbers refer to the corresponding file in `docs/`.
 
-**Summary:** 48 requirements — **8 Complete, 25 Partially implemented, 13 Not implemented, 1 Needs verification, 1 Blocked.**
+**Summary:** 48 requirements — **9 Complete, 25 Partially implemented, 12 Not implemented, 1 Needs verification, 1 Blocked.**
 
 ---
 
@@ -153,8 +153,8 @@
 | R-44 | Web build persists data across reload | A §2 | P2 | Not implemented | `jeep-sqlite` used in-memory; no `saveToStore`/`loadFromStore` call | Persist/export store on write, restore on boot | R-48 | Creating a customer in the browser and reloading keeps it |
 | R-45 | No secrets or credentials committed | B §9, L §8 | P0 | Complete | `.env.example` uses placeholders; `.gitignore` excludes `.env*`; no keys in source or git history | Add secret scanning to CI | — | `git grep` for key patterns finds no real credentials; `.env` is never tracked |
 | R-46 | Persian RTL UI with Jalali dates and Persian digits | B §4, W §1, L §9 | P1 | Partially implemented | `index.css` RTL, `AppShell` Persian labels, `jalali.ts` display helpers | Date **inputs** are Gregorian `<input type="date">`; mixed Latin digits in places; no i18n layer | R-13 | Every displayed and entered date is Jalali; layout is RTL; numbers use Persian digits where specified |
-| R-47 | Quality gates: type-check, lint, format, tests, build, CI | A §10, R §7 | P0 | Not implemented | `package.json` scripts are broken/vacuous; no `.github/workflows`; see PROJECT_STATUS §2 | T01 (see backlog) | — | A clean clone passes type-check, lint, format check, tests, build in CI on every push |
-| R-48 | App builds and runs on web (dev) and Android | B §1, R §1 | P0 | Blocked | Boot blockers BUG-01/BUG-02; no `android/` project; build fails | T01 + T02 + `npx cap add android` | R-47 | `npm run dev` shows login; `npm run build && npx cap sync android` installs and launches on a device/emulator |
+| R-47 | Quality gates: type-check, lint, format, tests, build, CI | A §10, R §7 | P0 | Complete | `package.json` scripts repaired; `tsconfig.node.json`; `.github/workflows/ci.yml`; local gates green (see PROJECT_STATUS post-audit note) | First remote CI run (requires push authorization); coverage thresholds and secret scanning remain separate tasks | — | A clean clone passes type-check, lint, format check, tests, build in CI on every push |
+| R-48 | App builds and runs on web (dev) and Android | B §1, R §1 | P0 | Blocked | Boot blockers BUG-01/BUG-02; no `android/` project | T01 + T02 + `npx cap add android` | R-47 | `npm run dev` shows login; `npm run build && npx cap sync android` installs and launches on a device/emulator |
 
 ---
 

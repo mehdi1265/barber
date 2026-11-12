@@ -41,7 +41,7 @@
 - **Impact:** no production artifact; no CI signal; `cap:build` cannot run.
 - **Repro:** `npm run build` → one error. `[test]` (reproduced).
 - **Fix:** remove the import (or use it where intended). Ship as the first commit of T01.
-- **Verify:** `npm run build` exits 0 and emits `dist/`.
+- **Verify:** `npm run build` exits 0 and emits `dist/`. **Status: resolved in T01 (2026-11-12).**
 
 ### BUG-04 — Outbox completion writes a non-existent column
 
@@ -144,7 +144,7 @@
 
 | ID | Bug | Evidence | Impact |
 |---|---|---|---|
-| BUG-29 | `base.repository.ts` uses CommonJS `require()` | `:19` | Would crash in the browser if ever imported |
+| BUG-29 | `base.repository.ts` uses CommonJS `require()` | `:19` | Would crash in the browser if ever imported. **Resolved in T01 (ESM import).** |
 | BUG-30 | Dead Vite template component | `src/App.tsx`, `src/App.css` | Confusing entry points |
 | BUG-31 | `matchesSearch` does not normalise the haystack | `helpers.ts:110-112` | Persian-digit matches can miss |
 | BUG-32 | Raw Supabase error messages shown | `LoginPage`/`RegisterPage` | English/technical errors in a Persian UI |
@@ -159,12 +159,13 @@ These green signals are misleading and must not be used as evidence that the app
 
 | Signal | Reality |
 |---|---|
-| `npm run type-check` passes | `tsconfig.json` has `"files": []`; it checks zero files |
+| `npm run type-check` passes | Real since T01, but it only type-checks; runtime/SQL defects still pass |
+| `npm run build` passes | It proves TypeScript and bundling, not that the app boots (BUG-01) |
 | `npx vite build` passes | It does not type-check, and dead code (QuickSaleForm) is not bundled |
 | 71/71 tests pass | Tests use a hand-written SQL mock; finance, sync, bootstrap, and components are untested |
 | `npm test` is fast | Because no real SQLite/network/device is involved |
 | `npm ci` succeeds | esbuild's postinstall is skipped by npm allow-scripts policy but its binary works today; a clean machine may behave differently |
-| ESLint config exists | The `lint` script cannot run, and `oxlint` is installed but has no script |
+| `npm run lint` passes | Static analysis only; it does not prove the app boots or the SQL is valid |
 | RLS SQL exists | It has never been executed against a project |
 | `sync_outbox` has rows | Nothing consumes them |
 
@@ -195,11 +196,13 @@ These green signals are misleading and must not be used as evidence that the app
 | TD-19 | No dependency/secret scanning | no Dependabot/CodeQL | Supply-chain and secret risk | S | T16 |
 | TD-20 | No root README | only `docs/README.md` | New contributors miss the entry point | S | T01 |
 
+**T01 status (2026-11-12):** TD-01–TD-04, TD-13, and TD-20 are resolved locally. TD-05, TD-06, and the dead-code cleanup in TD-11 remain open.
+
 ---
 
 ## 6. Fix order constraints
 
-- BUG-03 must be fixed before any CI can be green (T01).
+- BUG-03 is fixed (T01); CI is now available. Do not regress the gates.
 - BUG-01/BUG-02/BUG-09/BUG-10 must be fixed before any browser or device verification is meaningful (T02).
 - BUG-04/BUG-06/BUG-07/BUG-23 must be fixed before BUG-08's engine is built (T03 before T09).
 - BUG-05 must be fixed before finance/dashboard totals are shown to users (T04 before T07/T08).

@@ -175,7 +175,7 @@ Repository tests are **not integration tests**: they inject a hand-written in-me
 | Gap | Evidence | Impact |
 |---|---|---|
 | `FinancePage` is a placeholder | `FinancePage.tsx` | No finance UI at all |
-| Hooks import unused `todayISO` | `finance.hooks.ts:7` | Build fails (BUG-03) |
+| Hooks import unused `todayISO` | `finance.hooks.ts:7` | Build failed (BUG-03); **resolved in T01** |
 | Day ranges are UTC and derived from a UTC date string | `finance.repository.ts:85-86`; `finance.calculator.ts:26-31` | Daily totals wrong near midnight (BUG-05) |
 | No transaction around visit + services + payment | `visit.repository.ts:107-198` | Partial sale records (BUG-06) |
 | Visit service rows not enqueued | `visit.repository.ts:155-162` only parent | Restore loses line items (BUG-07) |
