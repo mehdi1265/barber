@@ -33,9 +33,7 @@ function createMockDb() {
         // findAll
         const uid = params[0] as string
         const activeOnly = s.includes('is_active = 1')
-        const rows = tables.services.filter(
-          r => r.user_id === uid && (!activeOnly || r.is_active)
-        )
+        const rows = tables.services.filter(r => r.user_id === uid && (!activeOnly || r.is_active))
         return { values: rows }
       }
 
@@ -46,10 +44,24 @@ function createMockDb() {
       const s = sql.toLowerCase()
 
       if (s.startsWith('insert into services')) {
-        const [id, user_id, name, default_price, suggested_duration_minutes, created_at, updated_at] = params
+        const [
+          id,
+          user_id,
+          name,
+          default_price,
+          suggested_duration_minutes,
+          created_at,
+          updated_at,
+        ] = params
         tables.services.push({
-          id, user_id, name, default_price, suggested_duration_minutes,
-          is_active: true, created_at, updated_at,
+          id,
+          user_id,
+          name,
+          default_price,
+          suggested_duration_minutes,
+          is_active: true,
+          created_at,
+          updated_at,
         })
       }
 
@@ -59,7 +71,8 @@ function createMockDb() {
           const row = tables.services.find(r => r.id === id)
           if (row) row.is_active = false
         } else {
-          const [name, default_price, suggested_duration_minutes, is_active, updated_at, id] = params
+          const [name, default_price, suggested_duration_minutes, is_active, updated_at, id] =
+            params
           const row = tables.services.find(r => r.id === id)
           if (row) {
             row.name = name

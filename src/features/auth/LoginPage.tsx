@@ -36,7 +36,9 @@ export default function LoginPage() {
       <div className={styles.card}>
         {/* Logo / Header */}
         <div className={styles.header}>
-          <div className={styles.logo} aria-hidden="true">✂️</div>
+          <div className={styles.logo} aria-hidden="true">
+            ✂️
+          </div>
           <h1 className={styles.title}>ورود به حساب</h1>
           <p className={styles.subtitle}>خوش برگشتی! اطلاعاتت رو وارد کن</p>
         </div>

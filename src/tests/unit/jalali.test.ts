@@ -51,8 +51,8 @@ describe('getWeekDays', () => {
 describe('isSameDayUtil', () => {
   it('روز یکسان true برمی‌گرداند', () => {
     // Use same date string without timezone ambiguity
-    const d1 = new Date(2026, 0, 15, 9, 0, 0)   // local 09:00
-    const d2 = new Date(2026, 0, 15, 20, 0, 0)  // local 20:00
+    const d1 = new Date(2026, 0, 15, 9, 0, 0) // local 09:00
+    const d2 = new Date(2026, 0, 15, 20, 0, 0) // local 20:00
     expect(isSameDayUtil(d1, d2)).toBe(true)
   })
 

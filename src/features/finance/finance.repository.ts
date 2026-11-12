@@ -69,10 +69,10 @@ export class FinanceRepository {
         [visit.id, this.userId]
       )
       result.push({
-        visitId:   visit.id,
+        visitId: visit.id,
         visitedAt: visit.visited_at,
-        services:  (svcsResult.values as VisitService[]) ?? [],
-        payments:  (paymentsResult.values as Payment[]) ?? [],
+        services: (svcsResult.values as VisitService[]) ?? [],
+        payments: (paymentsResult.values as Payment[]) ?? [],
       })
     }
 
@@ -83,36 +83,29 @@ export class FinanceRepository {
 
   async getDailyReport(dateISO: string): Promise<DailyReport> {
     const start = `${dateISO}T00:00:00.000Z`
-    const end   = `${dateISO}T23:59:59.999Z`
+    const end = `${dateISO}T23:59:59.999Z`
 
-    const [visitServices, paymentsInPeriod, visitsWithServices, expenses] =
-      await Promise.all([
-        this.getVisitServicesInRange(start, end),
-        this.getPaymentsInRange(start, end),
-        this.getVisitsWithServicesInRange(start, end),
-        this.getExpensesInRange(start, end),
-      ])
+    const [visitServices, paymentsInPeriod, visitsWithServices, expenses] = await Promise.all([
+      this.getVisitServicesInRange(start, end),
+      this.getPaymentsInRange(start, end),
+      this.getVisitsWithServicesInRange(start, end),
+      this.getExpensesInRange(start, end),
+    ])
 
-    return buildDailyReport(
-      dateISO,
-      visitServices,
-      paymentsInPeriod,
-      visitsWithServices,
-      expenses
-    )
+    return buildDailyReport(dateISO, visitServices, paymentsInPeriod, visitsWithServices, expenses)
   }
 
   async getSummary(start: string, end: string): Promise<FinancialSummary> {
-    const [visitServices, paymentsInPeriod, visitsWithServices, expenses] =
-      await Promise.all([
-        this.getVisitServicesInRange(start, end),
-        this.getPaymentsInRange(start, end),
-        this.getVisitsWithServicesInRange(start, end),
-        this.getExpensesInRange(start, end),
-      ])
+    const [visitServices, paymentsInPeriod, visitsWithServices, expenses] = await Promise.all([
+      this.getVisitServicesInRange(start, end),
+      this.getPaymentsInRange(start, end),
+      this.getVisitsWithServicesInRange(start, end),
+      this.getExpensesInRange(start, end),
+    ])
 
     return buildFinancialSummary(
-      start, end,
+      start,
+      end,
       visitServices,
       paymentsInPeriod,
       visitsWithServices,

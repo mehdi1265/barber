@@ -7,11 +7,7 @@
  */
 
 import { Capacitor } from '@capacitor/core'
-import {
-  CapacitorSQLite,
-  SQLiteConnection,
-  SQLiteDBConnection,
-} from '@capacitor-community/sqlite'
+import { CapacitorSQLite, SQLiteConnection, SQLiteDBConnection } from '@capacitor-community/sqlite'
 
 const DB_NAME = 'barber_app'
 const DB_VERSION = 1

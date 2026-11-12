@@ -20,7 +20,9 @@
   border-radius: var(--radius-sm);
   line-height: 1;
 }
-.back:active { opacity: 0.6; }
+.back:active {
+  opacity: 0.6;
+}
 
 .title {
   flex: 1;

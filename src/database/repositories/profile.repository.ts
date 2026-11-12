@@ -11,18 +11,13 @@ type CreateProfileInput = {
   currency_code: string
 }
 
-type UpdateProfileInput = Partial<
-  Pick<Profile, 'display_name' | 'phone' | 'currency_code'>
->
+type UpdateProfileInput = Partial<Pick<Profile, 'display_name' | 'phone' | 'currency_code'>>
 
 export class ProfileRepository {
   constructor(private readonly db: SQLiteDBConnection) {}
 
   async getProfile(userId: UUID): Promise<Profile | null> {
-    const result = await this.db.query(
-      'SELECT * FROM profiles WHERE user_id = ? LIMIT 1',
-      [userId]
-    )
+    const result = await this.db.query('SELECT * FROM profiles WHERE user_id = ? LIMIT 1', [userId])
     return (result.values?.[0] as Profile) ?? null
   }
 
@@ -87,10 +82,7 @@ export class ProfileRepository {
     values.push(now)
     values.push(userId)
 
-    await this.db.run(
-      `UPDATE profiles SET ${fields.join(', ')} WHERE user_id = ?`,
-      values
-    )
+    await this.db.run(`UPDATE profiles SET ${fields.join(', ')} WHERE user_id = ?`, values)
 
     const updated = await this.getProfile(userId)
     if (updated) {

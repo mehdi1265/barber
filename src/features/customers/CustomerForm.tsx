@@ -73,7 +73,9 @@ export function CustomerForm({
           dir="auto"
         />
         {errors.notes && (
-          <p className={styles.errorMsg} role="alert">{errors.notes.message}</p>
+          <p className={styles.errorMsg} role="alert">
+            {errors.notes.message}
+          </p>
         )}
       </div>
 

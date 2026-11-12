@@ -9,11 +9,7 @@ import { FormField } from '@shared/components/forms/FormField'
 import { Button } from '@shared/components/ui/Button'
 import { useCustomers } from '@features/customers/customers.hooks'
 import { useServices } from '@features/services/services.hooks'
-import {
-  todayISO,
-  formatTime,
-  applyTimeToDate,
-} from '@shared/utils/jalali'
+import { todayISO, formatTime, applyTimeToDate } from '@shared/utils/jalali'
 import { calcEndAt, storageToToman } from '@shared/utils/helpers'
 import styles from './AppointmentForm.module.css'
 
@@ -34,7 +30,7 @@ interface RawFormValues {
 }
 
 interface AppointmentFormProps {
-  defaultDate?: string   // YYYY-MM-DD
+  defaultDate?: string // YYYY-MM-DD
   onSubmit: (data: AppointmentFormData) => Promise<void>
   onCancel: () => void
   submitLabel?: string
@@ -85,7 +81,9 @@ export function AppointmentForm({
       if (!isNaN(dur) && dur > 0) {
         setPreviewEnd(formatTime(calcEndAt(startISO, dur)))
       }
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
   }
 
   // When service is selected from dropdown, fill name + price
@@ -116,7 +114,9 @@ export function AppointmentForm({
         <select className={styles.select} {...register('customer_id')}>
           <option value="">— بدون مشتری —</option>
           {customers.map(c => (
-            <option key={c.id} value={c.id}>{c.name}</option>
+            <option key={c.id} value={c.id}>
+              {c.name}
+            </option>
           ))}
         </select>
       </div>
@@ -198,7 +198,9 @@ export function AppointmentForm({
               >
                 <option value="">— انتخاب خدمت —</option>
                 {services.map(s => (
-                  <option key={s.id} value={s.id}>{s.name}</option>
+                  <option key={s.id} value={s.id}>
+                    {s.name}
+                  </option>
                 ))}
               </select>
             </div>
@@ -245,7 +247,9 @@ export function AppointmentForm({
 
       {/* Notes */}
       <div className={styles.field}>
-        <label htmlFor="appt-notes" className={styles.label}>یادداشت</label>
+        <label htmlFor="appt-notes" className={styles.label}>
+          یادداشت
+        </label>
         <textarea
           id="appt-notes"
           className={styles.textarea}
@@ -258,7 +262,9 @@ export function AppointmentForm({
 
       {/* Server error */}
       {error && (
-        <div className={styles.serverError} role="alert">{error}</div>
+        <div className={styles.serverError} role="alert">
+          {error}
+        </div>
       )}
 
       {/* Actions */}

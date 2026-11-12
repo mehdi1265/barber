@@ -33,11 +33,9 @@ export async function scheduleAppointmentReminder(
   const startMs = new Date(appointment.start_at).getTime()
   const reminderMs = startMs - REMINDER_MINUTES_BEFORE * 60 * 1000
 
-  if (reminderMs <= Date.now()) return  // already past
+  if (reminderMs <= Date.now()) return // already past
 
-  const title = customerName
-    ? `نوبت ${customerName}`
-    : appointment.title
+  const title = customerName ? `نوبت ${customerName}` : appointment.title
 
   const body = `${REMINDER_MINUTES_BEFORE} دقیقه دیگر نوبت دارید`
 
@@ -83,5 +81,5 @@ export async function cancelAppointmentReminder(appointmentId: string): Promise<
 function notificationIdFromUUID(uuid: string): number {
   // Use the last 8 hex chars → 32-bit integer
   const hex = uuid.replace(/-/g, '').slice(-8)
-  return parseInt(hex, 16) >>> 0  // unsigned 32-bit
+  return parseInt(hex, 16) >>> 0 // unsigned 32-bit
 }

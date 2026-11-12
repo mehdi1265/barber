@@ -26,7 +26,9 @@ export function Modal({ isOpen, onClose, title, children }: ModalProps) {
     } else {
       document.body.style.overflow = ''
     }
-    return () => { document.body.style.overflow = '' }
+    return () => {
+      document.body.style.overflow = ''
+    }
   }, [isOpen])
 
   if (!isOpen) return null
@@ -37,13 +39,17 @@ export function Modal({ isOpen, onClose, title, children }: ModalProps) {
       role="dialog"
       aria-modal="true"
       aria-label={title}
-      onClick={e => { if (e.target === e.currentTarget) onClose() }}
+      onClick={e => {
+        if (e.target === e.currentTarget) onClose()
+      }}
     >
       <div className={styles.sheet}>
         <div className={styles.handle} aria-hidden="true" />
         <div className={styles.headerRow}>
           <h2 className={styles.title}>{title}</h2>
-          <button className={styles.closeBtn} onClick={onClose} aria-label="بستن">✕</button>
+          <button className={styles.closeBtn} onClick={onClose} aria-label="بستن">
+            ✕
+          </button>
         </div>
         <div className={styles.body}>{children}</div>
       </div>

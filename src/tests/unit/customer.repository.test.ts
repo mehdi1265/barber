@@ -26,9 +26,7 @@ function createMockDb() {
         const table = sqlLower.match(/from (\w+)/)?.[1] ?? ''
         const rows = tables[table] ?? []
         const userId = params[0] as string
-        const cnt = rows.filter(
-          r => r.user_id === userId && r.deleted_at === null
-        ).length
+        const cnt = rows.filter(r => r.user_id === userId && r.deleted_at === null).length
         return { values: [{ cnt }] }
       }
 
@@ -60,9 +58,7 @@ function createMockDb() {
 
         // findAll: WHERE user_id = ?
         const userId = params[0] as string
-        const rows = tables.customers.filter(
-          r => r.user_id === userId && r.deleted_at === null
-        )
+        const rows = tables.customers.filter(r => r.user_id === userId && r.deleted_at === null)
         return { values: rows }
       }
 
@@ -75,7 +71,14 @@ function createMockDb() {
       if (sqlLower.startsWith('insert into customers')) {
         const [id, user_id, name, phone, notes, created_at, updated_at] = params
         tables.customers.push({
-          id, user_id, name, phone, notes, created_at, updated_at, deleted_at: null,
+          id,
+          user_id,
+          name,
+          phone,
+          notes,
+          created_at,
+          updated_at,
+          deleted_at: null,
         })
       }
 

@@ -38,8 +38,7 @@ export abstract class BaseRepository<T extends BaseEntity> {
   }
 
   async findAll(includeDeleted = false): Promise<T[]> {
-    const deletedClause =
-      !includeDeleted && this.hasSoftDelete() ? `AND deleted_at IS NULL` : ''
+    const deletedClause = !includeDeleted && this.hasSoftDelete() ? `AND deleted_at IS NULL` : ''
     const result = await this.db.query(
       `SELECT * FROM ${this.tableName} WHERE user_id = ? ${deletedClause} ORDER BY created_at DESC`,
       [this.userId]
@@ -62,10 +61,10 @@ export abstract class BaseRepository<T extends BaseEntity> {
   }
 
   async hardDelete(id: UUID): Promise<void> {
-    await this.db.run(
-      `DELETE FROM ${this.tableName} WHERE id = ? AND user_id = ?`,
-      [id, this.userId]
-    )
+    await this.db.run(`DELETE FROM ${this.tableName} WHERE id = ? AND user_id = ?`, [
+      id,
+      this.userId,
+    ])
   }
 
   /**

@@ -1,6 +1,12 @@
 import type { SQLiteDBConnection } from '@capacitor-community/sqlite'
 import type { Appointment, AppointmentService, AppointmentStatus, UUID } from '@shared/types'
-import { generateUUID, nowISO, calcEndAt, appointmentsOverlap, tomanToStorage } from '@shared/utils/helpers'
+import {
+  generateUUID,
+  nowISO,
+  calcEndAt,
+  appointmentsOverlap,
+  tomanToStorage,
+} from '@shared/utils/helpers'
 import { addToOutbox } from '@sync/outbox/outbox.repository'
 
 // ── Input types ───────────────────────────────────────────────────────────────
@@ -8,14 +14,14 @@ import { addToOutbox } from '@sync/outbox/outbox.repository'
 export interface AppointmentServiceInput {
   service_id?: string | null
   service_name_snapshot: string
-  price: number          // Toman (display)
+  price: number // Toman (display)
   duration_minutes?: number | null
 }
 
 export interface CreateAppointmentInput {
   customer_id?: string | null
   title: string
-  start_at: string       // ISO-8601
+  start_at: string // ISO-8601
   duration_minutes: number
   notes?: string | null
   services: AppointmentServiceInput[]
@@ -70,7 +76,7 @@ export class AppointmentRepository {
   /** All non-cancelled appointments for a single day */
   async findByDay(dateISO: string): Promise<Appointment[]> {
     const start = `${dateISO}T00:00:00.000Z`
-    const end   = `${dateISO}T23:59:59.999Z`
+    const end = `${dateISO}T23:59:59.999Z`
     return this.findByDateRange(start, end)
   }
 
@@ -99,11 +105,7 @@ export class AppointmentRepository {
    * with an existing non-cancelled appointment of the same user.
    * excludeId can be passed when editing an existing appointment.
    */
-  async checkConflict(
-    startAt: string,
-    endAt: string,
-    excludeId?: UUID
-  ): Promise<ConflictResult> {
+  async checkConflict(startAt: string, endAt: string, excludeId?: UUID): Promise<ConflictResult> {
     // Fetch appointments that could overlap: those starting before our end
     // and potentially ending after our start
     const result = await this.db.query(
@@ -152,10 +154,17 @@ export class AppointmentRepository {
         (id, user_id, customer_id, title, start_at, duration_minutes, end_at, status, notes, created_at, updated_at, deleted_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)`,
       [
-        appointment.id, appointment.user_id, appointment.customer_id,
-        appointment.title, appointment.start_at, appointment.duration_minutes,
-        appointment.end_at, appointment.status, appointment.notes,
-        appointment.created_at, appointment.updated_at,
+        appointment.id,
+        appointment.user_id,
+        appointment.customer_id,
+        appointment.title,
+        appointment.start_at,
+        appointment.duration_minutes,
+        appointment.end_at,
+        appointment.status,
+        appointment.notes,
+        appointment.created_at,
+        appointment.updated_at,
       ]
     )
 
@@ -167,10 +176,15 @@ export class AppointmentRepository {
           (id, user_id, appointment_id, service_id, service_name_snapshot, price, duration_minutes, created_at, updated_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
-          svcId, this.userId, appointment.id,
-          svc.service_id ?? null, svc.service_name_snapshot,
-          tomanToStorage(svc.price), svc.duration_minutes ?? null,
-          now, now,
+          svcId,
+          this.userId,
+          appointment.id,
+          svc.service_id ?? null,
+          svc.service_name_snapshot,
+          tomanToStorage(svc.price),
+          svc.duration_minutes ?? null,
+          now,
+          now,
         ]
       )
     }
@@ -226,9 +240,16 @@ export class AppointmentRepository {
            status = ?, notes = ?, updated_at = ?
        WHERE id = ? AND user_id = ?`,
       [
-        updated.customer_id, updated.title, updated.start_at, updated.duration_minutes,
-        updated.end_at, updated.status, updated.notes, updated.updated_at,
-        id, this.userId,
+        updated.customer_id,
+        updated.title,
+        updated.start_at,
+        updated.duration_minutes,
+        updated.end_at,
+        updated.status,
+        updated.notes,
+        updated.updated_at,
+        id,
+        this.userId,
       ]
     )
 

@@ -5,7 +5,7 @@ import { addToOutbox } from '@sync/outbox/outbox.repository'
 
 type CreateServiceInput = {
   name: string
-  default_price?: number | null   // Toman (display value)
+  default_price?: number | null // Toman (display value)
   suggested_duration_minutes?: number | null
 }
 
@@ -55,8 +55,7 @@ export class ServiceRepository {
       user_id: this.userId,
       name: input.name.trim(),
       // Store as integer (Toman × 100); null if not provided
-      default_price:
-        input.default_price != null ? tomanToStorage(input.default_price) : null,
+      default_price: input.default_price != null ? tomanToStorage(input.default_price) : null,
       suggested_duration_minutes: input.suggested_duration_minutes ?? null,
       is_active: true,
       created_at: now,

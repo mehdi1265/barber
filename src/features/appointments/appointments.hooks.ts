@@ -6,14 +6,17 @@ import {
 } from '@database/repositories/appointment.repository'
 import { useAuthStore } from '@state/auth.store'
 import { getDatabase } from '@database/sqlite/database'
-import { scheduleAppointmentReminder, cancelAppointmentReminder } from '@services/notifications/local-notifications'
+import {
+  scheduleAppointmentReminder,
+  cancelAppointmentReminder,
+} from '@services/notifications/local-notifications'
 import type { AppointmentStatus } from '@shared/types'
 
 export const appointmentKeys = {
-  day:    (uid: string, date: string)  => ['appointments', uid, 'day',  date]  as const,
-  week:   (uid: string, date: string)  => ['appointments', uid, 'week', date]  as const,
-  detail: (uid: string, id: string)    => ['appointments', uid, id]            as const,
-  next:   (uid: string)                => ['appointments', uid, 'next']        as const,
+  day: (uid: string, date: string) => ['appointments', uid, 'day', date] as const,
+  week: (uid: string, date: string) => ['appointments', uid, 'week', date] as const,
+  detail: (uid: string, id: string) => ['appointments', uid, id] as const,
+  next: (uid: string) => ['appointments', uid, 'next'] as const,
   services: (uid: string, apptId: string) => ['appointment-services', uid, apptId] as const,
 }
 
@@ -106,16 +109,14 @@ export function useCreateAppointment() {
         endAt.toISOString()
       )
       if (hasConflict) {
-        throw new Error(
-          `تداخل با نوبت «${conflictingAppointment?.title ?? ''}» در همین ساعت`
-        )
+        throw new Error(`تداخل با نوبت «${conflictingAppointment?.title ?? ''}» در همین ساعت`)
       }
 
       const appt = await repo.create(input)
       await scheduleAppointmentReminder(appt)
       return appt
     },
-    onSuccess: (appt) => {
+    onSuccess: appt => {
       const dateISO = appt.start_at.slice(0, 10)
       void qc.invalidateQueries({ queryKey: appointmentKeys.day(userId, dateISO) })
       void qc.invalidateQueries({ queryKey: appointmentKeys.next(userId) })
@@ -163,16 +164,14 @@ export function useUpdateAppointment() {
             id
           )
           if (hasConflict) {
-            throw new Error(
-              `تداخل با نوبت «${conflictingAppointment?.title ?? ''}» در همین ساعت`
-            )
+            throw new Error(`تداخل با نوبت «${conflictingAppointment?.title ?? ''}» در همین ساعت`)
           }
         }
       }
 
       return repo.update(id, input)
     },
-    onSuccess: (updated) => {
+    onSuccess: updated => {
       if (!updated) return
       void qc.invalidateQueries({ queryKey: appointmentKeys.detail(userId, updated.id) })
       void qc.invalidateQueries({ queryKey: ['appointments', userId] })

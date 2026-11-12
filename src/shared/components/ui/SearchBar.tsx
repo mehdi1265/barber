@@ -27,7 +27,9 @@ export function SearchBar({
 
   return (
     <div className={styles.wrapper} role="search">
-      <span className={styles.icon} aria-hidden="true">🔍</span>
+      <span className={styles.icon} aria-hidden="true">
+        🔍
+      </span>
       <input
         ref={inputRef}
         type="search"

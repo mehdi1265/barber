@@ -9,8 +9,8 @@ export interface VisitServiceInput {
   service_id?: string | null
   service_name_snapshot: string
   quantity?: number
-  unit_price: number         // Toman (display)
-  discount_amount?: number   // Toman (display)
+  unit_price: number // Toman (display)
+  discount_amount?: number // Toman (display)
   duration_minutes?: number | null
 }
 
@@ -18,16 +18,16 @@ export interface CreateVisitInput {
   customer_id?: string | null
   appointment_id?: string | null
   is_quick_sale?: boolean
-  visited_at?: string            // ISO-8601; defaults to now
+  visited_at?: string // ISO-8601; defaults to now
   notes?: string | null
   services: VisitServiceInput[]
 }
 
 export interface AddPaymentInput {
   visit_id: UUID
-  amount: number          // Toman (display)
+  amount: number // Toman (display)
   method: PaymentMethod
-  paid_at?: string        // ISO-8601; defaults to now
+  paid_at?: string // ISO-8601; defaults to now
   note?: string | null
 }
 
@@ -69,10 +69,7 @@ export class VisitRepository {
   }
 
   async findByDay(dateISO: string): Promise<Visit[]> {
-    return this.findByDateRange(
-      `${dateISO}T00:00:00.000Z`,
-      `${dateISO}T23:59:59.999Z`
-    )
+    return this.findByDateRange(`${dateISO}T00:00:00.000Z`, `${dateISO}T23:59:59.999Z`)
   }
 
   async getServicesForVisit(visitId: UUID): Promise<VisitService[]> {
@@ -123,9 +120,15 @@ export class VisitRepository {
         (id, user_id, customer_id, appointment_id, is_quick_sale, visited_at, notes, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
-        visit.id, visit.user_id, visit.customer_id, visit.appointment_id,
+        visit.id,
+        visit.user_id,
+        visit.customer_id,
+        visit.appointment_id,
         visit.is_quick_sale ? 1 : 0,
-        visit.visited_at, visit.notes, visit.created_at, visit.updated_at,
+        visit.visited_at,
+        visit.notes,
+        visit.created_at,
+        visit.updated_at,
       ]
     )
 
@@ -143,11 +146,18 @@ export class VisitRepository {
            created_at, updated_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
-          generateUUID(), this.userId, visit.id,
-          svc.service_id ?? null, svc.service_name_snapshot,
-          qty, unitPrice, discount, lineTotal,
+          generateUUID(),
+          this.userId,
+          visit.id,
+          svc.service_id ?? null,
+          svc.service_name_snapshot,
+          qty,
+          unitPrice,
+          discount,
+          lineTotal,
           svc.duration_minutes ?? null,
-          now, now,
+          now,
+          now,
         ]
       )
     }
@@ -181,9 +191,15 @@ export class VisitRepository {
         (id, user_id, visit_id, amount, method, paid_at, note, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
-        payment.id, payment.user_id, payment.visit_id,
-        payment.amount, payment.method, payment.paid_at,
-        payment.note, payment.created_at, payment.updated_at,
+        payment.id,
+        payment.user_id,
+        payment.visit_id,
+        payment.amount,
+        payment.method,
+        payment.paid_at,
+        payment.note,
+        payment.created_at,
+        payment.updated_at,
       ]
     )
 

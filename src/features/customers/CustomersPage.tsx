@@ -1,9 +1,6 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import {
-  useCustomerSearch,
-  useCreateCustomer,
-} from './customers.hooks'
+import { useCustomerSearch, useCreateCustomer } from './customers.hooks'
 import { CustomerForm } from './CustomerForm'
 import { SearchBar } from '@shared/components/ui/SearchBar'
 import { EmptyState } from '@shared/components/ui/EmptyState'
@@ -42,21 +39,13 @@ export default function CustomersPage() {
       {/* Header */}
       <header className={styles.header}>
         <h1 className={styles.title}>مشتریان</h1>
-        <Button
-          size="sm"
-          onClick={() => setShowAddModal(true)}
-          aria-label="افزودن مشتری جدید"
-        >
+        <Button size="sm" onClick={() => setShowAddModal(true)} aria-label="افزودن مشتری جدید">
           + مشتری
         </Button>
       </header>
 
       {/* Search */}
-      <SearchBar
-        value={query}
-        onChange={setQuery}
-        placeholder="جست‌وجو با نام یا شماره…"
-      />
+      <SearchBar value={query} onChange={setQuery} placeholder="جست‌وجو با نام یا شماره…" />
 
       {/* Count */}
       {!query && customers && customers.length > 0 && (
@@ -68,15 +57,9 @@ export default function CustomersPage() {
         <EmptyState
           icon="👥"
           title={query ? 'نتیجه‌ای پیدا نشد' : 'هنوز مشتری ندارید'}
-          description={
-            query
-              ? 'با عبارت دیگری جست‌وجو کنید'
-              : 'اولین مشتری خود را اضافه کنید'
-          }
+          description={query ? 'با عبارت دیگری جست‌وجو کنید' : 'اولین مشتری خود را اضافه کنید'}
           action={
-            !query ? (
-              <Button onClick={() => setShowAddModal(true)}>+ مشتری جدید</Button>
-            ) : undefined
+            !query ? <Button onClick={() => setShowAddModal(true)}>+ مشتری جدید</Button> : undefined
           }
         />
       ) : (
@@ -85,7 +68,9 @@ export default function CustomersPage() {
             <li key={customer.id} className={styles.listItem}>
               <button
                 className={styles.customerBtn}
-                onClick={() => { void navigate(`/customers/${customer.id}`) }}
+                onClick={() => {
+                  void navigate(`/customers/${customer.id}`)
+                }}
                 aria-label={`مشاهده پرونده ${customer.name}`}
               >
                 {/* Avatar */}
@@ -103,7 +88,9 @@ export default function CustomersPage() {
                   )}
                 </div>
 
-                <span className={styles.arrow} aria-hidden="true">‹</span>
+                <span className={styles.arrow} aria-hidden="true">
+                  ‹
+                </span>
               </button>
             </li>
           ))}
@@ -111,11 +98,7 @@ export default function CustomersPage() {
       )}
 
       {/* Add customer modal */}
-      <Modal
-        isOpen={showAddModal}
-        onClose={() => setShowAddModal(false)}
-        title="مشتری جدید"
-      >
+      <Modal isOpen={showAddModal} onClose={() => setShowAddModal(false)} title="مشتری جدید">
         <CustomerForm
           onSubmit={handleCreate}
           onCancel={() => setShowAddModal(false)}

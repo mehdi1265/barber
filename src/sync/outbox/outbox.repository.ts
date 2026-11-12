@@ -15,10 +15,7 @@ type AddOutboxInput = {
   payload: string
 }
 
-export async function addToOutbox(
-  db: SQLiteDBConnection,
-  input: AddOutboxInput
-): Promise<void> {
+export async function addToOutbox(db: SQLiteDBConnection, input: AddOutboxInput): Promise<void> {
   const id = generateUUID()
   const now = nowISO()
   await db.run(
@@ -29,10 +26,7 @@ export async function addToOutbox(
   )
 }
 
-export async function getPendingOutbox(
-  db: SQLiteDBConnection,
-  limit = 50
-): Promise<SyncOutbox[]> {
+export async function getPendingOutbox(db: SQLiteDBConnection, limit = 50): Promise<SyncOutbox[]> {
   const result = await db.query(
     `SELECT * FROM sync_outbox
      WHERE status IN ('pending', 'failed')
@@ -43,14 +37,11 @@ export async function getPendingOutbox(
   return (result.values as SyncOutbox[]) ?? []
 }
 
-export async function markOutboxDone(
-  db: SQLiteDBConnection,
-  id: UUID
-): Promise<void> {
-  await db.run(
-    `UPDATE sync_outbox SET status = 'done', updated_at = ? WHERE id = ?`,
-    [nowISO(), id]
-  )
+export async function markOutboxDone(db: SQLiteDBConnection, id: UUID): Promise<void> {
+  await db.run(`UPDATE sync_outbox SET status = 'done', updated_at = ? WHERE id = ?`, [
+    nowISO(),
+    id,
+  ])
 }
 
 export async function markOutboxFailed(
@@ -66,21 +57,12 @@ export async function markOutboxFailed(
   )
 }
 
-export async function markOutboxProcessing(
-  db: SQLiteDBConnection,
-  id: UUID
-): Promise<void> {
-  await db.run(
-    `UPDATE sync_outbox SET status = 'processing' WHERE id = ?`,
-    [id]
-  )
+export async function markOutboxProcessing(db: SQLiteDBConnection, id: UUID): Promise<void> {
+  await db.run(`UPDATE sync_outbox SET status = 'processing' WHERE id = ?`, [id])
 }
 
 /** Remove done items older than 7 days to keep the table clean */
 export async function pruneOutbox(db: SQLiteDBConnection): Promise<void> {
   const cutoff = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()
-  await db.run(
-    `DELETE FROM sync_outbox WHERE status = 'done' AND created_at < ?`,
-    [cutoff]
-  )
+  await db.run(`DELETE FROM sync_outbox WHERE status = 'done' AND created_at < ?`, [cutoff])
 }

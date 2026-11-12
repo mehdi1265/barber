@@ -32,10 +32,7 @@ export type Database = {
           updated_at: string
           deleted_at: string | null
         }
-        Insert: Omit<
-          Database['public']['Tables']['customers']['Row'],
-          'created_at' | 'updated_at'
-        >
+        Insert: Omit<Database['public']['Tables']['customers']['Row'], 'created_at' | 'updated_at'>
         Update: Partial<Database['public']['Tables']['customers']['Insert']>
       }
       appointments: {

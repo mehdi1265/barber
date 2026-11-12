@@ -6,8 +6,8 @@ import { addToOutbox } from '@sync/outbox/outbox.repository'
 export interface CreateExpenseInput {
   title: string
   category?: string | null
-  amount: number         // Toman (display)
-  spent_at?: string      // ISO-8601; defaults to today
+  amount: number // Toman (display)
+  spent_at?: string // ISO-8601; defaults to today
   note?: string | null
 }
 
@@ -36,10 +36,7 @@ export class ExpenseRepository {
   }
 
   async findByDay(dateISO: string): Promise<Expense[]> {
-    return this.findByDateRange(
-      `${dateISO}T00:00:00.000Z`,
-      `${dateISO}T23:59:59.999Z`
-    )
+    return this.findByDateRange(`${dateISO}T00:00:00.000Z`, `${dateISO}T23:59:59.999Z`)
   }
 
   async create(input: CreateExpenseInput): Promise<Expense> {
@@ -61,9 +58,15 @@ export class ExpenseRepository {
         (id, user_id, title, category, amount, spent_at, note, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
-        expense.id, expense.user_id, expense.title, expense.category,
-        expense.amount, expense.spent_at, expense.note,
-        expense.created_at, expense.updated_at,
+        expense.id,
+        expense.user_id,
+        expense.title,
+        expense.category,
+        expense.amount,
+        expense.spent_at,
+        expense.note,
+        expense.created_at,
+        expense.updated_at,
       ]
     )
 
@@ -96,7 +99,16 @@ export class ExpenseRepository {
       `UPDATE expenses
        SET title = ?, category = ?, amount = ?, spent_at = ?, note = ?, updated_at = ?
        WHERE id = ? AND user_id = ?`,
-      [updated.title, updated.category, updated.amount, updated.spent_at, updated.note, updated.updated_at, id, this.userId]
+      [
+        updated.title,
+        updated.category,
+        updated.amount,
+        updated.spent_at,
+        updated.note,
+        updated.updated_at,
+        id,
+        this.userId,
+      ]
     )
 
     await addToOutbox(this.db, {
@@ -110,10 +122,7 @@ export class ExpenseRepository {
   }
 
   async delete(id: UUID): Promise<void> {
-    await this.db.run(
-      `DELETE FROM expenses WHERE id = ? AND user_id = ?`,
-      [id, this.userId]
-    )
+    await this.db.run(`DELETE FROM expenses WHERE id = ? AND user_id = ?`, [id, this.userId])
     await addToOutbox(this.db, {
       entity_type: 'expenses',
       entity_id: id,

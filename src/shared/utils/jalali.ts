@@ -6,12 +6,7 @@
  * is only used for display.
  */
 
-import {
-  format as jalaliFormat,
-  startOfWeek,
-  addDays,
-  parseISO,
-} from 'date-fns-jalali'
+import { format as jalaliFormat, startOfWeek, addDays, parseISO } from 'date-fns-jalali'
 
 /** Format a date as Jalali — e.g. "۱۴۰۳/۰۸/۱۵" */
 export function formatJalaliDate(date: Date | string): string {

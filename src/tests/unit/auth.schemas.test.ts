@@ -44,12 +44,20 @@ describe('registerSchema', () => {
   })
 
   it('رمز بدون عدد رد می‌شود', () => {
-    const r = registerSchema.safeParse({ ...valid, password: 'OnlyLetters', confirmPassword: 'OnlyLetters' })
+    const r = registerSchema.safeParse({
+      ...valid,
+      password: 'OnlyLetters',
+      confirmPassword: 'OnlyLetters',
+    })
     expect(r.success).toBe(false)
   })
 
   it('رمز بدون حرف رد می‌شود', () => {
-    const r = registerSchema.safeParse({ ...valid, password: '12345678', confirmPassword: '12345678' })
+    const r = registerSchema.safeParse({
+      ...valid,
+      password: '12345678',
+      confirmPassword: '12345678',
+    })
     expect(r.success).toBe(false)
   })
 

@@ -97,7 +97,9 @@ export function QuickSaleForm({ onSubmit, onCancel, error }: QuickSaleFormProps)
         <select className={styles.select} {...register('customer_id')}>
           <option value="">— بدون مشتری —</option>
           {customers.map(c => (
-            <option key={c.id} value={c.id}>{c.name}</option>
+            <option key={c.id} value={c.id}>
+              {c.name}
+            </option>
           ))}
         </select>
       </div>
@@ -110,11 +112,19 @@ export function QuickSaleForm({ onSubmit, onCancel, error }: QuickSaleFormProps)
         error={errors.notes}
       />
 
-      {error && <div className={styles.error} role="alert">{error}</div>}
+      {error && (
+        <div className={styles.error} role="alert">
+          {error}
+        </div>
+      )}
 
       <div className={styles.actions}>
-        <Button type="button" variant="ghost" onClick={onCancel} fullWidth>انصراف</Button>
-        <Button type="submit" fullWidth loading={isSubmitting}>ثبت فروش</Button>
+        <Button type="button" variant="ghost" onClick={onCancel} fullWidth>
+          انصراف
+        </Button>
+        <Button type="submit" fullWidth loading={isSubmitting}>
+          ثبت فروش
+        </Button>
       </div>
     </form>
   )

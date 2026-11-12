@@ -1,13 +1,8 @@
 import { z } from 'zod'
 
 export const loginSchema = z.object({
-  email: z
-    .string()
-    .min(1, 'ایمیل الزامی است')
-    .email('ایمیل معتبر وارد کنید'),
-  password: z
-    .string()
-    .min(6, 'رمز عبور حداقل ۶ کاراکتر باید باشد'),
+  email: z.string().min(1, 'ایمیل الزامی است').email('ایمیل معتبر وارد کنید'),
+  password: z.string().min(6, 'رمز عبور حداقل ۶ کاراکتر باید باشد'),
 })
 
 export const registerSchema = z
@@ -16,10 +11,7 @@ export const registerSchema = z
       .string()
       .min(2, 'نام حداقل ۲ کاراکتر باید باشد')
       .max(60, 'نام حداکثر ۶۰ کاراکتر می‌تواند باشد'),
-    email: z
-      .string()
-      .min(1, 'ایمیل الزامی است')
-      .email('ایمیل معتبر وارد کنید'),
+    email: z.string().min(1, 'ایمیل الزامی است').email('ایمیل معتبر وارد کنید'),
     password: z
       .string()
       .min(8, 'رمز عبور حداقل ۸ کاراکتر باید باشد')

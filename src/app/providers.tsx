@@ -18,7 +18,7 @@ const queryClient = new QueryClient({
     },
     mutations: {
       // Mutations always write to SQLite first; network errors don't block UI
-      onError: (error) => {
+      onError: error => {
         console.error('[mutation error]', error)
       },
     },
@@ -30,9 +30,5 @@ interface ProvidersProps {
 }
 
 export function Providers({ children }: ProvidersProps) {
-  return (
-    <QueryClientProvider client={queryClient}>
-      {children}
-    </QueryClientProvider>
-  )
+  return <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
 }

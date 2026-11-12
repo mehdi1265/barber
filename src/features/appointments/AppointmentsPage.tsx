@@ -38,10 +38,8 @@ export default function AppointmentsPage() {
     [selectedDate]
   )
 
-  const { data: dayAppointments = [], isLoading: dayLoading } =
-    useAppointmentsByDay(selectedDate)
-  const { data: weekAppointments = [], isLoading: weekLoading } =
-    useAppointmentsByWeek(weekStart)
+  const { data: dayAppointments = [], isLoading: dayLoading } = useAppointmentsByDay(selectedDate)
+  const { data: weekAppointments = [], isLoading: weekLoading } = useAppointmentsByWeek(weekStart)
 
   const createMutation = useCreateAppointment()
 
@@ -90,7 +88,13 @@ export default function AppointmentsPage() {
       <header className={styles.header}>
         <div className={styles.headerTop}>
           <h1 className={styles.title}>تقویم</h1>
-          <Button size="sm" onClick={() => { setFormError(null); setShowAddModal(true) }}>
+          <Button
+            size="sm"
+            onClick={() => {
+              setFormError(null)
+              setShowAddModal(true)
+            }}
+          >
             + نوبت
           </Button>
         </div>
@@ -113,18 +117,24 @@ export default function AppointmentsPage() {
 
         {/* Navigation */}
         <div className={styles.nav}>
-          <button className={styles.navBtn} onClick={goPrev} aria-label="قبلی">‹</button>
+          <button className={styles.navBtn} onClick={goPrev} aria-label="قبلی">
+            ‹
+          </button>
           <div className={styles.dateDisplay}>
             {viewMode === 'day'
               ? formatJalaliDateFull(selectedDate)
               : formatJalaliMonthYear(selectedDate)}
           </div>
-          <button className={styles.navBtn} onClick={goNext} aria-label="بعدی">›</button>
+          <button className={styles.navBtn} onClick={goNext} aria-label="بعدی">
+            ›
+          </button>
         </div>
 
         {/* Today button */}
         {selectedDate !== todayISO() && (
-          <button className={styles.todayBtn} onClick={goToday}>امروز</button>
+          <button className={styles.todayBtn} onClick={goToday}>
+            امروز
+          </button>
         )}
       </header>
 
@@ -164,7 +174,12 @@ export default function AppointmentsPage() {
               icon="📅"
               title="نوبتی برای این روز ندارید"
               action={
-                <Button onClick={() => { setFormError(null); setShowAddModal(true) }}>
+                <Button
+                  onClick={() => {
+                    setFormError(null)
+                    setShowAddModal(true)
+                  }}
+                >
                   + ثبت نوبت
                 </Button>
               }
@@ -175,7 +190,9 @@ export default function AppointmentsPage() {
                 <li key={appt.id} className={styles.apptItem}>
                   <button
                     className={styles.apptCard}
-                    onClick={() => { void navigate(`/appointments/${appt.id}`) }}
+                    onClick={() => {
+                      void navigate(`/appointments/${appt.id}`)
+                    }}
                     aria-label={`نوبت ${appt.title}`}
                   >
                     {/* Time column */}
@@ -195,14 +212,15 @@ export default function AppointmentsPage() {
                         <span className={styles.apptTitle}>{appt.title}</span>
                         <span
                           className={styles.statusBadge}
-                          style={{ background: STATUS_COLORS[appt.status] + '22', color: STATUS_COLORS[appt.status] }}
+                          style={{
+                            background: STATUS_COLORS[appt.status] + '22',
+                            color: STATUS_COLORS[appt.status],
+                          }}
                         >
                           {STATUS_LABELS[appt.status]}
                         </span>
                       </div>
-                      <span className={styles.apptDuration}>
-                        ⏱ {appt.duration_minutes} دقیقه
-                      </span>
+                      <span className={styles.apptDuration}>⏱ {appt.duration_minutes} دقیقه</span>
                     </div>
                   </button>
                 </li>
@@ -213,11 +231,7 @@ export default function AppointmentsPage() {
       )}
 
       {/* Add appointment modal */}
-      <Modal
-        isOpen={showAddModal}
-        onClose={() => setShowAddModal(false)}
-        title="نوبت جدید"
-      >
+      <Modal isOpen={showAddModal} onClose={() => setShowAddModal(false)} title="نوبت جدید">
         <AppointmentForm
           defaultDate={selectedDate}
           onSubmit={handleCreate}

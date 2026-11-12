@@ -56,7 +56,7 @@ export function useCreateService() {
       const repo = await getRepo(userId)
       return repo.create(input)
     },
-    onSuccess: (newService) => {
+    onSuccess: newService => {
       qc.setQueryData<Service[]>(serviceKeys.active(userId), old =>
         old ? [newService, ...old] : [newService]
       )
@@ -75,7 +75,11 @@ export function useUpdateService() {
       input,
     }: {
       id: string
-      input: { name?: string; default_price?: number | null; suggested_duration_minutes?: number | null }
+      input: {
+        name?: string
+        default_price?: number | null
+        suggested_duration_minutes?: number | null
+      }
     }) => {
       const repo = await getRepo(userId)
       return repo.update(id, input)

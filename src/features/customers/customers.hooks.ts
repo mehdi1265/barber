@@ -74,7 +74,7 @@ export function useCreateCustomer() {
       const repo = await getRepo(userId)
       return repo.create(input)
     },
-    onSuccess: (newCustomer) => {
+    onSuccess: newCustomer => {
       // Optimistically update the list cache
       qc.setQueryData<Customer[]>(customerKeys.all(userId), old =>
         old ? [newCustomer, ...old] : [newCustomer]
@@ -118,7 +118,7 @@ export function useDeleteCustomer() {
       await repo.delete(id)
       return id
     },
-    onSuccess: (id) => {
+    onSuccess: id => {
       qc.setQueryData<Customer[]>(customerKeys.all(userId), old =>
         old ? old.filter(c => c.id !== id) : []
       )

@@ -19,15 +19,15 @@ interface SyncStoreState {
   setOffline: () => void
 }
 
-export const useSyncStore = create<SyncStoreState>()((set) => ({
+export const useSyncStore = create<SyncStoreState>()(set => ({
   status: 'idle',
   lastSyncAt: null,
   pendingCount: 0,
   errorMessage: null,
 
-  setStatus: (status) => set({ status, errorMessage: null }),
-  setSynced: (at) => set({ status: 'synced', lastSyncAt: at, pendingCount: 0, errorMessage: null }),
-  setPending: (count) => set({ pendingCount: count }),
-  setError: (msg) => set({ status: 'error', errorMessage: msg }),
+  setStatus: status => set({ status, errorMessage: null }),
+  setSynced: at => set({ status: 'synced', lastSyncAt: at, pendingCount: 0, errorMessage: null }),
+  setPending: count => set({ pendingCount: count }),
+  setError: msg => set({ status: 'error', errorMessage: msg }),
   setOffline: () => set({ status: 'offline' }),
 }))

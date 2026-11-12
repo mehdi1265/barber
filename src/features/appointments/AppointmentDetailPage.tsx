@@ -17,19 +17,19 @@ import type { AppointmentStatus } from '@shared/types'
 import styles from './AppointmentDetailPage.module.css'
 
 const NEXT_STATUS: Record<AppointmentStatus, AppointmentStatus | null> = {
-  reserved:  'confirmed',
+  reserved: 'confirmed',
   confirmed: 'completed',
   completed: null,
   cancelled: null,
-  no_show:   null,
+  no_show: null,
 }
 
 const NEXT_STATUS_LABEL: Record<AppointmentStatus, string> = {
-  reserved:  '✓ تأیید نوبت',
+  reserved: '✓ تأیید نوبت',
   confirmed: '✓ انجام شد',
   completed: '',
   cancelled: '',
-  no_show:   '',
+  no_show: '',
 }
 
 export default function AppointmentDetailPage() {
@@ -69,7 +69,14 @@ export default function AppointmentDetailPage() {
     return (
       <div className={styles.notFound}>
         <p>نوبت پیدا نشد</p>
-        <Button variant="ghost" onClick={() => { void navigate('/appointments') }}>بازگشت</Button>
+        <Button
+          variant="ghost"
+          onClick={() => {
+            void navigate('/appointments')
+          }}
+        >
+          بازگشت
+        </Button>
       </div>
     )
   }
@@ -85,19 +92,21 @@ export default function AppointmentDetailPage() {
         {/* Status banner */}
         <div
           className={styles.statusBanner}
-          style={{ background: STATUS_COLORS[appointment.status] + '18', borderColor: STATUS_COLORS[appointment.status] + '44' }}
+          style={{
+            background: STATUS_COLORS[appointment.status] + '18',
+            borderColor: STATUS_COLORS[appointment.status] + '44',
+          }}
         >
-          <span
-            className={styles.statusText}
-            style={{ color: STATUS_COLORS[appointment.status] }}
-          >
+          <span className={styles.statusText} style={{ color: STATUS_COLORS[appointment.status] }}>
             {STATUS_LABELS[appointment.status]}
           </span>
 
           {nextStatus && (
             <Button
               size="sm"
-              onClick={() => { void handleStatusChange(nextStatus) }}
+              onClick={() => {
+                void handleStatusChange(nextStatus)
+              }}
               loading={updateStatusMutation.isPending}
             >
               {NEXT_STATUS_LABEL[appointment.status]}
@@ -157,18 +166,10 @@ export default function AppointmentDetailPage() {
         {/* Actions */}
         {appointment.status !== 'cancelled' && appointment.status !== 'no_show' && (
           <div className={styles.dangerActions}>
-            <Button
-              variant="ghost"
-              fullWidth
-              onClick={() => setShowNoShowConfirm(true)}
-            >
+            <Button variant="ghost" fullWidth onClick={() => setShowNoShowConfirm(true)}>
               عدم مراجعه
             </Button>
-            <Button
-              variant="danger"
-              fullWidth
-              onClick={() => setShowCancelConfirm(true)}
-            >
+            <Button variant="danger" fullWidth onClick={() => setShowCancelConfirm(true)}>
               لغو نوبت
             </Button>
           </div>
@@ -183,7 +184,9 @@ export default function AppointmentDetailPage() {
         confirmLabel="بله، لغو شود"
         cancelLabel="نه"
         danger
-        onConfirm={() => { void handleCancel() }}
+        onConfirm={() => {
+          void handleCancel()
+        }}
         onCancel={() => setShowCancelConfirm(false)}
       />
 
@@ -195,7 +198,9 @@ export default function AppointmentDetailPage() {
         confirmLabel="بله"
         cancelLabel="انصراف"
         danger
-        onConfirm={() => { void handleNoShow() }}
+        onConfirm={() => {
+          void handleNoShow()
+        }}
         onCancel={() => setShowNoShowConfirm(false)}
       />
     </div>

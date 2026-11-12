@@ -1,10 +1,6 @@
 import { useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import {
-  useCustomer,
-  useUpdateCustomer,
-  useDeleteCustomer,
-} from './customers.hooks'
+import { useCustomer, useUpdateCustomer, useDeleteCustomer } from './customers.hooks'
 import { CustomerForm } from './CustomerForm'
 import { PageHeader } from '@shared/components/ui/PageHeader'
 import { Button } from '@shared/components/ui/Button'
@@ -40,7 +36,12 @@ export default function CustomerDetailPage() {
     return (
       <div className={styles.notFound}>
         <p>مشتری پیدا نشد</p>
-        <Button variant="ghost" onClick={() => { void navigate('/customers') }}>
+        <Button
+          variant="ghost"
+          onClick={() => {
+            void navigate('/customers')
+          }}
+        >
           بازگشت
         </Button>
       </div>
@@ -73,11 +74,7 @@ export default function CustomerDetailPage() {
           <h2 className={styles.customerName}>{customer.name}</h2>
 
           {customer.phone && (
-            <a
-              href={`tel:${customer.phone}`}
-              className={styles.phoneLinkLarge}
-              dir="ltr"
-            >
+            <a href={`tel:${customer.phone}`} className={styles.phoneLinkLarge} dir="ltr">
               📞 {customer.phone}
             </a>
           )}
@@ -102,29 +99,19 @@ export default function CustomerDetailPage() {
         {/* Financial summary placeholder */}
         <section className={styles.section}>
           <h3 className={styles.sectionTitle}>خلاصه مالی</h3>
-          <p className={styles.placeholder}>
-            بعد از ثبت پرداخت، اطلاعات مالی اینجا می‌آید.
-          </p>
+          <p className={styles.placeholder}>بعد از ثبت پرداخت، اطلاعات مالی اینجا می‌آید.</p>
         </section>
 
         {/* Danger zone */}
         <div className={styles.dangerZone}>
-          <Button
-            variant="danger"
-            fullWidth
-            onClick={() => setShowDeleteConfirm(true)}
-          >
+          <Button variant="danger" fullWidth onClick={() => setShowDeleteConfirm(true)}>
             🗑️ حذف پرونده مشتری
           </Button>
         </div>
       </div>
 
       {/* Edit modal */}
-      <Modal
-        isOpen={showEditModal}
-        onClose={() => setShowEditModal(false)}
-        title="ویرایش مشتری"
-      >
+      <Modal isOpen={showEditModal} onClose={() => setShowEditModal(false)} title="ویرایش مشتری">
         <CustomerForm
           defaultValues={customer}
           onSubmit={handleUpdate}
@@ -141,7 +128,9 @@ export default function CustomerDetailPage() {
         confirmLabel="بله، حذف شود"
         cancelLabel="انصراف"
         danger
-        onConfirm={() => { void handleDelete() }}
+        onConfirm={() => {
+          void handleDelete()
+        }}
         onCancel={() => setShowDeleteConfirm(false)}
       />
     </div>

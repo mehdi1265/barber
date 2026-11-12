@@ -1,19 +1,27 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { FinanceRepository } from './finance.repository'
-import { VisitRepository, type CreateVisitInput, type AddPaymentInput } from '@database/repositories/visit.repository'
-import { ExpenseRepository, type CreateExpenseInput } from '@database/repositories/expense.repository'
+import {
+  VisitRepository,
+  type CreateVisitInput,
+  type AddPaymentInput,
+} from '@database/repositories/visit.repository'
+import {
+  ExpenseRepository,
+  type CreateExpenseInput,
+} from '@database/repositories/expense.repository'
 import { useAuthStore } from '@state/auth.store'
 import { getDatabase } from '@database/sqlite/database'
 
 // ── Query keys ────────────────────────────────────────────────────────────────
 
 export const financeKeys = {
-  daily:    (uid: string, date: string)  => ['finance', uid, 'daily', date]  as const,
-  summary:  (uid: string, start: string, end: string) => ['finance', uid, 'summary', start, end] as const,
-  debt:     (uid: string)                => ['finance', uid, 'debt']          as const,
-  expenses: (uid: string, date: string)  => ['finance', uid, 'expenses', date] as const,
-  visits:   (uid: string, date: string)  => ['visits',  uid, 'day', date]     as const,
-  visitDetail: (uid: string, id: string) => ['visits',  uid, id]              as const,
+  daily: (uid: string, date: string) => ['finance', uid, 'daily', date] as const,
+  summary: (uid: string, start: string, end: string) =>
+    ['finance', uid, 'summary', start, end] as const,
+  debt: (uid: string) => ['finance', uid, 'debt'] as const,
+  expenses: (uid: string, date: string) => ['finance', uid, 'expenses', date] as const,
+  visits: (uid: string, date: string) => ['visits', uid, 'day', date] as const,
+  visitDetail: (uid: string, id: string) => ['visits', uid, id] as const,
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -37,7 +45,7 @@ export function useDailyReport(dateISO: string) {
   const userId = useAuthStore(s => s.userId)!
   return useQuery({
     queryKey: financeKeys.daily(userId, dateISO),
-    queryFn:  async () => {
+    queryFn: async () => {
       const repo = await getFinanceRepo(userId)
       return repo.getDailyReport(dateISO)
     },
@@ -50,7 +58,7 @@ export function useFinanceSummary(start: string, end: string) {
   const userId = useAuthStore(s => s.userId)!
   return useQuery({
     queryKey: financeKeys.summary(userId, start, end),
-    queryFn:  async () => {
+    queryFn: async () => {
       const repo = await getFinanceRepo(userId)
       return repo.getSummary(start, end)
     },
@@ -63,7 +71,7 @@ export function useTotalOpenDebt() {
   const userId = useAuthStore(s => s.userId)!
   return useQuery({
     queryKey: financeKeys.debt(userId),
-    queryFn:  async () => {
+    queryFn: async () => {
       const repo = await getFinanceRepo(userId)
       return repo.getTotalOpenDebt()
     },
@@ -78,7 +86,7 @@ export function useVisitsByDay(dateISO: string) {
   const userId = useAuthStore(s => s.userId)!
   return useQuery({
     queryKey: financeKeys.visits(userId, dateISO),
-    queryFn:  async () => {
+    queryFn: async () => {
       const repo = await getVisitRepo(userId)
       return repo.findByDay(dateISO)
     },
@@ -91,7 +99,7 @@ export function useVisitDetail(visitId: string) {
   const userId = useAuthStore(s => s.userId)!
   return useQuery({
     queryKey: financeKeys.visitDetail(userId, visitId),
-    queryFn:  async () => {
+    queryFn: async () => {
       const repo = await getVisitRepo(userId)
       const [visit, services, payments] = await Promise.all([
         repo.findById(visitId),
@@ -110,7 +118,7 @@ export function useExpensesByDay(dateISO: string) {
   const userId = useAuthStore(s => s.userId)!
   return useQuery({
     queryKey: financeKeys.expenses(userId, dateISO),
-    queryFn:  async () => {
+    queryFn: async () => {
       const repo = await getExpenseRepo(userId)
       return repo.findByDay(dateISO)
     },
@@ -130,7 +138,7 @@ export function useCreateVisit() {
       const repo = await getVisitRepo(userId)
       return repo.create(input)
     },
-    onSuccess: (visit) => {
+    onSuccess: visit => {
       const dateISO = visit.visited_at.slice(0, 10)
       void qc.invalidateQueries({ queryKey: financeKeys.visits(userId, dateISO) })
       void qc.invalidateQueries({ queryKey: financeKeys.daily(userId, dateISO) })
@@ -148,7 +156,7 @@ export function useAddPayment() {
       const repo = await getVisitRepo(userId)
       return repo.addPayment(input)
     },
-    onSuccess: (payment) => {
+    onSuccess: payment => {
       const dateISO = payment.paid_at.slice(0, 10)
       void qc.invalidateQueries({ queryKey: financeKeys.visitDetail(userId, payment.visit_id) })
       void qc.invalidateQueries({ queryKey: financeKeys.daily(userId, dateISO) })
@@ -166,7 +174,7 @@ export function useCreateExpense() {
       const repo = await getExpenseRepo(userId)
       return repo.create(input)
     },
-    onSuccess: (expense) => {
+    onSuccess: expense => {
       const dateISO = expense.spent_at.slice(0, 10)
       void qc.invalidateQueries({ queryKey: financeKeys.expenses(userId, dateISO) })
       void qc.invalidateQueries({ queryKey: financeKeys.daily(userId, dateISO) })

@@ -14,9 +14,7 @@ export interface AuthError {
 
 // ── Login ──────────────────────────────────────────────────────────────────────
 
-export async function loginUseCase(
-  data: LoginFormData
-): Promise<{ error: AuthError | null }> {
+export async function loginUseCase(data: LoginFormData): Promise<{ error: AuthError | null }> {
   const { error } = await supabase.auth.signInWithPassword({
     email: data.email,
     password: data.password,

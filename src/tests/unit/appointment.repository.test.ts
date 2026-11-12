@@ -38,8 +38,12 @@ function createMockDb() {
         // findNext
         if (s.includes("status in ('reserved','confirmed')")) {
           const rows = tables.appointments
-            .filter(r => r.user_id === uid && !r.deleted_at &&
-              (r.status === 'reserved' || r.status === 'confirmed'))
+            .filter(
+              r =>
+                r.user_id === uid &&
+                !r.deleted_at &&
+                (r.status === 'reserved' || r.status === 'confirmed')
+            )
             .sort((a, b) => String(a.start_at).localeCompare(String(b.start_at)))
           return { values: rows.slice(0, 1) }
         }
@@ -48,8 +52,11 @@ function createMockDb() {
         if (s.includes('start_at <') && s.includes('end_at >')) {
           const [userId2, excludeId] = params as string[]
           const rows = tables.appointments.filter(
-            r => r.user_id === userId2 && !r.deleted_at &&
-              r.status !== 'cancelled' && r.status !== 'no_show' &&
+            r =>
+              r.user_id === userId2 &&
+              !r.deleted_at &&
+              r.status !== 'cancelled' &&
+              r.status !== 'no_show' &&
               r.id !== excludeId
           )
           return { values: rows }
@@ -77,20 +84,68 @@ function createMockDb() {
       const s = sql.toLowerCase()
 
       if (s.startsWith('insert into appointments')) {
-        const [id, user_id, customer_id, title, start_at, duration_minutes, end_at, status, notes, created_at, updated_at] = params
-        tables.appointments.push({ id, user_id, customer_id, title, start_at, duration_minutes, end_at, status, notes, created_at, updated_at, deleted_at: null })
+        const [
+          id,
+          user_id,
+          customer_id,
+          title,
+          start_at,
+          duration_minutes,
+          end_at,
+          status,
+          notes,
+          created_at,
+          updated_at,
+        ] = params
+        tables.appointments.push({
+          id,
+          user_id,
+          customer_id,
+          title,
+          start_at,
+          duration_minutes,
+          end_at,
+          status,
+          notes,
+          created_at,
+          updated_at,
+          deleted_at: null,
+        })
       }
 
       if (s.startsWith('insert into appointment_services')) {
-        const [id, user_id, appointment_id, service_id, service_name_snapshot, price, duration_minutes, created_at, updated_at] = params
-        tables.appointment_services.push({ id, user_id, appointment_id, service_id, service_name_snapshot, price, duration_minutes, created_at, updated_at })
+        const [
+          id,
+          user_id,
+          appointment_id,
+          service_id,
+          service_name_snapshot,
+          price,
+          duration_minutes,
+          created_at,
+          updated_at,
+        ] = params
+        tables.appointment_services.push({
+          id,
+          user_id,
+          appointment_id,
+          service_id,
+          service_name_snapshot,
+          price,
+          duration_minutes,
+          created_at,
+          updated_at,
+        })
       }
 
       if (s.startsWith('update appointments')) {
         if (s.includes('deleted_at')) {
           const id = params[2] as string
           const row = tables.appointments.find(r => r.id === id)
-          if (row) { row.deleted_at = params[0]; row.status = 'cancelled' }
+          if (row) {
+            row.deleted_at = params[0]
+            row.status = 'cancelled'
+          }
         } else if (s.includes('status =')) {
           const [status, , id] = params as string[]
           const row = tables.appointments.find(r => r.id === id)
@@ -137,21 +192,25 @@ describe('AppointmentRepository', () => {
     })
 
     it('end_at از start_at + duration محاسبه می‌شود', async () => {
-      const appt = await repo.create(makeInput({
-        start_at: '2026-01-15T09:00:00.000Z',
-        duration_minutes: 90,
-      }))
+      const appt = await repo.create(
+        makeInput({
+          start_at: '2026-01-15T09:00:00.000Z',
+          duration_minutes: 90,
+        })
+      )
       const diff = new Date(appt.end_at).getTime() - new Date(appt.start_at).getTime()
       expect(diff).toBe(90 * 60 * 1000)
     })
 
     it('خدمات نوبت در جدول appointment_services ذخیره می‌شوند', async () => {
-      const appt = await repo.create(makeInput({
-        services: [
-          { service_name_snapshot: 'کوتاهی', price: 150000 },
-          { service_name_snapshot: 'ریش', price: 80000 },
-        ],
-      }))
+      const appt = await repo.create(
+        makeInput({
+          services: [
+            { service_name_snapshot: 'کوتاهی', price: 150000 },
+            { service_name_snapshot: 'ریش', price: 80000 },
+          ],
+        })
+      )
       const svcs = db._tables.appointment_services.filter(r => r.appointment_id === appt.id)
       expect(svcs).toHaveLength(2)
     })
@@ -165,10 +224,12 @@ describe('AppointmentRepository', () => {
   describe('checkConflict', () => {
     it('تداخل واقعی تشخیص داده می‌شود', async () => {
       // Create appointment 09:00–10:00
-      await repo.create(makeInput({
-        start_at: '2026-01-15T09:00:00.000Z',
-        duration_minutes: 60,
-      }))
+      await repo.create(
+        makeInput({
+          start_at: '2026-01-15T09:00:00.000Z',
+          duration_minutes: 60,
+        })
+      )
 
       // Check 09:30–10:30 → should conflict
       const { hasConflict } = await repo.checkConflict(
@@ -179,10 +240,12 @@ describe('AppointmentRepository', () => {
     })
 
     it('نوبت‌های متوالی تداخل ندارند', async () => {
-      await repo.create(makeInput({
-        start_at: '2026-01-15T09:00:00.000Z',
-        duration_minutes: 60,
-      }))
+      await repo.create(
+        makeInput({
+          start_at: '2026-01-15T09:00:00.000Z',
+          duration_minutes: 60,
+        })
+      )
 
       // 10:00–11:00 — no overlap
       const { hasConflict } = await repo.checkConflict(
@@ -193,10 +256,12 @@ describe('AppointmentRepository', () => {
     })
 
     it('نوبت لغو‌شده در بررسی تداخل لحاظ نمی‌شود', async () => {
-      const appt = await repo.create(makeInput({
-        start_at: '2026-01-15T09:00:00.000Z',
-        duration_minutes: 60,
-      }))
+      const appt = await repo.create(
+        makeInput({
+          start_at: '2026-01-15T09:00:00.000Z',
+          duration_minutes: 60,
+        })
+      )
       await repo.updateStatus(appt.id, 'cancelled')
 
       const { hasConflict } = await repo.checkConflict(

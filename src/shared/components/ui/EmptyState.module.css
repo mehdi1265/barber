@@ -7,7 +7,18 @@
   text-align: center;
   gap: var(--space-3);
 }
-.icon  { font-size: 3rem; }
-.title { font-size: var(--font-size-lg); color: var(--color-text); }
-.desc  { font-size: var(--font-size-sm); color: var(--color-text-secondary); max-width: 280px; }
-.action { margin-top: var(--space-2); }
+.icon {
+  font-size: 3rem;
+}
+.title {
+  font-size: var(--font-size-lg);
+  color: var(--color-text);
+}
+.desc {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+  max-width: 280px;
+}
+.action {
+  margin-top: var(--space-2);
+}

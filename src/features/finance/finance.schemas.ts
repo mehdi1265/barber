@@ -31,7 +31,7 @@ export const quickSaleSchema = z.object({
     .max(300)
     .optional()
     .nullable()
-    .transform(v => (v?.trim() === '' ? null : v?.trim() ?? null)),
+    .transform(v => (v?.trim() === '' ? null : (v?.trim() ?? null))),
 })
 
 export type QuickSaleFormData = z.infer<typeof quickSaleSchema>
@@ -53,7 +53,7 @@ export const paymentSchema = z.object({
     .max(200)
     .optional()
     .nullable()
-    .transform(v => (v?.trim() === '' ? null : v?.trim() ?? null)),
+    .transform(v => (v?.trim() === '' ? null : (v?.trim() ?? null))),
 })
 
 export type PaymentFormData = z.infer<typeof paymentSchema>
@@ -79,19 +79,19 @@ export const expenseSchema = z.object({
     .max(60)
     .optional()
     .nullable()
-    .transform(v => (v?.trim() === '' ? null : v?.trim() ?? null)),
+    .transform(v => (v?.trim() === '' ? null : (v?.trim() ?? null))),
   note: z
     .string()
     .max(300)
     .optional()
     .nullable()
-    .transform(v => (v?.trim() === '' ? null : v?.trim() ?? null)),
+    .transform(v => (v?.trim() === '' ? null : (v?.trim() ?? null))),
 })
 
 export type ExpenseFormData = z.infer<typeof expenseSchema>
 
 export const PAYMENT_METHOD_LABELS: Record<string, string> = {
-  cash:  'نقد',
-  card:  'کارت',
+  cash: 'نقد',
+  card: 'کارت',
   other: 'سایر',
 }

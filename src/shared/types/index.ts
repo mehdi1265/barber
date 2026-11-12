@@ -8,12 +8,7 @@ export type SyncStatus = 'pending' | 'synced' | 'failed' | 'conflict'
 
 export type PaymentMethod = 'cash' | 'card' | 'other'
 
-export type AppointmentStatus =
-  | 'reserved'
-  | 'confirmed'
-  | 'completed'
-  | 'cancelled'
-  | 'no_show'
+export type AppointmentStatus = 'reserved' | 'confirmed' | 'completed' | 'cancelled' | 'no_show'
 
 export type PhotoType = 'before' | 'after' | 'other'
 

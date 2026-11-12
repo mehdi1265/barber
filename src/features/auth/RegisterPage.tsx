@@ -35,7 +35,9 @@ export default function RegisterPage() {
     <div className={styles.page}>
       <div className={styles.card}>
         <div className={styles.header}>
-          <div className={styles.logo} aria-hidden="true">✂️</div>
+          <div className={styles.logo} aria-hidden="true">
+            ✂️
+          </div>
           <h1 className={styles.title}>ساخت حساب جدید</h1>
           <p className={styles.subtitle}>اطلاعاتت رو وارد کن تا شروع کنیم</p>
         </div>

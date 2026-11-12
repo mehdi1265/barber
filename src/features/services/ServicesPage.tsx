@@ -3,7 +3,12 @@
  * Accessible from Settings page.
  */
 import { useState } from 'react'
-import { useServices, useCreateService, useUpdateService, useDeactivateService } from './services.hooks'
+import {
+  useServices,
+  useCreateService,
+  useUpdateService,
+  useDeactivateService,
+} from './services.hooks'
 import { ServiceForm } from './ServiceForm'
 import { PageHeader } from '@shared/components/ui/PageHeader'
 import { Button } from '@shared/components/ui/Button'
@@ -72,9 +77,7 @@ export default function ServicesPage() {
                 <span className={styles.name}>{service.name}</span>
                 <div className={styles.meta}>
                   {service.default_price != null && (
-                    <span className={styles.price}>
-                      {formatToman(service.default_price)}
-                    </span>
+                    <span className={styles.price}>{formatToman(service.default_price)}</span>
                   )}
                   {service.suggested_duration_minutes != null && (
                     <span className={styles.duration}>
@@ -114,11 +117,7 @@ export default function ServicesPage() {
       </Modal>
 
       {/* Edit modal */}
-      <Modal
-        isOpen={!!editingService}
-        onClose={() => setEditingService(null)}
-        title="ویرایش خدمت"
-      >
+      <Modal isOpen={!!editingService} onClose={() => setEditingService(null)} title="ویرایش خدمت">
         {editingService && (
           <ServiceForm
             defaultValues={editingService}
@@ -137,7 +136,9 @@ export default function ServicesPage() {
         confirmLabel="غیرفعال شود"
         cancelLabel="انصراف"
         danger
-        onConfirm={() => { void handleDeactivate() }}
+        onConfirm={() => {
+          void handleDeactivate()
+        }}
         onCancel={() => setDeactivatingId(null)}
       />
     </div>
