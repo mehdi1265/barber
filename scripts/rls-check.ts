@@ -14,11 +14,13 @@
  *   RLS_USER_B_EMAIL, RLS_USER_B_PASSWORD
  *
  * Usage:
+ *   npm run rls:check -- --preflight                 (validate the setup only)
  *   npm run rls:check
  *   npm run rls:check -- --out supabase/tests/rls-verification.log
  *
  * Both accounts must already exist and be email-confirmed. A successful run
- * prints "RLS verification passed" and exits 0.
+ * prints "RLS verification passed" and exits 0. `--preflight` checks the key,
+ * the schema, and both sign-ins without writing any probe rows.
  */
 
 import { randomUUID } from 'node:crypto'
@@ -87,14 +89,18 @@ function expectNoRows(result: RunResult, message: string, response: Response, la
   expectRows(result, message, rowsOf(response.body))
 }
 
-async function loadEnv(): Promise<Record<string, string>> {
-  let fromFile: Record<string, string> = {}
+async function readEnvFile(path: string): Promise<Record<string, string>> {
   try {
-    fromFile = parseEnvFile(await readFile(resolve(process.cwd(), '.env.local'), 'utf8'))
+    return parseEnvFile(await readFile(path, 'utf8'))
   } catch {
-    // .env.local is optional when the variables come from the shell.
+    return {}
   }
-  return { ...fromFile, ...process.env }
+}
+
+async function loadEnv(): Promise<Record<string, string>> {
+  const fromLocal = await readEnvFile(resolve(process.cwd(), '.env.local'))
+  const fromRls = await readEnvFile(resolve(process.cwd(), '.env.rls.local'))
+  return { ...fromLocal, ...fromRls, ...process.env }
 }
 
 function requireEnv(env: Record<string, string>, name: string): string {
@@ -167,7 +173,10 @@ async function signIn(
         : typeof payload?.msg === 'string'
           ? payload.msg
           : briefError(response.body)
-    throw new Error(`sign-in failed for ${label} (${response.status}): ${reason}`)
+    const hint = /email not confirmed/i.test(reason)
+      ? ' — confirm the account in Supabase Dashboard → Authentication → Users'
+      : ''
+    throw new Error(`sign-in failed for ${label} (${response.status}): ${reason}${hint}`)
   }
 
   const userId =
@@ -525,8 +534,9 @@ async function cleanup(baseUrl: string, key: string, a: Session, seeds: Seeds): 
   log('INFO  probe rows cleaned up (profiles are created by the signup trigger and left intact)')
 }
 
-function parseArgs(argv: string[]): { out: string | null } {
+function parseArgs(argv: string[]): { out: string | null; preflight: boolean } {
   let out: string | null = null
+  let preflight = false
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index]
     if (arg === '--out') {
@@ -534,15 +544,41 @@ function parseArgs(argv: string[]): { out: string | null } {
       if (!value) throw new Error('--out needs a path')
       out = resolve(process.cwd(), value)
       index += 1
+    } else if (arg === '--preflight') {
+      preflight = true
     } else {
       throw new Error(`Unknown argument: ${arg}`)
     }
   }
-  return { out }
+  return { out, preflight }
+}
+
+async function writeReport(out: string): Promise<void> {
+  await mkdir(dirname(out), { recursive: true })
+  await writeFile(out, `${lines.join('\n')}\n`, 'utf8')
+  console.log(`INFO  report written to ${out}`)
+}
+
+async function preflightProfiles(baseUrl: string, key: string, sessions: Session[]): Promise<void> {
+  for (const session of sessions) {
+    const response = await request(
+      baseUrl,
+      key,
+      session.token,
+      `/rest/v1/profiles?select=id&user_id=eq.${session.userId}`
+    )
+    if (response.status !== 200 || rowsOf(response.body).length === 0) {
+      throw new Error(
+        `${session.label} has no profile row (${response.status}): ` +
+          'check that the handle_new_user trigger from 001_initial_schema.sql exists'
+      )
+    }
+    log(`INFO  ${session.label}: profile row present`)
+  }
 }
 
 async function main(): Promise<void> {
-  const { out } = parseArgs(process.argv.slice(2))
+  const { out, preflight } = parseArgs(process.argv.slice(2))
   const env = await loadEnv()
 
   const baseUrl = normalizeBaseUrl(firstEnv(env, ['VITE_SUPABASE_URL', 'SUPABASE_URL']))
@@ -595,6 +631,14 @@ async function main(): Promise<void> {
   if (a.userId === b.userId) throw new Error('user A and user B resolve to the same account')
   log(`INFO  user A: ${a.email} (${a.userId.slice(0, 8)}…)`)
   log(`INFO  user B: ${b.email} (${b.userId.slice(0, 8)}…)`)
+
+  if (preflight) {
+    await preflightProfiles(baseUrl, key, [a, b])
+    log('preflight OK: key, schema, and both accounts authenticate')
+    log('RLS verification was NOT run (drop --preflight for the full two-user check)')
+    if (out) await writeReport(out)
+    return
+  }
 
   const result: RunResult = { failures: [], checks: 0 }
 
@@ -664,11 +708,7 @@ async function main(): Promise<void> {
     log(`RLS verification passed (${result.checks} checks)`)
   }
 
-  if (out) {
-    await mkdir(dirname(out), { recursive: true })
-    await writeFile(out, `${lines.join('\n')}\n`, 'utf8')
-    console.log(`INFO  report written to ${out}`)
-  }
+  if (out) await writeReport(out)
 
   if (result.failures.length > 0) process.exitCode = 1
 }

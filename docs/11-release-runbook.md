@@ -56,24 +56,50 @@ enforces the patterns in CI.
 Policies are owner-only (`auth.uid() = user_id`) on every table, and the storage
 policy matches the first path folder to `auth.uid()`.
 
-| Object                     | User A sees      | User B sees | B updates/deletes A | B inserts owned by A |
-| -------------------------- | ---------------- | ----------- | ------------------- | -------------------- |
-| `profiles`                 | own row only     | 0 rows      | denied              | denied               |
-| `customers`                | own rows only    | 0 rows      | 0 rows affected     | `42501`              |
-| `services`                 | own rows only    | 0 rows      | 0 rows affected     | `42501`              |
-| `appointments`             | own rows only    | 0 rows      | 0 rows affected     | `42501`              |
-| `appointment_services`     | own rows only    | 0 rows      | 0 rows affected     | `42501`              |
-| `visits`                   | own rows only    | 0 rows      | 0 rows affected     | `42501`              |
-| `visit_services`           | own rows only    | 0 rows      | 0 rows affected     | `42501`              |
-| `payments`                 | own rows only    | 0 rows      | 0 rows affected     | `42501`              |
-| `expenses`                 | own rows only    | 0 rows      | 0 rows affected     | `42501`              |
-| `color_formulas`           | own rows only    | 0 rows      | 0 rows affected     | `42501`              |
-| `color_formula_items`      | own rows only    | 0 rows      | 0 rows affected     | `42501`              |
-| `customer_photos`          | own rows only    | 0 rows      | 0 rows affected     | `42501`              |
-| `storage.objects` (bucket) | own folder only  | 0 objects   | n/a                 | `42501`              |
+| Object                     | User A sees     | User B sees | B updates/deletes A | B inserts owned by A |
+| -------------------------- | --------------- | ----------- | ------------------- | -------------------- |
+| `profiles`                 | own row only    | 0 rows      | denied              | denied               |
+| `customers`                | own rows only   | 0 rows      | 0 rows affected     | `42501`              |
+| `services`                 | own rows only   | 0 rows      | 0 rows affected     | `42501`              |
+| `appointments`             | own rows only   | 0 rows      | 0 rows affected     | `42501`              |
+| `appointment_services`     | own rows only   | 0 rows      | 0 rows affected     | `42501`              |
+| `visits`                   | own rows only   | 0 rows      | 0 rows affected     | `42501`              |
+| `visit_services`           | own rows only   | 0 rows      | 0 rows affected     | `42501`              |
+| `payments`                 | own rows only   | 0 rows      | 0 rows affected     | `42501`              |
+| `expenses`                 | own rows only   | 0 rows      | 0 rows affected     | `42501`              |
+| `color_formulas`           | own rows only   | 0 rows      | 0 rows affected     | `42501`              |
+| `color_formula_items`      | own rows only   | 0 rows      | 0 rows affected     | `42501`              |
+| `customer_photos`          | own rows only   | 0 rows      | 0 rows affected     | `42501`              |
+| `storage.objects` (bucket) | own folder only | 0 objects   | n/a                 | `42501`              |
 
 Execute the automated two-user probe after the migrations are applied and two
 real, email-confirmed accounts exist.
+
+**Create the two test accounts.** Email confirmation is enabled (D-20), so a
+self-registered account cannot sign in until its link is clicked. Either path
+works — use two addresses you control, never the owner account:
+
+- _Dashboard (fastest):_ **Authentication → Users → Add user → Create new
+  user**, enter the email and password, and tick **Auto Confirm User**. Repeat
+  for user B.
+- _Through the app:_ register both accounts in the app, then click the
+  confirmation link in each inbox (or use **Authentication → Users → …** to
+  resend/confirm). The `handle_new_user` trigger creates the matching
+  `profiles` row on signup.
+
+**Configure the credentials without committing them.** Create
+`<repo>/.env.rls.local` (already gitignored by `.env.*.local`):
+
+```bash
+RLS_USER_A_EMAIL=a@example.com
+RLS_USER_A_PASSWORD='…'
+RLS_USER_B_EMAIL=b@example.com
+RLS_USER_B_PASSWORD='…'
+```
+
+The runner merges `.env.local` → `.env.rls.local` → process environment, so
+`VITE_SUPABASE_URL`/`VITE_SUPABASE_ANON_KEY` keep coming from `.env.local`.
+Environment variables exported in the shell still win when you prefer that.
 
 **Portable runner (recommended; no psql/DB password).** It signs in through the
 public Auth API and checks PostgREST and Storage behaviour exactly as the app
@@ -82,16 +108,17 @@ cannot SELECT, UPDATE, or DELETE it, and additionally probes forbidden inserts
 plus storage read/write denial. It cleans up and exits non-zero on failure:
 
 ```bash
-export RLS_USER_A_EMAIL=a@example.com   RLS_USER_A_PASSWORD='…'
-export RLS_USER_B_EMAIL=b@example.com   RLS_USER_B_PASSWORD='…'
+npm run rls:check -- --preflight   # key + schema + both sign-ins, writes nothing
 npm run rls:check -- --out supabase/tests/rls-verification.log
 ```
 
-The URL/key come from `.env.local` (or `SUPABASE_URL` /
-`SUPABASE_ANON_KEY`). The runner refuses to print secrets and aborts with a
-clear message when the key is malformed, the schema is missing, or an account
-is not confirmed. Commit the saved log only after checking it contains no
-credentials.
+`--preflight` is the setup check: it aborts with a clear hint when an account
+is unconfirmed, both variables resolve to the same user, or the signup trigger
+left a user without a `profiles` row. Only the second command runs the probes.
+
+The runner refuses to print secrets and aborts with a clear message when the
+key is malformed, the schema is missing, or an account is not confirmed.
+Commit the saved log only after checking it contains no credentials.
 
 **psql alternative (needs `SUPABASE_DB_URL` with the database password):**
 
@@ -104,11 +131,12 @@ psql "$SUPABASE_DB_URL" \
 It seeds one row per table per user inside a transaction, checks both
 directions, prints `RLS verification passed`, then rolls back.
 
-> **Status: not executed yet.** The project URL and publishable key are valid
-> (live `auth/v1/health` returns 200), but migrations are not applied
-> (`profiles`/`customers` return `PGRST205`) and no database password or access
-> token was available. Apply `001`–`003`, create the two test accounts, then run
-> the portable runner and keep the log with the release ticket.
+> **Status: ready to run.** The project URL and publishable key are valid (live
+> `auth/v1/health` returns 200) and `001`–`003` have been applied through the
+> SQL Editor (`profiles`, `customers`, `expenses`, `customer_photos` return
+> `200 []` for anon, i.e. RLS is on and no rows leak). The two-user probe has
+> **not** been executed yet — it runs once the two test accounts and
+> `.env.rls.local` are in place. Save the log with the release ticket.
 
 ## 3.1 Password-reset deep links
 
@@ -118,6 +146,7 @@ build keeps `${origin}/reset-password`.
 
 1. **Patch the generated native projects.** `npm run native:deep-links` (also
    part of `npm run cap:build`) inserts, idempotently:
+
    - Android `AndroidManifest.xml`: a `VIEW`/`BROWSABLE` intent-filter on
      `MainActivity` for `scheme=barberapp`, `host=reset-password`;
    - iOS `Info.plist`: `CFBundleURLTypes` → `CFBundleURLSchemes` =
@@ -129,6 +158,7 @@ build keeps `${origin}/reset-password`.
 
 2. **Allow-list the redirects in Supabase.** Dashboard → Authentication → URL
    Configuration:
+
    - **Site URL:** production web origin (e.g. `https://app.example.com`).
    - **Redirect URLs:** add each exact value:
      - `barberapp://reset-password`
@@ -186,8 +216,8 @@ build keeps `${origin}/reset-password`.
     confirm push protection is not disabled by an organization policy.
   - **Branches:** protect `main` and `develop` — require a pull request, require
     the `Quality gates` check, disallow force pushes and direct deletion.
-  - **Actions → General:** workflow permissions default to *Read repository
-    contents* (the workflow also declares `permissions: contents: read`), and
+  - **Actions → General:** workflow permissions default to _Read repository
+    contents_ (the workflow also declares `permissions: contents: read`), and
     allow only GitHub-authored actions.
 
 ## 5. Backup and restore
