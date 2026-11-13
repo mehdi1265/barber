@@ -85,6 +85,13 @@
 > signed URLs on a restored device. Server migration `003_photo_storage_policy.sql` adds the missing
 > storage UPDATE policy. 222/222 tests across 30 files; gates green. Network/device paths unverified.
 > **Next action: T13 (reminders) when assigned.**
+> **T13 update (2026-11-13):** Reminders are complete locally. A native-only permission banner and
+> a Settings section (enable, 10/30/60-minute lead, permission state) replace the never-called
+> permission helper; the Android channel is high-importance with sound/vibration. Scheduling uses a
+> stable per-appointment ID, now also cancels on completed/no_show, and app start rebuilds upcoming
+> reminders and removes orphans through `ReminderManager`; notification taps open the appointment.
+> 227/227 tests across 31 files; gates green. Real-device firing and routing are unverified.
+> **Next action: T14 (settings/profile/customer history) when assigned.**
 
 
 ---
@@ -475,7 +482,7 @@ Priorities and full acceptance criteria: `audit/DEVELOPMENT_BACKLOG.md`. Require
 | 10 | **T10 Sync pull/recovery (done)** | T09, T04 | New-device restore + conflict policy |
 | 11 | **T11 Color formulas (done)** | T03, T10 | Formula CRUD + item sync |
 | 12 | **T12 Photos (done)** | T09, T10 | Offline capture → storage → restore |
-| 13 | **T13 Notifications** | T06 | Permission + reminder lifecycle |
+| 13 | **T13 Notifications (done)** | T06 | Permission + reminder lifecycle |
 | 14 | **T14 Settings/profile/history** | T05, T09, T07 | Real settings + customer history |
 | 15 | **T15 Global search** | T07, T11 | Cross-entity search |
 | 16 | **T16 Security & release** | All | Secure storage, RLS verification, release |

@@ -133,6 +133,16 @@
 > display, and camera permissions on a real device remain **unverified** (no Supabase project, no
 > device run).
 
+> **Post-T13 update — 2026-11-13:** Appointment reminders are complete locally. A one-time
+> native-only banner explains why notifications are needed and requests permission; Settings has
+> enable/disable, a 10/30/60-minute lead time (default 30), permission state, and re-schedules all
+> upcoming appointments on change. The Android channel uses high importance with sound/vibration.
+> Schedule uses one stable ID per appointment (edits replace, now also completed/no_show cancel),
+> skips past times, and does nothing on web. On app start `ReminderManager` rebuilds reminders for
+> upcoming reserved/confirmed appointments and cancels orphaned ones; tapping a notification opens
+> its appointment detail. 227/227 tests across 31 files; gates green. Real-device firing with the
+> app killed, permission prompts, and deep-link routing remain **unverified**.
+
 ---
 
 ## 1. Repository snapshot

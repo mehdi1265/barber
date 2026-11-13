@@ -415,4 +415,18 @@ export class AppointmentRepository {
     )
     return (result.values?.[0] as Appointment) ?? null
   }
+
+  /** All upcoming appointments that still need a reminder. */
+  async findUpcomingActive(): Promise<Appointment[]> {
+    const now = nowISO()
+    const result = await this.db.query(
+      `SELECT * FROM appointments
+       WHERE user_id = ? AND deleted_at IS NULL
+         AND status IN ('reserved','confirmed')
+         AND start_at >= ?
+       ORDER BY start_at ASC`,
+      [this.userId, now]
+    )
+    return (result.values as Appointment[]) ?? []
+  }
 }

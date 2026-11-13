@@ -62,7 +62,7 @@
 | R-16 | Cancel and delete an appointment (soft delete + outbox tombstone) | P §5, U §4 | P1 | Complete (local) | `AppointmentDetailPage.tsx`, `appointment.repository.ts` (`updateStatus`, `softDelete`) | Device runtime unverified | R-14 | Cancel sets `status='cancelled'`; delete sets `deleted_at` and removes it from lists; both enqueue exactly one outbox row |
 | R-17 | Status lifecycle: reserved → confirmed → completed, plus cancelled / no_show | P §5, W §3 | P0 | Complete (local) | `AppointmentDetailPage.tsx`, `NEXT_STATUS` map; `appointment.repository.ts` (`updateStatus`) | Not runtime-verified on a device | — | Illegal transitions are impossible in the UI; each change persists and appears in lists |
 | R-18 | Walk-in / direct visit without an appointment | P §6, U §5 | P1 | Complete (T07) | `VisitForm.tsx`, `FinancePage.tsx` (Day tab), `visit.repository.ts` (`create`) | — | R-26, R-31 | A walk-in can be recorded in one flow, appears in that day’s visits, and produces a payment/debt record |
-| R-19 | Local notification reminder before an appointment | P §5, U §3 | P1 | Partially implemented | `appointments.hooks.ts` schedules on create and reschedules on edit, cancels on cancel/no_show/delete; `local-notifications.ts` | `requestNotificationPermission` has no caller; completed does not cancel; no Android channel config (T13) | R-11, R-15 | Booking asks permission once, schedules one reminder at the chosen lead time, and editing/cancelling replaces/cancels it |
+| R-19 | Local notification reminder before an appointment | P §5, U §3 | P1 | Complete (local) | `local-notifications.ts` (lead setting, stable ID, Android channel, reschedule-all), `ReminderManager`, `ReminderPermissionBanner`, Settings section, `appointments.hooks.ts`; 5 notification tests | Real-device app-killed run | R-11, R-15 | Booking asks permission once, schedules one reminder at the chosen lead time, and editing/cancelling replaces/cancels it |
 
 ---
 
@@ -121,7 +121,7 @@
 
 | ID | Requirement | Src | Pri | Status | Evidence (files) | Missing work | Deps | Acceptance criteria |
 |---|---|---|---|---|---|---|---|---|
-| R-36 | Request notification permission and schedule/cancel local reminders reliably | P §5, A §8 | P1 | Partially implemented | `local-notifications.ts:17-73`; call sites in `appointments.hooks.ts` | `requestNotificationPermission` has no caller; no channel config; edit does not reschedule (cancel/delete do); errors swallowed; no test | R-19 | On Android 13+, permission is requested contextually; reminders fire with the app closed; cancelling removes the notification |
+| R-36 | Request notification permission and schedule/cancel local reminders reliably | P §5, A §8 | P1 | Complete (local) | `local-notifications.ts`, `ReminderPermissionBanner.tsx`, `ReminderManager.tsx`, Settings reminders section, `preferences.store.ts`; `local-notifications.test.ts` | Real-device permission matrix (granted/denied/app killed) | R-19 | On Android 13+, permission is requested contextually; reminders fire with the app closed; cancelling removes the notification |
 
 ---
 

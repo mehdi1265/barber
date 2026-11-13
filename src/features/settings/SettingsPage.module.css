@@ -90,3 +90,38 @@
 .linkRow:last-child {
   border-bottom: none;
 }
+
+.toggleRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+}
+
+.toggleRow input {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--color-primary);
+}
+
+.leadRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  font-size: var(--font-size-sm);
+}
+
+.select {
+  padding: 6px 10px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  font: inherit;
+  font-size: var(--font-size-sm);
+}
+
+.select:disabled {
+  opacity: 0.6;
+}

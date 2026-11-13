@@ -133,7 +133,9 @@ export function useUpdateAppointmentStatus() {
     mutationFn: async ({ id, status }: { id: string; status: AppointmentStatus }) => {
       const repo = await getRepo(userId)
       await repo.updateStatus(id, status)
-      if (status === 'cancelled') await cancelAppointmentReminder(id)
+      if (status !== 'reserved' && status !== 'confirmed') {
+        await cancelAppointmentReminder(id)
+      }
       return { id, status }
     },
     onSuccess: ({ id }) => {
@@ -158,7 +160,7 @@ export function useUpdateAppointment() {
     },
     onSuccess: async updated => {
       if (!updated) return
-      if (updated.status === 'cancelled' || updated.status === 'no_show') {
+      if (updated.status !== 'reserved' && updated.status !== 'confirmed') {
         await cancelAppointmentReminder(updated.id)
       } else {
         // Scheduling with the same notification id replaces the old reminder.

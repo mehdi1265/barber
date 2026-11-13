@@ -5,11 +5,17 @@
 import '@testing-library/jest-dom'
 import { vi } from 'vitest'
 
+declare global {
+  // Test-only switch so native-only code paths can be exercised.
+  // eslint-disable-next-line no-var
+  var __capacitorNative: boolean | undefined
+}
+
 // Mock Capacitor plugins (not available in jsdom)
 vi.mock('@capacitor/core', () => ({
   Capacitor: {
-    getPlatform: () => 'web',
-    isNativePlatform: () => false,
+    getPlatform: () => (globalThis.__capacitorNative ? 'android' : 'web'),
+    isNativePlatform: () => Boolean(globalThis.__capacitorNative),
   },
 }))
 
@@ -37,8 +43,12 @@ vi.mock('@capacitor-community/sqlite', () => ({
 vi.mock('@capacitor/local-notifications', () => ({
   LocalNotifications: {
     requestPermissions: vi.fn().mockResolvedValue({ display: 'granted' }),
+    checkPermissions: vi.fn().mockResolvedValue({ display: 'granted' }),
+    createChannel: vi.fn().mockResolvedValue(undefined),
+    getPending: vi.fn().mockResolvedValue({ notifications: [] }),
     schedule: vi.fn().mockResolvedValue(undefined),
     cancel: vi.fn().mockResolvedValue(undefined),
+    addListener: vi.fn().mockResolvedValue({ remove: vi.fn() }),
   },
 }))
 

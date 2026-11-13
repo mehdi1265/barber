@@ -9,6 +9,8 @@ import { useAuthStore } from '@state/auth.store'
 import { AccountMenu } from '@features/auth/AccountMenu'
 import { getPendingOutboxCount, logoutUseCase } from '@features/auth/auth.usecases'
 import { SyncManager } from '@sync/components/SyncManager'
+import { ReminderManager } from '@services/notifications/ReminderManager'
+import { ReminderPermissionBanner } from '@services/notifications/ReminderPermissionBanner'
 import { runSync } from '@sync/engine/sync.manager'
 import styles from './AppShell.module.css'
 
@@ -36,6 +38,7 @@ export function AppShell() {
   return (
     <div className={styles.shell} dir="rtl">
       <SyncManager />
+      <ReminderManager />
 
       {user?.email && (
         <AccountMenu
@@ -44,6 +47,8 @@ export function AppShell() {
           getPendingCount={getPendingOutboxCount}
         />
       )}
+
+      <ReminderPermissionBanner />
 
       {/* Top sync indicator */}
       {status === 'syncing' && (

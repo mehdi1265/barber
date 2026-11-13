@@ -484,6 +484,14 @@ T16; migration 003 only adds the missing UPDATE policy. Verified by
 
 **Size:** S · **Priority:** P1 · **Requirements:** R-19, R-36
 
+**Status:** complete locally (2026-11-13). Permission is requested from a one-time Persian banner
+(native only) and from Settings, which also exposes enable/disable and a 10/30/60-minute lead
+(default 30). The Android channel is high importance with sound/vibration. One stable ID per
+appointment means edits replace the reminder; completed/no_show now cancel it too. App start rebuilds
+all upcoming reminders and cancels orphaned notifications, and tapping a notification opens the
+appointment. Verified with a mocked plugin (`local-notifications.test.ts`, 5 tests); a real-device
+matrix (granted/denied, app killed) remains open.
+
 **Read first:** `services/notifications/local-notifications.ts`, `appointment.repository.ts` (status/update/delete), T06.
 
 **Goal:** the owner is reminded of upcoming appointments, reliably.
