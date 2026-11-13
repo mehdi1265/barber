@@ -13,16 +13,24 @@ type AddOutboxInput = {
   entity_id: UUID
   operation: OutboxOperation
   payload: string
+  /** Optional idempotency key; generated when omitted */
+  client_op_id?: string
 }
 
+/**
+ * Enqueues one row for sync.
+ * `client_op_id` is unique; re-enqueueing the same key is a no-op so a
+ * retried user action cannot create duplicate operations.
+ */
 export async function addToOutbox(db: SQLiteDBConnection, input: AddOutboxInput): Promise<void> {
   const id = generateUUID()
   const now = nowISO()
+  const clientOpId = input.client_op_id ?? generateUUID()
   await db.run(
-    `INSERT INTO sync_outbox
-      (id, entity_type, entity_id, operation, payload, created_at, attempt_count, last_error, status)
-     VALUES (?, ?, ?, ?, ?, ?, 0, NULL, 'pending')`,
-    [id, input.entity_type, input.entity_id, input.operation, input.payload, now]
+    `INSERT OR IGNORE INTO sync_outbox
+      (id, entity_type, entity_id, operation, payload, client_op_id, created_at, attempt_count, last_error, status)
+     VALUES (?, ?, ?, ?, ?, ?, ?, 0, NULL, 'pending')`,
+    [id, input.entity_type, input.entity_id, input.operation, input.payload, clientOpId, now]
   )
 }
 
@@ -38,10 +46,11 @@ export async function getPendingOutbox(db: SQLiteDBConnection, limit = 50): Prom
 }
 
 export async function markOutboxDone(db: SQLiteDBConnection, id: UUID): Promise<void> {
-  await db.run(`UPDATE sync_outbox SET status = 'done', updated_at = ? WHERE id = ?`, [
-    nowISO(),
-    id,
-  ])
+  const now = nowISO()
+  await db.run(
+    `UPDATE sync_outbox SET status = 'done', processed_at = ?, last_attempt_at = ? WHERE id = ?`,
+    [now, now, id]
+  )
 }
 
 export async function markOutboxFailed(
@@ -51,18 +60,24 @@ export async function markOutboxFailed(
 ): Promise<void> {
   await db.run(
     `UPDATE sync_outbox
-     SET status = 'failed', last_error = ?, attempt_count = attempt_count + 1
+     SET status = 'failed', last_error = ?, attempt_count = attempt_count + 1, last_attempt_at = ?
      WHERE id = ?`,
-    [error, id]
+    [error, nowISO(), id]
   )
 }
 
 export async function markOutboxProcessing(db: SQLiteDBConnection, id: UUID): Promise<void> {
-  await db.run(`UPDATE sync_outbox SET status = 'processing' WHERE id = ?`, [id])
+  await db.run(`UPDATE sync_outbox SET status = 'processing', last_attempt_at = ? WHERE id = ?`, [
+    nowISO(),
+    id,
+  ])
 }
 
 /** Remove done items older than 7 days to keep the table clean */
 export async function pruneOutbox(db: SQLiteDBConnection): Promise<void> {
   const cutoff = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()
-  await db.run(`DELETE FROM sync_outbox WHERE status = 'done' AND created_at < ?`, [cutoff])
+  await db.run(
+    `DELETE FROM sync_outbox WHERE status = 'done' AND COALESCE(processed_at, created_at) < ?`,
+    [cutoff]
+  )
 }

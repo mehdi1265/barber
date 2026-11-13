@@ -2,6 +2,7 @@ import type { SQLiteDBConnection } from '@capacitor-community/sqlite'
 import type { Customer, UUID } from '@shared/types'
 import { generateUUID, nowISO } from '@shared/utils/helpers'
 import { addToOutbox } from '@sync/outbox/outbox.repository'
+import { withTransaction } from '@database/sqlite/transaction'
 
 type CreateCustomerInput = {
   name: string
@@ -61,25 +62,27 @@ export class CustomerRepository {
       deleted_at: null,
     }
 
-    await this.db.run(
-      `INSERT INTO customers (id, user_id, name, phone, notes, created_at, updated_at, deleted_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, NULL)`,
-      [
-        customer.id,
-        customer.user_id,
-        customer.name,
-        customer.phone,
-        customer.notes,
-        customer.created_at,
-        customer.updated_at,
-      ]
-    )
+    await withTransaction(this.db, async () => {
+      await this.db.run(
+        `INSERT INTO customers (id, user_id, name, phone, notes, created_at, updated_at, deleted_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, NULL)`,
+        [
+          customer.id,
+          customer.user_id,
+          customer.name,
+          customer.phone,
+          customer.notes,
+          customer.created_at,
+          customer.updated_at,
+        ]
+      )
 
-    await addToOutbox(this.db, {
-      entity_type: 'customers',
-      entity_id: customer.id,
-      operation: 'insert',
-      payload: JSON.stringify(customer),
+      await addToOutbox(this.db, {
+        entity_type: 'customers',
+        entity_id: customer.id,
+        operation: 'insert',
+        payload: JSON.stringify(customer),
+      })
     })
 
     return customer
@@ -98,18 +101,20 @@ export class CustomerRepository {
       updated_at: now,
     }
 
-    await this.db.run(
-      `UPDATE customers
-       SET name = ?, phone = ?, notes = ?, updated_at = ?
-       WHERE id = ? AND user_id = ?`,
-      [updated.name, updated.phone, updated.notes, updated.updated_at, id, this.userId]
-    )
+    await withTransaction(this.db, async () => {
+      await this.db.run(
+        `UPDATE customers
+         SET name = ?, phone = ?, notes = ?, updated_at = ?
+         WHERE id = ? AND user_id = ?`,
+        [updated.name, updated.phone, updated.notes, updated.updated_at, id, this.userId]
+      )
 
-    await addToOutbox(this.db, {
-      entity_type: 'customers',
-      entity_id: id,
-      operation: 'update',
-      payload: JSON.stringify(updated),
+      await addToOutbox(this.db, {
+        entity_type: 'customers',
+        entity_id: id,
+        operation: 'update',
+        payload: JSON.stringify(updated),
+      })
     })
 
     return updated
@@ -118,16 +123,18 @@ export class CustomerRepository {
   /** Soft delete — keeps record for sync propagation */
   async delete(id: UUID): Promise<void> {
     const now = nowISO()
-    await this.db.run(
-      `UPDATE customers SET deleted_at = ?, updated_at = ? WHERE id = ? AND user_id = ?`,
-      [now, now, id, this.userId]
-    )
+    await withTransaction(this.db, async () => {
+      await this.db.run(
+        `UPDATE customers SET deleted_at = ?, updated_at = ? WHERE id = ? AND user_id = ?`,
+        [now, now, id, this.userId]
+      )
 
-    await addToOutbox(this.db, {
-      entity_type: 'customers',
-      entity_id: id,
-      operation: 'delete',
-      payload: JSON.stringify({ id, deleted_at: now }),
+      await addToOutbox(this.db, {
+        entity_type: 'customers',
+        entity_id: id,
+        operation: 'delete',
+        payload: JSON.stringify({ id, deleted_at: now }),
+      })
     })
   }
 

@@ -50,6 +50,7 @@
 - **Repro:** `[code]`; `[test]` add an integration test against real SQLite (current mocks interpret SQL loosely and miss it).
 - **Fix:** in T03 either add `processed_at`/`updated_at` via migration `002`, or change the SQL. Prefer `processed_at` + `last_attempt_at` for backoff.
 - **Verify:** test that `markOutboxDone`/`markOutboxFailed` execute against real SQLite and update expected columns.
+- **Status: resolved in T03 (2026-11-13).** Migration `002_outbox_hardening.sql` adds `processed_at`, `last_attempt_at`, `client_op_id`; the `markOutbox*` methods write those columns and `attempt_count`/`last_error`. Covered by `outbox.integration.test.ts` against real SQLite.
 
 ### BUG-05 — Local-day boundary uses UTC
 
@@ -66,6 +67,7 @@
 - **Repro:** `[code]`; simulate by throwing after the first `run()` in a test.
 - **Fix:** T03 — add `withTransaction(db, fn)` and wrap every multi-table write; enqueue all outbox rows inside the same transaction.
 - **Verify:** injected failure at each step leaves zero rows; success leaves all rows.
+- **Status: resolved in T03 (2026-11-13).** `src/database/sqlite/transaction.ts` (non-reentrant) wraps appointment/visit/customer/service/expense/profile writes. `appointment.repository.test.ts` injects a failure at steps 1–8 and asserts zero parent/child/outbox rows.
 
 ### BUG-07 — Child rows are never enqueued for sync
 
@@ -74,6 +76,7 @@
 - **Repro:** `[code]`.
 - **Fix:** T03 — enqueue child rows (operation + full payload) or embed them in the parent payload and have the push layer upsert children; define the rule in `IMPLEMENTATION_DRAFT.md` and test it.
 - **Verify:** outbox row count equals 1 parent + N children for a 3-service appointment; simulated pull reconstructs identical totals.
+- **Status: resolved in T03 (2026-11-13).** Chosen rule: **one outbox row per row**, `entity_type` = table name (see `docs/10-decisions-log.md` D-24). A 3-service appointment produces 4 outbox rows (`appointments` + 3× `appointment_services`); visit create is covered by `write-integrity.integration.test.ts`. `color_formula_items` follows the same rule when T11 adds the table.
 
 ### BUG-08 — The outbox has no consumer (nothing ever syncs)
 
@@ -131,7 +134,7 @@
 | BUG-20 | Session token and DB passphrase live in `localStorage` | `client.ts:18-26`; `database.ts:24-46` | Extractable on device; contradicts R-43 intent | T16: Capacitor SecureStorage/Keychain |
 | BUG-21 | Over-payment is accepted | `visit.repository.ts:165-198` has no sum check | Paid > total; reports show negative debt | T07: validate against line totals inside transaction |
 | BUG-22 | Double submit can duplicate records | create mutations have no disable/idempotency; `AppointmentForm` submit not guarded | Duplicate appointments/customers | T06/T07: disable while pending + optional client op id |
-| BUG-23 | Expenses are hard-deleted with no tombstone | `expense.repository.ts:112-123`; server has no `deleted_at` | Deletion cannot propagate to other devices | T03/T10: outbox delete with full payload; define restore semantics |
+| BUG-23 | Expenses are hard-deleted with no tombstone | `expense.repository.ts:112-123`; server has no `deleted_at` | Deletion cannot propagate to other devices | **Local capture resolved in T03 (2026-11-13)** — `delete` enqueues the full previous row before deleting. Server-side restore/sync remains T10 |
 | BUG-24 | Cloud migration is not idempotent; bucket and UPDATE policy missing | `001_initial_schema.sql:53-54,57,71,93-94,249-252,255-265` | Re-run fails; uploads error; overwrite denied | T16: `IF NOT EXISTS`, `DROP POLICY IF EXISTS`, create bucket, add UPDATE policy |
 | BUG-25 | Server `updated_at` trigger overrides client timestamps | `001_initial_schema.sql:267-289` | LWW conflict resolution based on client time is invalid | T10: define policy using server time + op ordering |
 | BUG-26 | Profile push will conflict with the signup trigger | server trigger inserts profile; client queues `insert` (`profile.repository.ts:51-56`) | First sync of a new account fails on duplicate key | T09: upsert profiles; integration test |
@@ -179,7 +182,7 @@ These green signals are misleading and must not be used as evidence that the app
 | TD-02 | Lint is unrunnable and the baseline is red | `package.json:9` (`--ext`); 53 errors/16 warnings | No static safety net | M | T01 |
 | TD-03 | Formatting baseline never applied | 92 files fail Prettier | Noisy diffs; reviewer fatigue | S | T01 |
 | TD-04 | `type-check` is vacuous | root tsconfig `files: []` | False confidence | S | T01 |
-| TD-05 | Tests mock SQL instead of executing it | `src/tests/unit/*.repository.test.ts:7-109` | SQL defects (BUG-04) pass tests | M | T01/T03 |
+| TD-05 | Tests mock SQL instead of executing it | `src/tests/unit/*.repository.test.ts:7-109` | SQL defects (BUG-04) pass tests | M | T01/T03 — **partially resolved:** appointment/visit/expense/outbox now run on a real SQLite harness (`src/tests/helpers/sqlite-harness.ts`); customer/service still use mocks |
 | TD-06 | No coverage policy; finance untested | `vitest.config.ts`; no finance tests | Money logic unverified | M | T01/T07 |
 | TD-07 | Day-range logic duplicated in 4 places | appointment/visit/expense/finance | Bugs fixed in one place only | S | T04 |
 | TD-08 | No application/use-case layer | hooks call repositories directly | Invariants scattered; hard to transactionalise | L | T03 |
@@ -198,6 +201,8 @@ These green signals are misleading and must not be used as evidence that the app
 
 **T01 status (2026-11-12):** TD-01–TD-04, TD-13, and TD-20 are resolved locally. TD-05, TD-06, and the dead-code cleanup in TD-11 remain open.
 
+**T03 status (2026-11-13):** TD-05 is partially resolved (core repositories execute real SQL). TD-08/TD-09/TD-11 remain open. TD-06 still waits on the finance test suite in T04.
+
 ---
 
 ## 6. Fix order constraints
@@ -209,4 +214,4 @@ These green signals are misleading and must not be used as evidence that the app
 - BUG-25/BUG-26 must be resolved as part of the sync design, not after it (T10/T09).
 - BUG-24/BUG-20 are release blockers (T16).
 
-No P0 bug is marked "fixed" in this audit. Nothing was changed.
+Resolved locally as of 2026-11-13: BUG-04, BUG-06, BUG-07 (T03), plus the local-capture half of BUG-23. Everything else above remains open.

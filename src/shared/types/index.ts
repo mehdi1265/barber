@@ -153,6 +153,12 @@ export interface SyncOutbox {
   attempt_count: number
   last_error: string | null
   status: OutboxStatus
+  /** Idempotency key derived from the user action; unique per outbox row */
+  client_op_id: string | null
+  /** Set when the sync engine successfully pushed the row */
+  processed_at: string | null
+  /** Last time the sync engine tried to push the row */
+  last_attempt_at: string | null
 }
 
 // ---- Financial report types ----

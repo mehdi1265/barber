@@ -8,6 +8,7 @@ import {
   tomanToStorage,
 } from '@shared/utils/helpers'
 import { addToOutbox } from '@sync/outbox/outbox.repository'
+import { withTransaction } from '@database/sqlite/transaction'
 
 // ── Input types ───────────────────────────────────────────────────────────────
 
@@ -133,6 +134,7 @@ export class AppointmentRepository {
   async create(input: CreateAppointmentInput): Promise<Appointment> {
     const now = nowISO()
     const endAt = calcEndAt(input.start_at, input.duration_minutes)
+    const clientOpId = generateUUID()
 
     const appointment: Appointment = {
       id: generateUUID(),
@@ -149,51 +151,75 @@ export class AppointmentRepository {
       deleted_at: null,
     }
 
-    await this.db.run(
-      `INSERT INTO appointments
-        (id, user_id, customer_id, title, start_at, duration_minutes, end_at, status, notes, created_at, updated_at, deleted_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)`,
-      [
-        appointment.id,
-        appointment.user_id,
-        appointment.customer_id,
-        appointment.title,
-        appointment.start_at,
-        appointment.duration_minutes,
-        appointment.end_at,
-        appointment.status,
-        appointment.notes,
-        appointment.created_at,
-        appointment.updated_at,
-      ]
-    )
+    const services: AppointmentService[] = input.services.map(svc => ({
+      id: generateUUID(),
+      user_id: this.userId,
+      appointment_id: appointment.id,
+      service_id: svc.service_id ?? null,
+      service_name_snapshot: svc.service_name_snapshot,
+      price: tomanToStorage(svc.price),
+      duration_minutes: svc.duration_minutes ?? null,
+      created_at: now,
+      updated_at: now,
+    }))
 
-    // Insert services
-    for (const svc of input.services) {
-      const svcId = generateUUID()
+    await withTransaction(this.db, async () => {
       await this.db.run(
-        `INSERT INTO appointment_services
-          (id, user_id, appointment_id, service_id, service_name_snapshot, price, duration_minutes, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO appointments
+          (id, user_id, customer_id, title, start_at, duration_minutes, end_at, status, notes, created_at, updated_at, deleted_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)`,
         [
-          svcId,
-          this.userId,
           appointment.id,
-          svc.service_id ?? null,
-          svc.service_name_snapshot,
-          tomanToStorage(svc.price),
-          svc.duration_minutes ?? null,
-          now,
-          now,
+          appointment.user_id,
+          appointment.customer_id,
+          appointment.title,
+          appointment.start_at,
+          appointment.duration_minutes,
+          appointment.end_at,
+          appointment.status,
+          appointment.notes,
+          appointment.created_at,
+          appointment.updated_at,
         ]
       )
-    }
 
-    await addToOutbox(this.db, {
-      entity_type: 'appointments',
-      entity_id: appointment.id,
-      operation: 'insert',
-      payload: JSON.stringify(appointment),
+      for (const svc of services) {
+        await this.db.run(
+          `INSERT INTO appointment_services
+            (id, user_id, appointment_id, service_id, service_name_snapshot, price, duration_minutes, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [
+            svc.id,
+            svc.user_id,
+            svc.appointment_id,
+            svc.service_id,
+            svc.service_name_snapshot,
+            svc.price,
+            svc.duration_minutes,
+            svc.created_at,
+            svc.updated_at,
+          ]
+        )
+      }
+
+      await addToOutbox(this.db, {
+        entity_type: 'appointments',
+        entity_id: appointment.id,
+        operation: 'insert',
+        payload: JSON.stringify(appointment),
+        client_op_id: clientOpId,
+      })
+
+      // One outbox row per child row, so each service is synced independently.
+      for (const svc of services) {
+        await addToOutbox(this.db, {
+          entity_type: 'appointment_services',
+          entity_id: svc.id,
+          operation: 'insert',
+          payload: JSON.stringify(svc),
+          client_op_id: `${clientOpId}:${svc.id}`,
+        })
+      }
     })
 
     return appointment
@@ -201,15 +227,17 @@ export class AppointmentRepository {
 
   async updateStatus(id: UUID, status: AppointmentStatus): Promise<void> {
     const now = nowISO()
-    await this.db.run(
-      `UPDATE appointments SET status = ?, updated_at = ? WHERE id = ? AND user_id = ?`,
-      [status, now, id, this.userId]
-    )
-    await addToOutbox(this.db, {
-      entity_type: 'appointments',
-      entity_id: id,
-      operation: 'update',
-      payload: JSON.stringify({ id, status, updated_at: now }),
+    await withTransaction(this.db, async () => {
+      await this.db.run(
+        `UPDATE appointments SET status = ?, updated_at = ? WHERE id = ? AND user_id = ?`,
+        [status, now, id, this.userId]
+      )
+      await addToOutbox(this.db, {
+        entity_type: 'appointments',
+        entity_id: id,
+        operation: 'update',
+        payload: JSON.stringify({ id, status, updated_at: now }),
+      })
     })
   }
 
@@ -234,30 +262,32 @@ export class AppointmentRepository {
       updated_at: now,
     }
 
-    await this.db.run(
-      `UPDATE appointments
-       SET customer_id = ?, title = ?, start_at = ?, duration_minutes = ?, end_at = ?,
-           status = ?, notes = ?, updated_at = ?
-       WHERE id = ? AND user_id = ?`,
-      [
-        updated.customer_id,
-        updated.title,
-        updated.start_at,
-        updated.duration_minutes,
-        updated.end_at,
-        updated.status,
-        updated.notes,
-        updated.updated_at,
-        id,
-        this.userId,
-      ]
-    )
+    await withTransaction(this.db, async () => {
+      await this.db.run(
+        `UPDATE appointments
+         SET customer_id = ?, title = ?, start_at = ?, duration_minutes = ?, end_at = ?,
+             status = ?, notes = ?, updated_at = ?
+         WHERE id = ? AND user_id = ?`,
+        [
+          updated.customer_id,
+          updated.title,
+          updated.start_at,
+          updated.duration_minutes,
+          updated.end_at,
+          updated.status,
+          updated.notes,
+          updated.updated_at,
+          id,
+          this.userId,
+        ]
+      )
 
-    await addToOutbox(this.db, {
-      entity_type: 'appointments',
-      entity_id: id,
-      operation: 'update',
-      payload: JSON.stringify(updated),
+      await addToOutbox(this.db, {
+        entity_type: 'appointments',
+        entity_id: id,
+        operation: 'update',
+        payload: JSON.stringify(updated),
+      })
     })
 
     return updated
@@ -265,16 +295,18 @@ export class AppointmentRepository {
 
   async softDelete(id: UUID): Promise<void> {
     const now = nowISO()
-    await this.db.run(
-      `UPDATE appointments SET deleted_at = ?, updated_at = ?, status = 'cancelled'
-       WHERE id = ? AND user_id = ?`,
-      [now, now, id, this.userId]
-    )
-    await addToOutbox(this.db, {
-      entity_type: 'appointments',
-      entity_id: id,
-      operation: 'delete',
-      payload: JSON.stringify({ id, deleted_at: now }),
+    await withTransaction(this.db, async () => {
+      await this.db.run(
+        `UPDATE appointments SET deleted_at = ?, updated_at = ?, status = 'cancelled'
+         WHERE id = ? AND user_id = ?`,
+        [now, now, id, this.userId]
+      )
+      await addToOutbox(this.db, {
+        entity_type: 'appointments',
+        entity_id: id,
+        operation: 'delete',
+        payload: JSON.stringify({ id, deleted_at: now }),
+      })
     })
   }
 

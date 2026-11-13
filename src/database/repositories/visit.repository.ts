@@ -2,6 +2,7 @@ import type { SQLiteDBConnection } from '@capacitor-community/sqlite'
 import type { Visit, VisitService, Payment, UUID, PaymentMethod } from '@shared/types'
 import { generateUUID, nowISO, tomanToStorage } from '@shared/utils/helpers'
 import { addToOutbox } from '@sync/outbox/outbox.repository'
+import { withTransaction } from '@database/sqlite/transaction'
 
 // ── Input types ───────────────────────────────────────────────────────────────
 
@@ -103,6 +104,7 @@ export class VisitRepository {
 
   async create(input: CreateVisitInput): Promise<Visit> {
     const now = nowISO()
+    const clientOpId = generateUUID()
     const visit: Visit = {
       id: generateUUID(),
       user_id: this.userId,
@@ -115,58 +117,85 @@ export class VisitRepository {
       updated_at: now,
     }
 
-    await this.db.run(
-      `INSERT INTO visits
-        (id, user_id, customer_id, appointment_id, is_quick_sale, visited_at, notes, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [
-        visit.id,
-        visit.user_id,
-        visit.customer_id,
-        visit.appointment_id,
-        visit.is_quick_sale ? 1 : 0,
-        visit.visited_at,
-        visit.notes,
-        visit.created_at,
-        visit.updated_at,
-      ]
-    )
-
-    // Insert visit services
-    for (const svc of input.services) {
-      const qty = svc.quantity ?? 1
+    const services: VisitService[] = input.services.map(svc => {
+      const quantity = svc.quantity ?? 1
       const unitPrice = tomanToStorage(svc.unit_price)
       const discount = tomanToStorage(svc.discount_amount ?? 0)
-      const lineTotal = qty * unitPrice - discount
+      return {
+        id: generateUUID(),
+        user_id: this.userId,
+        visit_id: visit.id,
+        service_id: svc.service_id ?? null,
+        service_name_snapshot: svc.service_name_snapshot,
+        quantity,
+        unit_price: unitPrice,
+        discount_amount: discount,
+        line_total: quantity * unitPrice - discount,
+        duration_minutes: svc.duration_minutes ?? null,
+        created_at: now,
+        updated_at: now,
+      }
+    })
 
+    await withTransaction(this.db, async () => {
       await this.db.run(
-        `INSERT INTO visit_services
-          (id, user_id, visit_id, service_id, service_name_snapshot,
-           quantity, unit_price, discount_amount, line_total, duration_minutes,
-           created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO visits
+          (id, user_id, customer_id, appointment_id, is_quick_sale, visited_at, notes, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
-          generateUUID(),
-          this.userId,
           visit.id,
-          svc.service_id ?? null,
-          svc.service_name_snapshot,
-          qty,
-          unitPrice,
-          discount,
-          lineTotal,
-          svc.duration_minutes ?? null,
-          now,
-          now,
+          visit.user_id,
+          visit.customer_id,
+          visit.appointment_id,
+          visit.is_quick_sale ? 1 : 0,
+          visit.visited_at,
+          visit.notes,
+          visit.created_at,
+          visit.updated_at,
         ]
       )
-    }
 
-    await addToOutbox(this.db, {
-      entity_type: 'visits',
-      entity_id: visit.id,
-      operation: 'insert',
-      payload: JSON.stringify(visit),
+      for (const svc of services) {
+        await this.db.run(
+          `INSERT INTO visit_services
+            (id, user_id, visit_id, service_id, service_name_snapshot,
+             quantity, unit_price, discount_amount, line_total, duration_minutes,
+             created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [
+            svc.id,
+            svc.user_id,
+            svc.visit_id,
+            svc.service_id,
+            svc.service_name_snapshot,
+            svc.quantity,
+            svc.unit_price,
+            svc.discount_amount,
+            svc.line_total,
+            svc.duration_minutes,
+            svc.created_at,
+            svc.updated_at,
+          ]
+        )
+      }
+
+      await addToOutbox(this.db, {
+        entity_type: 'visits',
+        entity_id: visit.id,
+        operation: 'insert',
+        payload: JSON.stringify(visit),
+        client_op_id: clientOpId,
+      })
+
+      for (const svc of services) {
+        await addToOutbox(this.db, {
+          entity_type: 'visit_services',
+          entity_id: svc.id,
+          operation: 'insert',
+          payload: JSON.stringify(svc),
+          client_op_id: `${clientOpId}:${svc.id}`,
+        })
+      }
     })
 
     return visit
@@ -186,28 +215,30 @@ export class VisitRepository {
       updated_at: now,
     }
 
-    await this.db.run(
-      `INSERT INTO payments
-        (id, user_id, visit_id, amount, method, paid_at, note, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [
-        payment.id,
-        payment.user_id,
-        payment.visit_id,
-        payment.amount,
-        payment.method,
-        payment.paid_at,
-        payment.note,
-        payment.created_at,
-        payment.updated_at,
-      ]
-    )
+    await withTransaction(this.db, async () => {
+      await this.db.run(
+        `INSERT INTO payments
+          (id, user_id, visit_id, amount, method, paid_at, note, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          payment.id,
+          payment.user_id,
+          payment.visit_id,
+          payment.amount,
+          payment.method,
+          payment.paid_at,
+          payment.note,
+          payment.created_at,
+          payment.updated_at,
+        ]
+      )
 
-    await addToOutbox(this.db, {
-      entity_type: 'payments',
-      entity_id: payment.id,
-      operation: 'insert',
-      payload: JSON.stringify(payment),
+      await addToOutbox(this.db, {
+        entity_type: 'payments',
+        entity_id: payment.id,
+        operation: 'insert',
+        payload: JSON.stringify(payment),
+      })
     })
 
     return payment

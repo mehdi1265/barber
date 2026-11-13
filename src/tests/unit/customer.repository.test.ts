@@ -104,10 +104,14 @@ function createMockDb() {
         }
       }
 
-      if (sqlLower.startsWith('insert into sync_outbox')) {
+      if (sqlLower.includes('sync_outbox')) {
         tables.sync_outbox.push({ id: params[0] })
       }
     }),
+
+    beginTransaction: vi.fn(),
+    commitTransaction: vi.fn(),
+    rollbackTransaction: vi.fn(),
 
     _tables: tables,
   }

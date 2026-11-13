@@ -2,6 +2,7 @@ import type { SQLiteDBConnection } from '@capacitor-community/sqlite'
 import type { Service, UUID } from '@shared/types'
 import { generateUUID, nowISO, tomanToStorage } from '@shared/utils/helpers'
 import { addToOutbox } from '@sync/outbox/outbox.repository'
+import { withTransaction } from '@database/sqlite/transaction'
 
 type CreateServiceInput = {
   name: string
@@ -62,26 +63,28 @@ export class ServiceRepository {
       updated_at: now,
     }
 
-    await this.db.run(
-      `INSERT INTO services
-        (id, user_id, name, default_price, suggested_duration_minutes, is_active, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, 1, ?, ?)`,
-      [
-        service.id,
-        service.user_id,
-        service.name,
-        service.default_price,
-        service.suggested_duration_minutes,
-        service.created_at,
-        service.updated_at,
-      ]
-    )
+    await withTransaction(this.db, async () => {
+      await this.db.run(
+        `INSERT INTO services
+          (id, user_id, name, default_price, suggested_duration_minutes, is_active, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, 1, ?, ?)`,
+        [
+          service.id,
+          service.user_id,
+          service.name,
+          service.default_price,
+          service.suggested_duration_minutes,
+          service.created_at,
+          service.updated_at,
+        ]
+      )
 
-    await addToOutbox(this.db, {
-      entity_type: 'services',
-      entity_id: service.id,
-      operation: 'insert',
-      payload: JSON.stringify(service),
+      await addToOutbox(this.db, {
+        entity_type: 'services',
+        entity_id: service.id,
+        operation: 'insert',
+        payload: JSON.stringify(service),
+      })
     })
 
     return service
@@ -109,26 +112,28 @@ export class ServiceRepository {
       updated_at: now,
     }
 
-    await this.db.run(
-      `UPDATE services
-       SET name = ?, default_price = ?, suggested_duration_minutes = ?, is_active = ?, updated_at = ?
-       WHERE id = ? AND user_id = ?`,
-      [
-        updated.name,
-        updated.default_price,
-        updated.suggested_duration_minutes,
-        updated.is_active ? 1 : 0,
-        updated.updated_at,
-        id,
-        this.userId,
-      ]
-    )
+    await withTransaction(this.db, async () => {
+      await this.db.run(
+        `UPDATE services
+         SET name = ?, default_price = ?, suggested_duration_minutes = ?, is_active = ?, updated_at = ?
+         WHERE id = ? AND user_id = ?`,
+        [
+          updated.name,
+          updated.default_price,
+          updated.suggested_duration_minutes,
+          updated.is_active ? 1 : 0,
+          updated.updated_at,
+          id,
+          this.userId,
+        ]
+      )
 
-    await addToOutbox(this.db, {
-      entity_type: 'services',
-      entity_id: id,
-      operation: 'update',
-      payload: JSON.stringify(updated),
+      await addToOutbox(this.db, {
+        entity_type: 'services',
+        entity_id: id,
+        operation: 'update',
+        payload: JSON.stringify(updated),
+      })
     })
 
     return updated
@@ -137,16 +142,18 @@ export class ServiceRepository {
   /** Deactivate instead of delete — preserves snapshot history */
   async deactivate(id: UUID): Promise<void> {
     const now = nowISO()
-    await this.db.run(
-      `UPDATE services SET is_active = 0, updated_at = ? WHERE id = ? AND user_id = ?`,
-      [now, id, this.userId]
-    )
+    await withTransaction(this.db, async () => {
+      await this.db.run(
+        `UPDATE services SET is_active = 0, updated_at = ? WHERE id = ? AND user_id = ?`,
+        [now, id, this.userId]
+      )
 
-    await addToOutbox(this.db, {
-      entity_type: 'services',
-      entity_id: id,
-      operation: 'update',
-      payload: JSON.stringify({ id, is_active: false, updated_at: now }),
+      await addToOutbox(this.db, {
+        entity_type: 'services',
+        entity_id: id,
+        operation: 'update',
+        payload: JSON.stringify({ id, is_active: false, updated_at: now }),
+      })
     })
   }
 }

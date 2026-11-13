@@ -24,6 +24,18 @@
 > generated and synced (both git-ignored; no device build on this Windows machine). Native runtime,
 > device checks, and the first remote CI run remain **unverified**.
 
+> **Post-T03 update — 2026-11-13:** Data integrity is in place. Every multi-statement repository
+> write runs inside `withTransaction` (`src/database/sqlite/transaction.ts`, non-reentrant), migration
+> `002_outbox_hardening.sql` adds `processed_at`, `last_attempt_at`, `client_op_id` + unique index,
+> and `markOutboxDone/Failed/Processing` now target real columns. Appointments and visits enqueue one
+> outbox row per child row (parent + `appointment_services`/`visit_services`), and expense deletes
+> write a tombstone carrying the full deleted row. Repository/outbox tests now execute against real
+> SQLite via Node's `node:sqlite` (99/99 tests). Verified in a production build in the browser:
+> migration `002` applied once and was skipped on reload (login renders, no DB banner). The automated
+> browser page was hidden, which stalls Stencil's rAF hydration; verification required a temporary
+> rAF shim, so this is a harness artifact, not an app change. Native runtime, sync push (T09), and
+> the first remote CI run remain **unverified**.
+
 ---
 
 ## 1. Repository snapshot

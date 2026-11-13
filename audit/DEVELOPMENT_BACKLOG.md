@@ -127,6 +127,13 @@ Tickets are numbered in **recommended execution order**. Dependencies are hard p
 
 **Read first:** `outbox.repository.ts` (all), `appointment.repository.ts`, `visit.repository.ts`, `expense.repository.ts`, `customer.repository.ts`, `service.repository.ts`, `profile.repository.ts`, `001_initial.sql:203-216`, `docs/06-database-api-design.md §3`.
 
+**Status:** complete locally (2026-11-13). Strategy chosen: **one outbox row per row**, with
+`entity_type` equal to the table name; a single action-level `client_op_id` is generated per
+repository write and child keys are `${client_op_id}:${rowId}`. Expense delete keeps a full-row
+`delete` tombstone. `color_formula_items` will use the same rule when its repository lands in T11.
+Verified by `src/tests/unit/{appointment.repository,outbox.integration,write-integrity.integration}.test.ts`
+against `node:sqlite`; migration 002 was also applied/skipped correctly in a production browser build.
+
 **Goal:** every write is atomic, every change is queued exactly once, and child data is recoverable.
 
 **Scope**

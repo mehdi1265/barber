@@ -2,6 +2,7 @@ import type { SQLiteDBConnection } from '@capacitor-community/sqlite'
 import type { Expense, UUID } from '@shared/types'
 import { generateUUID, nowISO, tomanToStorage } from '@shared/utils/helpers'
 import { addToOutbox } from '@sync/outbox/outbox.repository'
+import { withTransaction } from '@database/sqlite/transaction'
 
 export interface CreateExpenseInput {
   title: string
@@ -53,28 +54,30 @@ export class ExpenseRepository {
       updated_at: now,
     }
 
-    await this.db.run(
-      `INSERT INTO expenses
-        (id, user_id, title, category, amount, spent_at, note, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [
-        expense.id,
-        expense.user_id,
-        expense.title,
-        expense.category,
-        expense.amount,
-        expense.spent_at,
-        expense.note,
-        expense.created_at,
-        expense.updated_at,
-      ]
-    )
+    await withTransaction(this.db, async () => {
+      await this.db.run(
+        `INSERT INTO expenses
+          (id, user_id, title, category, amount, spent_at, note, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          expense.id,
+          expense.user_id,
+          expense.title,
+          expense.category,
+          expense.amount,
+          expense.spent_at,
+          expense.note,
+          expense.created_at,
+          expense.updated_at,
+        ]
+      )
 
-    await addToOutbox(this.db, {
-      entity_type: 'expenses',
-      entity_id: expense.id,
-      operation: 'insert',
-      payload: JSON.stringify(expense),
+      await addToOutbox(this.db, {
+        entity_type: 'expenses',
+        entity_id: expense.id,
+        operation: 'insert',
+        payload: JSON.stringify(expense),
+      })
     })
 
     return expense
@@ -95,39 +98,47 @@ export class ExpenseRepository {
       updated_at: now,
     }
 
-    await this.db.run(
-      `UPDATE expenses
-       SET title = ?, category = ?, amount = ?, spent_at = ?, note = ?, updated_at = ?
-       WHERE id = ? AND user_id = ?`,
-      [
-        updated.title,
-        updated.category,
-        updated.amount,
-        updated.spent_at,
-        updated.note,
-        updated.updated_at,
-        id,
-        this.userId,
-      ]
-    )
+    await withTransaction(this.db, async () => {
+      await this.db.run(
+        `UPDATE expenses
+         SET title = ?, category = ?, amount = ?, spent_at = ?, note = ?, updated_at = ?
+         WHERE id = ? AND user_id = ?`,
+        [
+          updated.title,
+          updated.category,
+          updated.amount,
+          updated.spent_at,
+          updated.note,
+          updated.updated_at,
+          id,
+          this.userId,
+        ]
+      )
 
-    await addToOutbox(this.db, {
-      entity_type: 'expenses',
-      entity_id: id,
-      operation: 'update',
-      payload: JSON.stringify(updated),
+      await addToOutbox(this.db, {
+        entity_type: 'expenses',
+        entity_id: id,
+        operation: 'update',
+        payload: JSON.stringify(updated),
+      })
     })
 
     return updated
   }
 
+  /** Hard delete with a tombstone outbox row carrying the full local record */
   async delete(id: UUID): Promise<void> {
-    await this.db.run(`DELETE FROM expenses WHERE id = ? AND user_id = ?`, [id, this.userId])
-    await addToOutbox(this.db, {
-      entity_type: 'expenses',
-      entity_id: id,
-      operation: 'delete',
-      payload: JSON.stringify({ id }),
+    const existing = await this.findById(id)
+    if (!existing) return
+
+    await withTransaction(this.db, async () => {
+      await this.db.run(`DELETE FROM expenses WHERE id = ? AND user_id = ?`, [id, this.userId])
+      await addToOutbox(this.db, {
+        entity_type: 'expenses',
+        entity_id: id,
+        operation: 'delete',
+        payload: JSON.stringify(existing),
+      })
     })
   }
 }

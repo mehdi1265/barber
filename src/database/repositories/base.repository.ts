@@ -7,6 +7,7 @@ import type { SQLiteDBConnection } from '@capacitor-community/sqlite'
 import type { BaseEntity, UUID } from '@shared/types'
 import { generateUUID, nowISO } from '@shared/utils/helpers'
 import { addToOutbox } from '@sync/outbox/outbox.repository'
+import { withTransaction } from '@database/sqlite/transaction'
 import { useAuthStore } from '@state/auth.store'
 
 export abstract class BaseRepository<T extends BaseEntity> {
@@ -48,15 +49,17 @@ export abstract class BaseRepository<T extends BaseEntity> {
 
   async softDelete(id: UUID): Promise<void> {
     const now = this.now()
-    await this.db.run(
-      `UPDATE ${this.tableName} SET deleted_at = ?, updated_at = ? WHERE id = ? AND user_id = ?`,
-      [now, now, id, this.userId]
-    )
-    await addToOutbox(this.db, {
-      entity_type: this.tableName,
-      entity_id: id,
-      operation: 'delete',
-      payload: JSON.stringify({ id, deleted_at: now }),
+    await withTransaction(this.db, async () => {
+      await this.db.run(
+        `UPDATE ${this.tableName} SET deleted_at = ?, updated_at = ? WHERE id = ? AND user_id = ?`,
+        [now, now, id, this.userId]
+      )
+      await addToOutbox(this.db, {
+        entity_type: this.tableName,
+        entity_id: id,
+        operation: 'delete',
+        payload: JSON.stringify({ id, deleted_at: now }),
+      })
     })
   }
 

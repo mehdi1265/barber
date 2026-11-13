@@ -162,6 +162,12 @@ The current mock cannot catch BUG-04. Choose one:
 
 Whichever is chosen, **migrations must be executed** in at least one automated test so schema drift is caught.
 
+**Status (T03, 2026-11-13):** Option A was implemented with Node 24's built-in `node:sqlite` (`DatabaseSync`) — no extra dependency. `src/tests/helpers/sqlite-harness.ts` applies `001`/`002` via the real `runMigrations`, optionally injects a failure on the Nth statement, and exposes `countRows`/`outboxRows` helpers. Appointment, visit, expense, and outbox tests now run through it.
+
+### 7.3.1 Outbox granularity (decided T03)
+
+**One outbox row per physical row.** `entity_type` is the table name (`appointments`, `appointment_services`, `visits`, `visit_services`, `expenses`, …). The parent payload is **not** expanded with children. Each user action generates an `actionId`; the parent row uses `client_op_id = actionId` and each child uses `client_op_id = actionId:rowId`. Inserts use `INSERT OR IGNORE` against the unique `client_op_id` index, so a retried action cannot duplicate rows. See `docs/10-decisions-log.md` D-24 for the rationale and the tombstone/restore semantics.
+
 ### 7.4 Timezone tests
 
 Use `vi.setSystemTime` plus `TZ` env in a dedicated test process (Node honours `TZ` at startup). Cover:
@@ -188,7 +194,7 @@ Use `vi.setSystemTime` plus `TZ` env in a dedicated test process (Node honours `
 2. Local migrations: new file `00X_name.sql` + import/array entry in `migrations.ts`; test on fresh and upgraded DBs.
 3. Cloud migrations: new file in `supabase/migrations/`, idempotent (`IF NOT EXISTS`, `DROP POLICY IF EXISTS`), applied to a **staging** project first.
 4. Planned migrations:
-   - `002_outbox_hardening.sql` (T03): `processed_at`, `last_attempt_at`, `client_op_id` + unique index.
+   - `002_outbox_hardening.sql` (T03): `processed_at`, `last_attempt_at`, `client_op_id` + unique index. **Done 2026-11-13.**
    - `003_sync_state.sql` (T10): single-row cursor table.
    - `004_indexes_and_fks.sql` (T10): missing indexes, delete behaviour decisions.
    - Later, only if justified: FTS (T15), decimal alignment (T11).

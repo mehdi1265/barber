@@ -6,6 +6,7 @@
 
 import type { SQLiteDBConnection } from '@capacitor-community/sqlite'
 import migration001 from '../migrations/001_initial.sql?raw'
+import migration002 from '../migrations/002_outbox_hardening.sql?raw'
 
 interface Migration {
   version: number
@@ -13,7 +14,10 @@ interface Migration {
   sql: string
 }
 
-const MIGRATIONS: Migration[] = [{ version: 1, name: '001_initial', sql: migration001 }]
+const MIGRATIONS: Migration[] = [
+  { version: 1, name: '001_initial', sql: migration001 },
+  { version: 2, name: '002_outbox_hardening', sql: migration002 },
+]
 
 const MIGRATIONS_TABLE = `
   CREATE TABLE IF NOT EXISTS schema_migrations (

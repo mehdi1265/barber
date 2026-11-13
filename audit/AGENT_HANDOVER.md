@@ -16,6 +16,14 @@
 > are generated and `cap sync` passes (git-ignored; no device build or iOS toolchain here). Native
 > checks and the first remote CI run remain unverified. **Next action: T03 when assigned.**
 
+> **T03 update (2026-11-13):** Transactions, outbox correctness, child-row enqueue, and idempotency
+> are implemented. `withTransaction` (non-reentrant) wraps every listed repository write; migration
+> `002_outbox_hardening.sql` adds `processed_at`/`last_attempt_at`/`client_op_id`; `markOutbox*` uses
+> real columns; appointments/visits enqueue a row per child; expense delete writes a full-row
+> tombstone. Tests run against real SQLite via `node:sqlite` (99/99). Migration 002 was verified in a
+> production browser build (applied once, skipped on reload). Native checks and the first remote CI
+> run remain unverified. **Next action: T04 when assigned.**
+
 ---
 
 ## A. Project identity
