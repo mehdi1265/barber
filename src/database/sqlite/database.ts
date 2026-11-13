@@ -24,6 +24,7 @@ const FOREIGN_KEYS_PRAGMA = 'PRAGMA foreign_keys = ON;'
 
 // Singleton connection
 let _db: SQLiteDBConnection | null = null
+let opening: Promise<SQLiteDBConnection> | null = null
 let webStoreInitialized = false
 let webPersistenceHooked = false
 const sqlite = new SQLiteConnection(CapacitorSQLite)
@@ -77,7 +78,15 @@ function registerWebPersistence(): void {
 
 export async function getDatabase(): Promise<SQLiteDBConnection> {
   if (_db) return _db
+  if (opening) return opening
 
+  opening = openDatabase().finally(() => {
+    opening = null
+  })
+  return opening
+}
+
+async function openDatabase(): Promise<SQLiteDBConnection> {
   const isWeb = Capacitor.getPlatform() === 'web'
 
   try {
@@ -97,6 +106,10 @@ export async function getDatabase(): Promise<SQLiteDBConnection> {
 
     if (isConsistent.result && isConnected) {
       _db = await sqlite.retrieveConnection(DB_NAME, false)
+      // A previously failed attempt can leave a connection that exists but is
+      // not open; retrieveConnection returns it as-is.
+      const isOpen = (await _db.isDBOpen()).result ?? false
+      if (!isOpen) await _db.open()
     } else {
       _db = await sqlite.createConnection(
         DB_NAME,

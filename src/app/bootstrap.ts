@@ -14,12 +14,35 @@ import { useDatabaseStore } from '@state/database.store'
 import { getDatabase } from '@database/sqlite/database'
 import { runMigrations } from '@database/sqlite/migrations'
 
+const DATABASE_INIT_TIMEOUT_MS = 15_000
+
+// A plugin call that never resolves must not keep the login screen hidden.
+function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(message)), ms)
+    promise.then(
+      value => {
+        clearTimeout(timer)
+        resolve(value)
+      },
+      err => {
+        clearTimeout(timer)
+        reject(err instanceof Error ? err : new Error(String(err)))
+      }
+    )
+  })
+}
+
 export async function initializeDatabase(): Promise<void> {
   const { setStatus } = useDatabaseStore.getState()
   setStatus('initializing')
 
   try {
-    const db = await getDatabase()
+    const db = await withTimeout(
+      getDatabase(),
+      DATABASE_INIT_TIMEOUT_MS,
+      'Database initialisation timed out'
+    )
     await runMigrations(db)
     setStatus('ready')
     console.log('[bootstrap] Database ready')
@@ -61,8 +84,9 @@ export async function bootstrapApp(): Promise<void> {
 
   setLoading(true)
   try {
-    await initializeDatabase()
-    await restoreAuthSession()
+    // Database and session restore are independent: a slow or failing database
+    // must not delay the login screen.
+    await Promise.all([initializeDatabase(), restoreAuthSession()])
     console.log('[bootstrap] Done')
   } finally {
     setLoading(false)

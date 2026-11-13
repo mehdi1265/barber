@@ -32,11 +32,7 @@ function showFatalError(err: unknown): void {
   root.querySelector('button')?.addEventListener('click', () => window.location.reload())
 }
 
-async function start(): Promise<void> {
-  // Database failures are recorded in the database store and rendered as a
-  // banner; bootstrapApp therefore resolves so the router (and /login) mounts.
-  await bootstrapApp()
-
+function start(): void {
   const root = document.getElementById('root')
   if (!root) throw new Error('Root element not found')
 
@@ -48,6 +44,16 @@ async function start(): Promise<void> {
       </Providers>
     </StrictMode>
   )
+
+  // Render first: a database plugin that hangs must not leave the user on a
+  // blank page. Auth guards show their loading state until this settles.
+  void bootstrapApp().catch(err => {
+    console.error('[bootstrap] Unexpected startup failure:', err)
+  })
 }
 
-void start().catch(showFatalError)
+try {
+  start()
+} catch (err) {
+  showFatalError(err)
+}

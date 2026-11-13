@@ -60,6 +60,21 @@ describe('bootstrap resilience', () => {
     expect(useDatabaseStore.getState().status).toBe('ready')
   })
 
+  it('records an error when the database call hangs', async () => {
+    vi.useFakeTimers()
+    state.getDatabase.mockReturnValue(new Promise(() => {}))
+
+    try {
+      const pending = initializeDatabase()
+      await vi.advanceTimersByTimeAsync(15_000)
+      await pending
+    } finally {
+      vi.useRealTimers()
+    }
+
+    expect(useDatabaseStore.getState().status).toBe('error')
+  })
+
   it('still restores auth and finishes loading when the database fails', async () => {
     state.getDatabase.mockRejectedValue(new Error('database unavailable'))
 

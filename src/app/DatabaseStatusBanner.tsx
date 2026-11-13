@@ -30,8 +30,8 @@ export function DatabaseStatusBanner() {
       <div className={styles.text}>
         <strong className={styles.title}>خطا در پایگاه داده</strong>
         <span className={styles.message}>
-          پایگاه داده محلی در دسترس نیست. برنامه می‌تواند باز شود، اما ذخیره اطلاعات ممکن
-          نیست. دوباره تلاش کنید.
+          پایگاه داده محلی در دسترس نیست. برنامه می‌تواند باز شود، اما ذخیره اطلاعات ممکن نیست.
+          دوباره تلاش کنید.
         </span>
       </div>
       <Button

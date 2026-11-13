@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 const state = vi.hoisted(() => {
   const db = {
     open: vi.fn(),
+    isDBOpen: vi.fn(),
     execute: vi.fn(),
     run: vi.fn(),
     query: vi.fn(),
@@ -23,7 +24,7 @@ const state = vi.hoisted(() => {
   return {
     db,
     connection,
-    platform: 'web' as 'web' | 'android',
+    platform: 'web',
   }
 })
 
@@ -65,6 +66,7 @@ describe('database bootstrap', () => {
     state.connection.closeConnection.mockResolvedValue(undefined)
 
     state.db.open.mockResolvedValue(undefined)
+    state.db.isDBOpen.mockResolvedValue({ result: true })
     state.db.execute.mockResolvedValue(undefined)
     state.db.run.mockResolvedValue(undefined)
     state.db.query.mockResolvedValue({ values: [] })
@@ -139,6 +141,19 @@ describe('database bootstrap', () => {
     expect(state.connection.retrieveConnection).toHaveBeenCalledWith('barber_app', false)
     expect(state.connection.createConnection).not.toHaveBeenCalled()
     expect(state.db.execute).toHaveBeenCalledTimes(1)
+    expect(state.db.execute).toHaveBeenCalledWith(PRAGMA)
+  })
+
+  it('opens a retrieved connection that was left closed', async () => {
+    state.connection.checkConnectionsConsistency.mockResolvedValue({ result: true })
+    state.connection.isConnection.mockResolvedValue({ result: true })
+    state.db.isDBOpen.mockResolvedValue({ result: false })
+    const { getDatabase } = await import('@database/sqlite/database')
+
+    await getDatabase()
+
+    expect(state.connection.retrieveConnection).toHaveBeenCalledWith('barber_app', false)
+    expect(state.db.open).toHaveBeenCalledTimes(1)
     expect(state.db.execute).toHaveBeenCalledWith(PRAGMA)
   })
 
