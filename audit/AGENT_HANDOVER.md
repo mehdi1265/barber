@@ -115,8 +115,20 @@
 > gating, Dependabot, `docs/11-release-runbook.md`, and an idempotent Android signing/version script
 > (`npm run android:release-config`). 275/275 tests across 42 files; gates green. Live RLS, native
 > release builds, and real-device checks remain unverified.
-> **Next action: run the live checks in `docs/11-release-runbook.md` (RLS script, signed Android
-> build) when a project and device are available.**
+> **T16 release-ops update (2026-11-13, second pass):** Native password-reset deep links are
+> implemented with `@capacitor/app` (`appUrlOpen` + `getLaunchUrl`), an implicit/PKCE parser, and an
+> idempotent `scripts/native-deep-links.ts` that registers `barberapp://reset-password` in the
+> generated Android manifest and iOS `Info.plist` (D-41). A portable two-user RLS runner
+> (`npm run rls:check`) now uses the public Auth/PostgREST/Storage APIs, so it needs no psql or DB
+> password. Live preflight succeeded: `auth/v1/health` returns 200 with the publishable key, but the
+> schema is **not applied** (`profiles` → `PGRST205`), so migrations and the RLS run remain blocked on
+> a database credential / SQL-editor action. `.env.local` had `/rest/v1/` appended to the project URL;
+> it was corrected and the client now rejects that shape. Non-breaking `npm audit fix` cleared the
+> `tar` advisories; 14 dev-only remain (vitest/tinypool critical needs vitest 5, zod 4 is production
+> high). 296/296 tests across 45 files; `type-check`, `lint`, `format:check`, and `build` are green.
+> **Next action: apply migrations `001`–`003` in the Supabase SQL editor (or via an access token),
+> create two test accounts, then run `npm run rls:check -- --out supabase/tests/rls-verification.log`;
+> Android signing still needs a locally generated keystore.**
 
 
 ---

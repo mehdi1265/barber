@@ -24,6 +24,7 @@ const state = vi.hoisted(() => {
     updateUser: vi.fn(),
     getSession: vi.fn(),
     setSession: vi.fn(),
+    exchangeCodeForSession: vi.fn(),
     getDatabase: vi.fn(),
     countPendingOutbox: vi.fn(),
   }
@@ -39,6 +40,7 @@ vi.mock('@services/supabase/client', () => ({
       updateUser: state.updateUser,
       getSession: state.getSession,
       setSession: state.setSession,
+      exchangeCodeForSession: state.exchangeCodeForSession,
     },
   },
 }))
@@ -56,6 +58,7 @@ vi.mock('@sync/outbox/outbox.repository', () => ({
 }))
 
 import {
+  applyRecoveryLink,
   applyRecoverySession,
   ensureProfile,
   getPendingOutboxCount,
@@ -66,6 +69,7 @@ import {
   requestPasswordResetUseCase,
   updatePasswordUseCase,
 } from '@features/auth/auth.usecases'
+import { parseRecoveryLink } from '@features/auth/recovery-link'
 
 const USER = {
   id: 'user-1',
@@ -222,6 +226,46 @@ describe('auth use cases', () => {
     })
     expect(parseRecoveryTokens('#access_token=at&refresh_token=rt&type=signup')).toBeNull()
     expect(parseRecoveryTokens('#access_token=at&type=recovery')).toBeNull()
+  })
+
+  it('parses native recovery links, PKCE codes, and provider errors', () => {
+    expect(
+      parseRecoveryLink('barberapp://reset-password#access_token=at&refresh_token=rt&type=recovery')
+    ).toEqual({
+      kind: 'tokens',
+      tokens: { accessToken: 'at', refreshToken: 'rt' },
+    })
+    expect(parseRecoveryLink('barberapp://reset-password?code=abc')).toEqual({
+      kind: 'code',
+      code: 'abc',
+    })
+    expect(parseRecoveryLink('barberapp://other#access_token=at&refresh_token=rt')).toEqual({
+      kind: 'none',
+    })
+    expect(parseRecoveryLink('https://app.test/reset-password#error_description=expired')).toEqual({
+      kind: 'error',
+      message: 'expired',
+    })
+  })
+
+  it('creates a session from a native deep link', async () => {
+    state.setSession.mockResolvedValue({ error: null })
+
+    const result = await applyRecoveryLink(
+      'barberapp://reset-password#access_token=at&refresh_token=rt&type=recovery'
+    )
+
+    expect(result.error).toBeNull()
+    expect(state.setSession).toHaveBeenCalledWith({ access_token: 'at', refresh_token: 'rt' })
+  })
+
+  it('exchanges a PKCE recovery code', async () => {
+    state.exchangeCodeForSession.mockResolvedValue({ error: null })
+
+    const result = await applyRecoveryLink('barberapp://reset-password?code=abc')
+
+    expect(result.error).toBeNull()
+    expect(state.exchangeCodeForSession).toHaveBeenCalledWith('abc')
   })
 
   it('creates a session from the recovery link', async () => {

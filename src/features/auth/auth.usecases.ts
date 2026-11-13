@@ -4,6 +4,7 @@
  */
 
 import type { User } from '@supabase/supabase-js'
+import { Capacitor } from '@capacitor/core'
 import { supabase } from '@services/supabase/client'
 import { getDatabase } from '@database/sqlite/database'
 import { ProfileRepository } from '@database/repositories/profile.repository'
@@ -11,6 +12,10 @@ import { countPendingOutbox } from '@sync/outbox/outbox.repository'
 import type { Profile } from '@shared/types'
 import type { LoginFormData, RegisterFormData } from './auth.schemas'
 import { mapAuthError } from './auth.errors'
+import { INVALID_RECOVERY_MESSAGE, NATIVE_RECOVERY_URL, parseRecoveryLink } from './recovery-link'
+
+export type { RecoveryTokens } from './recovery-link'
+export { parseRecoveryTokens } from './recovery-link'
 
 export interface AuthError {
   message: string
@@ -169,10 +174,12 @@ export async function logoutUseCase(): Promise<SimpleResult> {
 // ── Password reset ────────────────────────────────────────────────────────────
 
 export async function requestPasswordResetUseCase(email: string): Promise<SimpleResult> {
+  const redirectTo = Capacitor.isNativePlatform()
+    ? NATIVE_RECOVERY_URL
+    : `${window.location.origin}/reset-password`
+
   try {
-    const { error } = await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: `${window.location.origin}/reset-password`,
-    })
+    const { error } = await supabase.auth.resetPasswordForEmail(email, { redirectTo })
     if (error) return { error: { message: mapAuthError(error.message) } }
     return { error: null }
   } catch (err) {
@@ -192,11 +199,6 @@ export async function updatePasswordUseCase(password: string): Promise<SimpleRes
   }
 }
 
-export interface RecoveryTokens {
-  accessToken: string
-  refreshToken: string
-}
-
 /** True when a persisted session exists (works offline; reads local storage). */
 export async function hasActiveSession(): Promise<boolean> {
   try {
@@ -208,34 +210,41 @@ export async function hasActiveSession(): Promise<boolean> {
   }
 }
 
-/** Reads Supabase's implicit-flow recovery tokens from a URL fragment. */
-export function parseRecoveryTokens(hash: string): RecoveryTokens | null {
-  const params = new URLSearchParams(hash.startsWith('#') ? hash.slice(1) : hash)
-  if (params.get('type') !== 'recovery') return null
+/**
+ * Turns a recovery link (web hash, custom-scheme deep link, or PKCE code) into
+ * a session. Implicit tokens are used only for recovery URLs or `type=recovery`.
+ */
+export async function applyRecoveryLink(url: string): Promise<SimpleResult> {
+  const link = parseRecoveryLink(url)
 
-  const accessToken = params.get('access_token')
-  const refreshToken = params.get('refresh_token')
-  if (!accessToken || !refreshToken) return null
-
-  return { accessToken, refreshToken }
-}
-
-/** Turns the recovery link into a session so the new-password form can save. */
-export async function applyRecoverySession(hash: string): Promise<SimpleResult> {
-  const tokens = parseRecoveryTokens(hash)
-  if (!tokens) {
-    return { error: { message: 'لینک بازیابی نامعتبر یا منقضی شده است. دوباره درخواست دهید' } }
+  if (link.kind === 'error') {
+    console.warn('[auth] recovery link rejected by provider:', link.message.slice(0, 120))
+    return { error: { message: INVALID_RECOVERY_MESSAGE } }
+  }
+  if (link.kind === 'none') {
+    return { error: { message: INVALID_RECOVERY_MESSAGE } }
   }
 
   try {
-    const { error } = await supabase.auth.setSession({
-      access_token: tokens.accessToken,
-      refresh_token: tokens.refreshToken,
-    })
+    if (link.kind === 'tokens') {
+      const { error } = await supabase.auth.setSession({
+        access_token: link.tokens.accessToken,
+        refresh_token: link.tokens.refreshToken,
+      })
+      if (error) return { error: { message: mapAuthError(error.message) } }
+      return { error: null }
+    }
+
+    const { error } = await supabase.auth.exchangeCodeForSession(link.code)
     if (error) return { error: { message: mapAuthError(error.message) } }
     return { error: null }
   } catch (err) {
     console.error('[auth] recovery session failed:', err)
     return { error: { message: mapAuthError(err instanceof Error ? err.message : 'network') } }
   }
+}
+
+/** Backwards-compatible hash-based entry point used by the web reset page. */
+export async function applyRecoverySession(hash: string): Promise<SimpleResult> {
+  return applyRecoveryLink(hash)
 }

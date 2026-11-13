@@ -4,6 +4,7 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { Link } from 'react-router-dom'
 import { resetPasswordSchema, type ResetPasswordFormData } from './auth.schemas'
 import { applyRecoverySession, hasActiveSession, updatePasswordUseCase } from './auth.usecases'
+import { RECOVERY_LINK_EVENT } from './recovery-link'
 import { FormField } from '@shared/components/forms/FormField'
 import { Button } from '@shared/components/ui/Button'
 import { LoadingScreen } from '@shared/components/ui/LoadingScreen'
@@ -43,9 +44,21 @@ export default function ResetPasswordPage() {
       }
     }
 
+    // Native links may arrive after this page mounted (warm start); re-verify
+    // once the deep-link handler has created the session.
+    const onRecoveryLink = () => {
+      if (cancelled) return
+      setServerError(null)
+      setPhase('verifying')
+      void verify()
+    }
+
+    window.addEventListener(RECOVERY_LINK_EVENT, onRecoveryLink)
     void verify()
+
     return () => {
       cancelled = true
+      window.removeEventListener(RECOVERY_LINK_EVENT, onRecoveryLink)
     }
   }, [])
 

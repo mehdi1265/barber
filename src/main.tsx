@@ -6,6 +6,7 @@ import { router } from './app/router'
 import { bootstrapApp } from './app/bootstrap'
 import { DatabaseStatusBanner } from './app/DatabaseStatusBanner'
 import { ErrorBoundary } from './app/ErrorBoundary'
+import { registerAppUrlHandling } from './app/deep-links'
 import { errorDetails, logger } from '@shared/utils/logger'
 import './index.css'
 
@@ -53,6 +54,13 @@ function start(): void {
   // blank page. Auth guards show their loading state until this settles.
   void bootstrapApp().catch(err => {
     logger.error('Unexpected startup failure', { error: errorDetails(err) })
+  })
+
+  // Cold-start and warm recovery links. Web is a no-op.
+  void registerAppUrlHandling(path => {
+    void router.navigate(path)
+  }).catch(err => {
+    logger.warn('Could not register deep-link handling', { error: errorDetails(err) })
   })
 }
 

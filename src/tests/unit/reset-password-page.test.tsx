@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 
 const state = vi.hoisted(() => ({
@@ -15,6 +15,7 @@ vi.mock('@features/auth/auth.usecases', () => ({
 }))
 
 import ResetPasswordPage from '@features/auth/ResetPasswordPage'
+import { RECOVERY_LINK_EVENT } from '@features/auth/recovery-link'
 
 function renderPage() {
   render(
@@ -42,6 +43,23 @@ describe('ResetPasswordPage', () => {
       'href',
       '/forgot-password'
     )
+  })
+
+  it('re-checks the session when a native recovery link arrives', async () => {
+    state.hasActiveSession.mockResolvedValueOnce(false).mockResolvedValueOnce(true)
+    state.applyRecoverySession.mockResolvedValue({
+      error: { message: 'لینک بازیابی نامعتبر یا منقضی شده است. دوباره درخواست دهید' },
+    })
+
+    renderPage()
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('لینک بازیابی نامعتبر')
+
+    act(() => {
+      window.dispatchEvent(new CustomEvent(RECOVERY_LINK_EVENT, { detail: { ok: true } }))
+    })
+
+    expect(await screen.findByLabelText(/رمز عبور جدید/)).toBeInTheDocument()
   })
 
   it('saves a new password when a session already exists', async () => {

@@ -179,6 +179,21 @@
 > breaking v4 migration and is documented. 275/275 tests across 42 files; all gates green. Live RLS,
 > signed native builds, and real-device checks remain **unverified**.
 
+> **Post-T16 release-ops update — 2026-11-13 (second pass):** Password-reset deep links are no longer
+> deferred (D-41): native builds redirect to `barberapp://reset-password`, `@capacitor/app` handles
+> warm and cold starts, and `scripts/native-deep-links.ts` idempotently patches the generated Android
+> intent-filter and iOS `CFBundleURLTypes`. A portable two-user RLS runner (`npm run rls:check`) was
+> added; it uses the public Auth/PostgREST/Storage APIs and needs no psql or database password.
+> Configuration was verified live without printing secrets: the publishable key is accepted
+> (`auth/v1/health` → 200), but the schema is **not applied** (`profiles` → `PGRST205`), so live
+> migrations, the idempotency re-run, and the RLS probe are **still not executed** and remain blocked
+> on a database credential or SQL-editor action. A real defect was found and fixed: `.env.local`
+> pointed at `…/rest/v1/` instead of the project origin, which would break Auth and all sync calls;
+> the client now rejects that URL shape. Non-breaking `npm audit fix` cleared the `tar`
+> advisories (14 dev-only remain: vitest/tinypool critical needs vitest 5). 296/296 tests across 45
+> files; `type-check`, `lint`, `format:check`, and `build` are green. No device test, signed build, or
+> live RLS result is claimed.
+
 ---
 
 ## 1. Repository snapshot

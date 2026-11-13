@@ -132,7 +132,7 @@ Every table carries `user_id`, including child rows, so RLS and local filters ar
 
 | Risk | Detail | Severity |
 |---|---|---|
-| Never executed | No live project; `supabase/tests/rls_two_user_check.sql` is committed but still needs one run against real JWTs | High |
+| Never executed live | Key/URL preflight passes (`auth/v1/health` 200) but migrations are not applied (`PGRST205`); no DB credential yet. Probe has not run | High |
 | No `TO authenticated` clause | Applies to `anon` too; `auth.uid()` is null so no rows — safe but relies on null semantics | Low |
 | Policies not idempotent | Fixed in T16: every policy is preceded by `DROP POLICY IF EXISTS` (or a `duplicate_object` handler) | Resolved |
 | Bucket absent | Fixed in T16: `001` creates the private bucket idempotently | Resolved |
@@ -140,7 +140,15 @@ Every table carries `user_id`, including child rows, so RLS and local filters ar
 | `profiles` insert already done by trigger | Client `createProfile` pushes an `insert`; server row exists → plain INSERT conflicts. Sync must use **upsert** | High for T09 |
 | `updated_at` trigger | Server `now()` always wins; client timestamps are ignored on update, breaking last-write-wins | High for T10 |
 | Child rows lack owner consistency checks | `appointment_services.user_id` could differ from parent; only RLS prevents reading, not insertion of mismatched rows | Medium |
-| `payments.visit_id` has no `ON DELETE CASCADE` | Deleting a visit is blocked by the FK (visits are not deleted today) | Low |
+| `payments.visit_id` referenced visits without a delete policy | Resolved by `002`: `ON DELETE CASCADE` (owned child); optional references use `SET NULL` | Resolved |
+
+**Migration review (001–003, static):** all statements are re-runnable as written
+(`IF NOT EXISTS`, policy drops, `CREATE OR REPLACE FUNCTION/TRIGGER`,
+`duplicate_object` guard, bucket `ON CONFLICT`). `002` supplies the missing
+`(user_id, updated_at)` pull indexes and explicit FK delete behaviour. Two
+non-blocking notes: `002` relies on PostgreSQL's default constraint names
+(correct after `001` on a fresh project), and `003` cannot update the UPDATE
+policy definition if it ever changes — drop it first if that becomes necessary.
 
 ---
 
@@ -221,6 +229,6 @@ Every table carries `user_id`, including child rows, so RLS and local filters ar
 4. **T06:** add overlap re-check inside the transaction; document that SQLite cannot express an exclusion constraint.
 5. **T10:** add `sync_state` (single row: `last_pull_at`, `device_id`) via migration `002`; align `updated_at` semantics with the server trigger; add missing indexes as a separate migration.
 6. **T11:** decide decimal encoding before writing formula sync.
-7. **T16:** ~~make the cloud migration idempotent, create the bucket explicitly, add the storage UPDATE policy, add an RLS test checklist~~ **done 2026-11-13**; run `supabase/tests/rls_two_user_check.sql` against a live project before release.
+7. **T16:** ~~make the cloud migration idempotent, create the bucket explicitly, add the storage UPDATE policy, add an RLS test checklist~~ **done 2026-11-13**; run `npm run rls:check` (portable, public APIs) or `supabase/tests/rls_two_user_check.sql` against a live project before release. Live status: the project URL/key authenticate (health 200) but the schema is not applied (`PGRST205`), so the probe has not run yet.
 
 Any schema change must ship as a new numbered migration in both places, never by editing `001`.

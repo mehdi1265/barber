@@ -18,8 +18,27 @@ source of truth for sync and restore.
 
 ## 2. Supabase migrations
 
-Run `supabase/migrations/*.sql` in order in the SQL editor (or `supabase db
-push`). Every migration is re-runnable:
+`VITE_SUPABASE_ANON_KEY` must be the project's **publishable** key
+(`sb_publishable_…`). `VITE_SUPABASE_URL` must be the project origin
+(`https://<ref>.supabase.co`) — not the REST endpoint
+(`https://<ref>.supabase.co/rest/v1/`), which breaks Auth and every sync call.
+The app refuses to start with a `/rest/v1` URL. It is a client credential: it
+can run the app and the RLS probes, but it cannot run DDL or migrations. Do not
+put it in `SUPABASE_DB_URL`.
+
+Apply `supabase/migrations/*.sql` in order using one of:
+
+- **SQL editor:** open Dashboard → SQL Editor, paste `001`, run; repeat for
+  `002` and `003`. Run the whole file in one session so the transaction and
+  policies apply together.
+- **CLI:** `npx supabase login` (or export `SUPABASE_ACCESS_TOKEN`), then
+  `npx supabase link --project-ref <ref>` and `npx supabase db push`. The CLI
+  asks for the database password once; it is not the anon/publishable key.
+- **psql:** connect with the pooled connection string from Dashboard →
+  Database → Connection string (`postgresql://postgres.<ref>:<password>@…`)
+  and run each file with `psql "$SUPABASE_DB_URL" -f supabase/migrations/001_initial_schema.sql`.
+
+Every migration is re-runnable:
 
 - tables use `IF NOT EXISTS`, indexes use `IF NOT EXISTS`;
 - triggers are recreated with `DROP TRIGGER IF EXISTS` / `CREATE OR REPLACE`;
@@ -28,7 +47,9 @@ push`). Every migration is re-runnable:
 - the private `customer-photos` bucket is inserted with
   `ON CONFLICT (id) DO NOTHING`.
 
-`src/tests/unit/supabase-migrations.test.ts` enforces these patterns in CI.
+Run the same three files a second time on the same project; a clean run with
+no errors is the idempotency check. `src/tests/unit/supabase-migrations.test.ts`
+enforces the patterns in CI.
 
 ## 3. RLS verification matrix
 
@@ -51,7 +72,28 @@ policy matches the first path folder to `auth.uid()`.
 | `customer_photos`          | own rows only    | 0 rows      | 0 rows affected     | `42501`              |
 | `storage.objects` (bucket) | own folder only  | 0 objects   | n/a                 | `42501`              |
 
-Execute the automated probe after creating two real accounts:
+Execute the automated two-user probe after the migrations are applied and two
+real, email-confirmed accounts exist.
+
+**Portable runner (recommended; no psql/DB password).** It signs in through the
+public Auth API and checks PostgREST and Storage behaviour exactly as the app
+does. For all 12 tables it seeds a marker-prefixed row, verifies that user B
+cannot SELECT, UPDATE, or DELETE it, and additionally probes forbidden inserts
+plus storage read/write denial. It cleans up and exits non-zero on failure:
+
+```bash
+export RLS_USER_A_EMAIL=a@example.com   RLS_USER_A_PASSWORD='…'
+export RLS_USER_B_EMAIL=b@example.com   RLS_USER_B_PASSWORD='…'
+npm run rls:check -- --out supabase/tests/rls-verification.log
+```
+
+The URL/key come from `.env.local` (or `SUPABASE_URL` /
+`SUPABASE_ANON_KEY`). The runner refuses to print secrets and aborts with a
+clear message when the key is malformed, the schema is missing, or an account
+is not confirmed. Commit the saved log only after checking it contains no
+credentials.
+
+**psql alternative (needs `SUPABASE_DB_URL` with the database password):**
 
 ```bash
 psql "$SUPABASE_DB_URL" \
@@ -59,12 +101,57 @@ psql "$SUPABASE_DB_URL" \
   -f supabase/tests/rls_two_user_check.sql
 ```
 
-The script seeds one row per table per user inside a transaction, checks both
+It seeds one row per table per user inside a transaction, checks both
 directions, prints `RLS verification passed`, then rolls back.
 
-> **Status: not executed yet.** No live Supabase project was available in the
-> development environment. Run this once against the release project and paste
-> the output into the release ticket before publishing.
+> **Status: not executed yet.** The project URL and publishable key are valid
+> (live `auth/v1/health` returns 200), but migrations are not applied
+> (`profiles`/`customers` return `PGRST205`) and no database password or access
+> token was available. Apply `001`–`003`, create the two test accounts, then run
+> the portable runner and keep the log with the release ticket.
+
+## 3.1 Password-reset deep links
+
+Native builds return the recovery email to `barberapp://reset-password`
+(`NATIVE_RECOVERY_URL` in `src/features/auth/recovery-link.ts`). The browser
+build keeps `${origin}/reset-password`.
+
+1. **Patch the generated native projects.** `npm run native:deep-links` (also
+   part of `npm run cap:build`) inserts, idempotently:
+   - Android `AndroidManifest.xml`: a `VIEW`/`BROWSABLE` intent-filter on
+     `MainActivity` for `scheme=barberapp`, `host=reset-password`;
+   - iOS `Info.plist`: `CFBundleURLTypes` → `CFBundleURLSchemes` =
+     `barberapp`.
+
+   `android/` and `ios/` are gitignored, so re-run the script after
+   `npx cap add` or `npx cap sync`. The script refuses to clobber an existing
+   `CFBundleURLTypes` block and prints a manual-merge instruction instead.
+
+2. **Allow-list the redirects in Supabase.** Dashboard → Authentication → URL
+   Configuration:
+   - **Site URL:** production web origin (e.g. `https://app.example.com`).
+   - **Redirect URLs:** add each exact value:
+     - `barberapp://reset-password`
+     - `https://app.example.com/reset-password`
+     - `http://localhost:5173/reset-password` (local dev only)
+
+   Supabase silently falls back to Site URL for redirects that are not
+   allow-listed, so a missing entry looks like "the link opens the website"
+   rather than an error. Keep the default recovery email template
+   (`{{ .ConfirmationURL }}`); do not hardcode a URL in the template.
+
+3. **Handler behaviour.** `@capacitor/app` listens for `appUrlOpen` and reads
+   `getLaunchUrl()` for cold starts. The parser accepts implicit tokens
+   (`#access_token=…&refresh_token=…&type=recovery`) and PKCE (`?code=…`),
+   rejects non-recovery links, then `setSession`/`exchangeCodeForSession`
+   creates a temporary session. `ResetPasswordPage` listens for
+   `barber:recovery-link` and verifies again if it was already open.
+
+4. **Manual smoke test (required before release).** On a clean install:
+   request a reset from the sign-in screen → open the email on the device →
+   the app (not the browser) opens on «بازیابی رمز» → set a new password →
+   sign in with it. Also test with the app already open (warm start) and
+   terminated (cold start).
 
 ## 4. Supply chain
 
@@ -79,15 +166,29 @@ directions, prints `RLS verification passed`, then rolls back.
     Fix requires the breaking zod 4 migration; the app validates bounded form
     input locally, so risk is low. Track the upgrade; do not force it in a
     release branch.
-- Dev-only advisories (vitest/tinypool/tar via `@capacitor/cli`) are not
-  shipped in the app bundle and are allowed to age out through Dependabot.
+- Dev-only advisories are not shipped in the app bundle and are allowed to age
+  out through Dependabot. Current `npm audit` status:
+  - production (`--omit=dev`): only the accepted `zod` high above; no critical.
+  - dev: `tinypool` critical and `typescript-eslint`/`vitest` moderates. The
+    tinypool fix requires vitest 5 (major) and the eslint fix requires
+    typescript-eslint 8.36 (breaking for the flat config); schedule both
+    deliberately rather than forcing them in a release branch.
 - Never commit `.env`, keystores, `google-services.json`, or generated
   `android/`/`ios/` secrets.
-- CI actions are pinned to major tags (`@v4`) and kept current by Dependabot.
-  Switch to full commit SHAs before making the repository public.
-- Enable GitHub **secret scanning** and **push protection** in repository
-  settings; both are host-side features and cannot be configured from the
-  workflow file.
+- CI actions are pinned to full commit SHAs with a version comment
+  (`actions/checkout` v4.3.0, `actions/setup-node` v4.4.0). Keep them pinned;
+  Dependabot's `github-actions` ecosystem updates the SHA and comment.
+- Repository security settings (host-side, require admin access — cannot be
+  changed from a workflow). Verify each in GitHub → Settings:
+  - **Code security and analysis:** Secret scanning **on**, Push protection
+    **on**, Dependabot alerts **on**, Dependabot security updates **on**.
+    The repository is public, so GitHub enables secret scanning by default;
+    confirm push protection is not disabled by an organization policy.
+  - **Branches:** protect `main` and `develop` — require a pull request, require
+    the `Quality gates` check, disallow force pushes and direct deletion.
+  - **Actions → General:** workflow permissions default to *Read repository
+    contents* (the workflow also declares `permissions: contents: read`), and
+    allow only GitHub-authored actions.
 
 ## 5. Backup and restore
 
@@ -162,7 +263,13 @@ bump the version in Xcode, and archive. Android signing does not apply.
 ## 8. Known limitations before release
 
 - RLS script above must be executed against a real project (Section 3).
+- Password-reset deep links are covered by unit tests only; the warm-start and
+  cold-start device flow in Section 3.1 has not been run on hardware here.
 - No automated end-to-end run on a physical device in this environment.
+- The Android release build was not executed here: the local SDK has platforms
+  34/36 but not `compileSdkVersion 35`, and no keystore exists yet. Install SDK
+  35 (Android Studio → SDK Manager) and generate the keystore before building.
+- iOS still requires macOS + Xcode.
 - Global search uses `LIKE`; measure on a mid-range Android device with ~5,000
   rows and add FTS only if needed (T15 note).
 - `npm test` already runs in single-run mode; use `npm test`, not

@@ -7,7 +7,6 @@ import { vi } from 'vitest'
 
 declare global {
   // Test-only switch so native-only code paths can be exercised.
-  // eslint-disable-next-line no-var
   var __capacitorNative: boolean | undefined
 }
 
