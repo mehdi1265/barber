@@ -13,6 +13,17 @@
 > below preserve the original audit snapshot where they differ; use this block and
 > [`REQUIREMENTS_MATRIX.md`](./REQUIREMENTS_MATRIX.md) for current status.
 
+> **Post-T02 update — 2026-11-13:** BUG-01 and BUG-02 are resolved. The web app boots: `/login`
+> renders, migration `001` applies, and the SQLite store persists across reloads (verified in a
+> browser; the migration was not re-applied after reload). The root cause of the blank screen was a
+> `sql.js` wasm mismatch — `jeep-sqlite` 2.8.0 bundles sql.js **1.11.0**, while the build copied
+> 1.15.2; the copy script now pins and checks the version. Startup renders before bootstrap and
+> database initialisation has a 15 s timeout, so a failing or hanging plugin shows the Persian error
+> banner with retry instead of a blank page. `foreign_keys` is applied per connection, native
+> encryption uses `setEncryptionSecret` before `open`, and `android/` + `ios/` projects were
+> generated and synced (both git-ignored; no device build on this Windows machine). Native runtime,
+> device checks, and the first remote CI run remain **unverified**.
+
 ---
 
 ## 1. Repository snapshot

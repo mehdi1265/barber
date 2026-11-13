@@ -22,7 +22,7 @@
 
 **Source shorthand:** `B` brief · `P` PRD · `U` user flow · `W` wireframes · `A` architecture · `D` database/API design · `R` roadmap · `AI` agent spec · `Q` open questions · `L` decisions log. Section numbers refer to the corresponding file in `docs/`.
 
-**Summary:** 48 requirements — **9 Complete, 25 Partially implemented, 12 Not implemented, 1 Needs verification, 1 Blocked.**
+**Summary:** 48 requirements — **10 Complete, 26 Partially implemented, 11 Not implemented, 1 Needs verification, 0 Blocked** (post-T02).
 
 ---
 
@@ -148,13 +148,13 @@
 
 | ID | Requirement | Src | Pri | Status | Evidence (files) | Missing work | Deps | Acceptance criteria |
 |---|---|---|---|---|---|---|---|---|
-| R-42 | Offline-first: reads and writes work with no network | B §2, A §2 | P0 | Partially implemented | All repositories are SQLite-only; no network in the write path | Login/session must tolerate offline after first login; sync state UI | R-02, R-39 | Airplane mode: existing user can open the app, view and edit data; changes queue and later sync |
-| R-43 | Local database encrypted (SQLCipher) with a device-bound key | A §9, L §7 | P1 | Partially implemented | `database.ts:24-46` (`getPassphrase`), `:64-73` (encryption flags + `PRAGMA key`) | Correct order/API (`setEncryptionSecret` before open); web strategy; key in secure storage instead of `localStorage` | R-48 | DB file is unreadable without the app; key survives restart and is not in plain `localStorage` on device |
-| R-44 | Web build persists data across reload | A §2 | P2 | Not implemented | `jeep-sqlite` used in-memory; no `saveToStore`/`loadFromStore` call | Persist/export store on write, restore on boot | R-48 | Creating a customer in the browser and reloading keeps it |
+| R-42 | Offline-first: reads and writes work with no network | B §2, A §2 | P0 | Partially implemented | All repositories are SQLite-only; no network in the write path; `bootstrap.ts` keeps `/login` available when the database fails and retries with a timeout | Login/session must tolerate offline after first login; sync state UI | R-02, R-39 | Airplane mode: existing user can open the app, view and edit data; changes queue and later sync |
+| R-43 | Local database encrypted (SQLCipher) with a device-bound key | A §9, L §7 | P1 | Needs verification | `database.ts` calls `setEncryptionSecret` before `open`; web uses `no-encryption` and is dev-only; `capacitor.config.ts` enables Android/iOS encryption | Device test that the DB is unreadable without the app; key secure-storage verification (T16) | R-48 | DB file is unreadable without the app; key survives restart and is not in plain `localStorage` on device |
+| R-44 | Web build persists data across reload | A §2 | P2 | Complete | `web-store.ts` registers `jeep-sqlite` with `autosave`; `saveToStore` runs on hide/pagehide; reload reuses the IndexedDB store (verified: migration is not re-applied) | — | R-48 | Creating a customer in the browser and reloading keeps it |
 | R-45 | No secrets or credentials committed | B §9, L §8 | P0 | Complete | `.env.example` uses placeholders; `.gitignore` excludes `.env*`; no keys in source or git history | Add secret scanning to CI | — | `git grep` for key patterns finds no real credentials; `.env` is never tracked |
 | R-46 | Persian RTL UI with Jalali dates and Persian digits | B §4, W §1, L §9 | P1 | Partially implemented | `index.css` RTL, `AppShell` Persian labels, `jalali.ts` display helpers | Date **inputs** are Gregorian `<input type="date">`; mixed Latin digits in places; no i18n layer | R-13 | Every displayed and entered date is Jalali; layout is RTL; numbers use Persian digits where specified |
 | R-47 | Quality gates: type-check, lint, format, tests, build, CI | A §10, R §7 | P0 | Complete | `package.json` scripts repaired; `tsconfig.node.json`; `.github/workflows/ci.yml`; local gates green (see PROJECT_STATUS post-audit note) | First remote CI run (requires push authorization); coverage thresholds and secret scanning remain separate tasks | — | A clean clone passes type-check, lint, format check, tests, build in CI on every push |
-| R-48 | App builds and runs on web (dev) and Android | B §1, R §1 | P0 | Blocked | Boot blockers BUG-01/BUG-02; no `android/` project | T01 + T02 + `npx cap add android` | R-47 | `npm run dev` shows login; `npm run build && npx cap sync android` installs and launches on a device/emulator |
+| R-48 | App builds and runs on web (dev) and Android | B §1, R §1 | P0 | Partially implemented | Web verified (`/login` renders, DB ready, persistent store); `android/` and `ios/` generated and `cap sync` passes; no device/emulator or macOS toolchain here | Android SDK/emulator run, iOS build on macOS, first remote CI run | R-47 | `npm run dev` shows login; `npm run build && npx cap sync android` installs and launches on a device/emulator |
 
 ---
 

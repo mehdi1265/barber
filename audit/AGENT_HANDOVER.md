@@ -8,6 +8,14 @@
 > `build` are green. CI was added at `.github/workflows/ci.yml`; the first remote run is pending
 > push authorization. Root `README.md` was added. **Next action: T02 when assigned.**
 
+> **T02 update (2026-11-13):** Web boot is fixed and verified: `/login` renders, migration `001`
+> applies, and the store persists across reloads. Root cause was a wasm mismatch (`jeep-sqlite`
+> 2.8.0 bundles sql.js 1.11.0; the build copied 1.15.2). Startup now renders before bootstrap and
+> DB init has a 15 s timeout with a Persian error banner + retry. `PRAGMA foreign_keys` is applied
+> per connection; native encryption sets the secret before `open`. `android/` and `ios/` projects
+> are generated and `cap sync` passes (git-ignored; no device build or iOS toolchain here). Native
+> checks and the first remote CI run remain unverified. **Next action: T03 when assigned.**
+
 ---
 
 ## A. Project identity

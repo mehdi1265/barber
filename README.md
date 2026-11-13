@@ -4,9 +4,9 @@ Offline-first barber shop management app for a single barber: appointments, cust
 visit finance, color formulas, and settings. Built with React 19, TypeScript, Vite, Capacitor, and
 SQLite; Supabase is used for authentication only.
 
-> **Status: pre-alpha.** The application shell, local schema, and core repositories exist, but the
-> web bootstrap is currently blocked by the SQLite web implementation and the sync engine is not
-> implemented. See [`audit/PROJECT_STATUS.md`](audit/PROJECT_STATUS.md) for the verified state.
+> **Status: pre-alpha.** The application shell, local schema, web bootstrap, and core repositories
+> work; the sync engine is not implemented. See [`audit/PROJECT_STATUS.md`](audit/PROJECT_STATUS.md)
+> for the verified state.
 
 ## Stack
 
@@ -37,12 +37,16 @@ npm run dev
 `.env` is git-ignored. Never commit real credentials. `VITE_*` values are embedded in the client
 bundle, so only the Supabase anon key may be used there.
 
-### Current boot limitation
+### Platform notes
 
-`src/database/sqlite/database.ts` uses the native SQLite plugin without a web-capable driver or
-store persistence. As a result, the browser build starts but the database bootstrap does not
-complete (documented as `BUG-01`). The primary target is a native Android build; browser support
-is tracked separately.
+- **Browser (development only).** SQLite runs through `jeep-sqlite` and IndexedDB. The `predev` and
+  `prebuild` hooks copy `sql-wasm.wasm` from `sql.js`; it must stay at version **1.11.0**, the
+  sql.js build bundled inside `jeep-sqlite` 2.8.0. A different version fails with an Emscripten
+  `LinkError`. Browser storage is for development and demos, not a production security boundary.
+- **Android / iOS.** Native projects are generated locally with `npx cap add android` and
+  `npx cap add ios` because `android/` and `ios/` are git-ignored. SQLCipher is enabled and the key
+  lives in the platform secure store. Building requires Android Studio/SDK for Android, and macOS
+  with Xcode/CocoaPods for iOS; neither build is verified by the Windows CI.
 
 ## Quality gates
 
@@ -50,7 +54,7 @@ is tracked separately.
 npm run type-check    # tsc -b over tsconfig.app.json + tsconfig.node.json
 npm run lint          # ESLint flat config over the repository
 npm run format:check  # Prettier check for src/**/*.{ts,tsx,css}
-npm test              # Vitest, 71 tests
+npm test              # Vitest, 82 tests
 npm run build         # tsc -b && vite build
 ```
 

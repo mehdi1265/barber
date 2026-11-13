@@ -215,7 +215,7 @@ Every table carries `user_id`, including child rows, so RLS and local filters ar
 
 ## 11. Recommended database work (not applied)
 
-1. **T02:** apply `PRAGMA foreign_keys = ON` on every connection; split web/native encryption; add `saveToStore` for web.
+1. **T02 (done 2026-11-13):** `PRAGMA foreign_keys = ON` on every connection; web/native encryption split; web persistence via `autosave` + `saveToStore`. `public/assets/sql-wasm.wasm` must come from sql.js **1.11.0**, the build bundled inside `jeep-sqlite` 2.8.0; a mismatched wasm fails with an Emscripten `LinkError` and leaves boot hanging. Web data lives in IndexedDB (`jeepSqliteStore`) and is development-only.
 2. **T03:** add a transaction helper; wrap all multi-table writes; fix `markOutbox*`; enqueue child rows; add idempotency (`client_op_id`) and consider a unique index on outbox identity.
 3. **T04:** centralise local-day range calculation; no schema change required if UTC timestamps are kept.
 4. **T06:** add overlap re-check inside the transaction; document that SQLite cannot express an exclusion constraint.
