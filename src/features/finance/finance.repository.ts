@@ -13,6 +13,14 @@ import {
 import type { DailyReport, FinancialSummary } from '@shared/types'
 import { localDayRange } from '@shared/utils/datetime'
 
+/** Outstanding balance aggregated per customer (null = walk-in visits). */
+export interface CustomerDebt {
+  customer_id: UUID | null
+  customer_name: string | null
+  total_debt: number
+  visit_count: number
+}
+
 export class FinanceRepository {
   constructor(
     private readonly db: SQLiteDBConnection,
@@ -132,5 +140,32 @@ export class FinanceRepository {
 
     const rows = (result.values as { service_total: number; paid_total: number }[]) ?? []
     return rows.reduce((sum, r) => sum + (r.service_total - r.paid_total), 0)
+  }
+
+  /** Open debts aggregated per customer, largest first. */
+  async getOpenDebts(): Promise<CustomerDebt[]> {
+    const result = await this.db.query(
+      `SELECT v.customer_id,
+              c.name AS customer_name,
+              SUM(
+                COALESCE((
+                  SELECT SUM(vs.line_total) FROM visit_services vs
+                  WHERE vs.visit_id = v.id AND vs.user_id = v.user_id
+                ), 0)
+                - COALESCE((
+                  SELECT SUM(p.amount) FROM payments p
+                  WHERE p.visit_id = v.id AND p.user_id = v.user_id
+                ), 0)
+              ) AS total_debt,
+              COUNT(*) AS visit_count
+       FROM visits v
+       LEFT JOIN customers c ON c.id = v.customer_id AND c.user_id = v.user_id
+       WHERE v.user_id = ?
+       GROUP BY v.customer_id
+       HAVING total_debt > 0
+       ORDER BY total_debt DESC`,
+      [this.userId]
+    )
+    return (result.values as CustomerDebt[]) ?? []
   }
 }

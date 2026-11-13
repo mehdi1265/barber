@@ -1,0 +1,345 @@
+.page {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.header {
+  background: var(--color-surface);
+  border-bottom: 1px solid var(--color-border);
+  padding: var(--space-3) var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.headerTop {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.title {
+  font-size: var(--font-size-2xl);
+  font-weight: var(--font-weight-bold);
+}
+
+.quickSaleLink {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 12px;
+  border-radius: var(--radius-full);
+  background: var(--color-primary-light);
+  color: var(--color-primary-dark);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  text-decoration: none;
+}
+
+/* Tabs */
+.tabs {
+  display: flex;
+  gap: 0;
+  border: 1.5px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  align-self: flex-start;
+}
+
+.tab {
+  padding: 5px 16px;
+  background: none;
+  border: none;
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+  color: var(--color-text-secondary);
+  transition:
+    background 0.15s,
+    color 0.15s;
+}
+.tabActive {
+  background: var(--color-primary);
+  color: white;
+}
+
+/* Period nav */
+.nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4) var(--space-1);
+}
+
+.navBtn {
+  background: var(--color-surface-raised);
+  border: none;
+  border-radius: var(--radius-sm);
+  width: 32px;
+  height: 32px;
+  font-size: 1.3rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-text-secondary);
+}
+.navBtn:active {
+  opacity: 0.6;
+}
+
+.dateDisplay {
+  flex: 1;
+  text-align: center;
+  font-size: var(--font-size-base);
+  font-weight: var(--font-weight-medium);
+}
+
+.todayBtn {
+  background: var(--color-primary-light);
+  color: var(--color-primary-dark);
+  border: none;
+  border-radius: var(--radius-full);
+  padding: 4px 12px;
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+}
+
+/* Summary mode toggle */
+.summaryToggle {
+  display: flex;
+  gap: 0;
+  border: 1.5px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  align-self: flex-start;
+  margin: var(--space-3) var(--space-4) 0;
+}
+
+.toggleBtn {
+  padding: 5px 16px;
+  background: none;
+  border: none;
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+  color: var(--color-text-secondary);
+}
+.toggleActive {
+  background: var(--color-primary);
+  color: white;
+}
+
+/* Actions */
+.actions {
+  display: flex;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-4);
+}
+
+/* Summary cards */
+.cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-4);
+}
+
+/* Visit list */
+.visitList,
+.expenseList,
+.debtList {
+  list-style: none;
+  padding: var(--space-2) var(--space-4) var(--space-8);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.visitRow {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-3) var(--space-4);
+  cursor: pointer;
+  text-align: right;
+  box-shadow: var(--shadow-sm);
+}
+.visitRow:active {
+  box-shadow: none;
+}
+
+.visitMain {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.visitName {
+  font-size: var(--font-size-base);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.visitTime {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-secondary);
+}
+
+.visitAmounts {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+  flex-shrink: 0;
+  font-size: var(--font-size-sm);
+}
+.debtText {
+  color: var(--color-error);
+  font-size: var(--font-size-xs);
+}
+.paidText {
+  color: var(--color-success, #16a34a);
+  font-size: var(--font-size-xs);
+}
+
+/* Expenses */
+.expenseRow,
+.debtRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-3) var(--space-4);
+}
+
+.expenseMain,
+.debtRow .expenseMain {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.expenseTitle {
+  font-size: var(--font-size-base);
+  font-weight: var(--font-weight-medium);
+}
+.expenseCategory {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-secondary);
+}
+.expenseAmount,
+.debtAmount {
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semibold);
+  flex-shrink: 0;
+}
+.debtAmount {
+  color: var(--color-error);
+}
+
+.expenseActions {
+  display: flex;
+  gap: 2px;
+  flex-shrink: 0;
+}
+.iconBtn {
+  background: none;
+  border: none;
+  font-size: 0.95rem;
+  cursor: pointer;
+  padding: 4px;
+  opacity: 0.75;
+}
+.iconBtn:active {
+  opacity: 0.4;
+}
+
+/* Visit detail */
+.detail {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+.detailMeta {
+  display: flex;
+  gap: var(--space-3);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+}
+
+.detailList {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.detailRow {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-3);
+  font-size: var(--font-size-sm);
+  padding: 6px 0;
+  border-bottom: 1px dashed var(--color-border);
+}
+
+.totals {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  background: var(--color-surface-raised);
+  border-radius: var(--radius-md);
+  padding: var(--space-3);
+}
+.totalRow {
+  display: flex;
+  justify-content: space-between;
+  font-size: var(--font-size-sm);
+}
+.totalRemaining {
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-error);
+  padding-top: 4px;
+  border-top: 1px solid var(--color-border);
+}
+
+.paymentsBlock {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.subTitle {
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-secondary);
+}
+
+.paymentBox {
+  background: var(--color-surface-raised);
+  border-radius: var(--radius-md);
+  padding: var(--space-3);
+}
+
+.fullBtn {
+  width: 100%;
+}
+
+.muted {
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+}

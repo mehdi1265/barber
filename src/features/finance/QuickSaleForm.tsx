@@ -1,5 +1,6 @@
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
+import { useRef } from 'react'
 import { quickSaleSchema, type QuickSaleFormData, PAYMENT_METHOD_LABELS } from './finance.schemas'
 import { FormField } from '@shared/components/forms/FormField'
 import { Button } from '@shared/components/ui/Button'
@@ -23,6 +24,7 @@ interface QuickSaleFormProps {
 
 export function QuickSaleForm({ onSubmit, onCancel, error }: QuickSaleFormProps) {
   const { data: customers = [] } = useCustomers()
+  const submitLock = useRef(false)
 
   const {
     register,
@@ -46,7 +48,15 @@ export function QuickSaleForm({ onSubmit, onCancel, error }: QuickSaleFormProps)
   return (
     <form
       onSubmit={e => {
-        void handleSubmit(d => onSubmit(d as unknown as QuickSaleFormData))(e)
+        void handleSubmit(async d => {
+          if (submitLock.current) return
+          submitLock.current = true
+          try {
+            await onSubmit(d as unknown as QuickSaleFormData)
+          } finally {
+            submitLock.current = false
+          }
+        })(e)
       }}
       noValidate
       className={styles.form}

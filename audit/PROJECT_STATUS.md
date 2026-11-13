@@ -70,6 +70,18 @@
 > cancelled for cancelled/no_show. 156/156 tests pass; `type-check`, `lint`, `format:check`, and
 > `build` are green. Device runtime remains **unverified**.
 
+> **Post-T07 update — 2026-11-13:** The finance module is complete locally. `VisitRepository.create`
+> records the visit, its service lines, and an optional initial payment in one transaction; both
+> `create` and `addPayment` reject over-payment with `OverpaymentError` before writing anything.
+> `findSummariesByDay` returns the customer name plus service/paid totals, and
+> `FinanceRepository.getOpenDebts` aggregates outstanding balances per customer. The finance page has
+> four tabs (Day, Summary with week/month, Expenses, Debts) with Jalali navigation, visit detail with
+> partial payments, expense create/edit/delete (tombstone), and a `/finance/quick-sale` route that
+> records visit + service + payment atomically. Money stays integer ×100. Repository/schema/component
+> tests were added (175/175 total); `type-check`, `lint`, `format:check`, and `build` are green.
+> Browser-level verification of the finance UI was not performed because no Supabase project or
+> session is configured; device runtime remains **unverified**.
+
 ---
 
 ## 1. Repository snapshot

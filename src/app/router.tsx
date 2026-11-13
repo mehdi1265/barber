@@ -17,6 +17,7 @@ import {
   ForgotPasswordPage,
   LoginPage,
   NotFoundPage,
+  QuickSalePage,
   RedirectIfAuth,
   RegisterPage,
   RequireAuth,
@@ -140,6 +141,14 @@ export const router = createBrowserRouter([
             element: (
               <SuspenseWrapper>
                 <FinancePage />
+              </SuspenseWrapper>
+            ),
+          },
+          {
+            path: '/finance/quick-sale',
+            element: (
+              <SuspenseWrapper>
+                <QuickSalePage />
               </SuspenseWrapper>
             ),
           },

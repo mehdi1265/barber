@@ -279,6 +279,8 @@ against `node:sqlite`; migration 002 was also applied/skipped correctly in a pro
 
 ## T07 — Finance: Visits, Payments, Expenses, Reports, Quick Sale
 
+**Status: complete locally (2026-11-13).** `VisitRepository.create` writes the visit, its service lines, and an optional initial payment in one transaction; initial over-payment is rejected with `OverpaymentError` before any row is written, and `addPayment` re-checks the remaining balance (and visit ownership) inside its transaction. `findSummariesByDay` returns customer name + service/paid totals, `FinanceRepository.getOpenDebts` aggregates open balances per customer, and `FinancePage` provides Day, Summary (week/month), Expenses, and Debts tabs with Jalali navigation. Visit detail allows partial payments; expenses support create/edit/delete (tombstone outbox); `/finance/quick-sale` records visit + service + payment atomically with a double-submit lock. Money stays integer ×100. Tests: `visit.repository.test.ts` (11), `finance.schemas.test.ts` (5), `finance-page.test.tsx` (4); 175/175 total. Gates are green. Not verified: browser walkthrough of the finance UI (no Supabase session) and device runtime.
+
 **Size:** L · **Priority:** P1 · **Requirements:** R-18, R-26…R-32 · **Fixes:** BUG-15, BUG-21, BUG-23
 
 **Read first:** `features/finance/*` (including `QuickSaleForm.tsx`), `visit.repository.ts`, `expense.repository.ts`, `finance.calculator.ts`, `docs/04-wireframes.md` (finance section), `docs/06-database-api-design.md`.

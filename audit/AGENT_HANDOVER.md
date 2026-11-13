@@ -48,7 +48,17 @@
 > atomically with child tombstones/inserts. Detail has edit and confirm-gated soft delete; the form
 > guards double submits; deleted rows leave every query. Reminders reschedule on edit and cancel for
 > cancelled/no_show. 156/156 tests pass; gates are green. Device runtime remains unverified.
-> **Next action: T07 when assigned.**
+
+> **T07 update (2026-11-13):** Finance is complete locally. Visit + service lines + optional initial
+> payment are written in one transaction; over-payment is rejected by `OverpaymentError` in `create`
+> and `addPayment` (ownership and remainder checked inside the transaction). `findSummariesByDay`
+> returns customer names and totals; `FinanceRepository.getOpenDebts` aggregates per customer. The
+> finance page has Day/Summary/Expenses/Debts tabs with Jalali navigation, visit detail with partial
+> payments, expense create/edit/delete, and `/finance/quick-sale` (visit + service + payment in one
+> transaction, double-submit lock). 175/175 tests pass; gates are green. Finance UI was not walked
+> through in a browser (no Supabase session); device runtime remains unverified.
+> **Next action: T08 when assigned.**
+
 
 ---
 
@@ -119,7 +129,7 @@ barber/
 │  │  └─ notifications/      local notification helpers (uncalled)
 │  ├─ shared/                UI kit, hooks, types, utils (money, Jalali, helpers)
 │  ├─ state/                 auth store, sync store (dead)
-│  └─ tests/                 18 test files, 156 tests
+│  └─ tests/                 21 test files, 175 tests
 ├─ index.html                **no jeep-sqlite element** → web boot blocker
 ├─ package.json              broken lint + vacuous type-check scripts
 ├─ capacitor.config.ts       appId com.barberapp.app, webDir dist
@@ -392,7 +402,7 @@ Do not run destructive SQL. Do not point tests at a project with real data.
 ### Testing commands
 
 ```bash
-npm test                      # 18 files, 156 tests
+npm test                      # 21 files, 175 tests
 npx vitest run src/tests/unit/jalali.test.ts   # single file
 npm run test:coverage         # after configuring thresholds
 ```
@@ -432,7 +442,7 @@ Priorities and full acceptance criteria: `audit/DEVELOPMENT_BACKLOG.md`. Require
 | 4 | **T04 Local-day & Jalali (done)** | T03 | Correct "today" everywhere; Jalali input |
 | 5 | **T05 Auth completion (done)** | T02, T03 | Logout, reset, profile guarantee, Persian errors |
 | 6 | **T06 Appointments completion (done)** | T03, T04, T05 | Edit/reschedule/change services/delete |
-| 7 | **T07 Finance** | T03, T04, T06 | Visits, payments, expenses, reports, quick sale |
+| 7 | **T07 Finance (done)** | T03, T04, T06 | Visits, payments, expenses, reports, quick sale |
 | 8 | **T08 Dashboard** | T04, T07 | Today at a glance |
 | 9 | **T09 Sync push** | T03 | Reliable idempotent upload |
 | 10 | **T10 Sync pull/recovery** | T09, T04 | New-device restore + conflict policy |

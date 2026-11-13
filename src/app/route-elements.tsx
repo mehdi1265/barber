@@ -29,6 +29,7 @@ export const ColorFormulaDetailPage = lazy(
   () => import('@features/color-formulas/ColorFormulaDetailPage')
 )
 export const FinancePage = lazy(() => import('@features/finance/FinancePage'))
+export const QuickSalePage = lazy(() => import('@features/finance/QuickSalePage'))
 export const SettingsPage = lazy(() => import('@features/settings/SettingsPage'))
 export const ServicesPage = lazy(() => import('@features/services/ServicesPage'))
 export const NotFoundPage = lazy(() => import('@shared/components/ui/NotFoundPage'))

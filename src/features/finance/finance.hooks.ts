@@ -1,6 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { FinanceRepository } from './finance.repository'
 import {
+  OverpaymentError,
   VisitRepository,
   type CreateVisitInput,
   type AddPaymentInput,
@@ -11,7 +12,7 @@ import {
 } from '@database/repositories/expense.repository'
 import { useAuthStore } from '@state/auth.store'
 import { getDatabase } from '@database/sqlite/database'
-import { localDateISO } from '@shared/utils/datetime'
+import { formatToman } from '@shared/utils/helpers'
 
 // ── Query keys ────────────────────────────────────────────────────────────────
 
@@ -20,6 +21,7 @@ export const financeKeys = {
   summary: (uid: string, start: string, end: string) =>
     ['finance', uid, 'summary', start, end] as const,
   debt: (uid: string) => ['finance', uid, 'debt'] as const,
+  debts: (uid: string) => ['finance', uid, 'debts'] as const,
   expenses: (uid: string, date: string) => ['finance', uid, 'expenses', date] as const,
   visits: (uid: string, date: string) => ['visits', uid, 'day', date] as const,
   visitDetail: (uid: string, id: string) => ['visits', uid, id] as const,
@@ -38,6 +40,18 @@ async function getVisitRepo(userId: string) {
 async function getExpenseRepo(userId: string) {
   const db = await getDatabase()
   return new ExpenseRepository(db, userId)
+}
+
+function invalidateFinance(qc: ReturnType<typeof useQueryClient>, userId: string) {
+  void qc.invalidateQueries({ queryKey: ['finance', userId] })
+  void qc.invalidateQueries({ queryKey: ['visits', userId] })
+}
+
+function rethrowOverpayment(err: unknown): never {
+  if (err instanceof OverpaymentError) {
+    throw new Error(`مبلغ پرداخت از باقیمانده (${formatToman(err.remaining)}) بیشتر است`)
+  }
+  throw err
 }
 
 // ── Finance queries ───────────────────────────────────────────────────────────
@@ -81,15 +95,28 @@ export function useTotalOpenDebt() {
   })
 }
 
+export function useOpenDebts() {
+  const userId = useAuthStore(s => s.userId)!
+  return useQuery({
+    queryKey: financeKeys.debts(userId),
+    queryFn: async () => {
+      const repo = await getFinanceRepo(userId)
+      return repo.getOpenDebts()
+    },
+    enabled: !!userId,
+    staleTime: 1000 * 60,
+  })
+}
+
 // ── Visit queries ─────────────────────────────────────────────────────────────
 
-export function useVisitsByDay(dateISO: string) {
+export function useVisitSummariesByDay(dateISO: string) {
   const userId = useAuthStore(s => s.userId)!
   return useQuery({
     queryKey: financeKeys.visits(userId, dateISO),
     queryFn: async () => {
       const repo = await getVisitRepo(userId)
-      return repo.findByDay(dateISO)
+      return repo.findSummariesByDay(dateISO)
     },
     enabled: !!userId,
     staleTime: 1000 * 20,
@@ -137,13 +164,14 @@ export function useCreateVisit() {
   return useMutation({
     mutationFn: async (input: CreateVisitInput) => {
       const repo = await getVisitRepo(userId)
-      return repo.create(input)
+      try {
+        return await repo.create(input)
+      } catch (err) {
+        rethrowOverpayment(err)
+      }
     },
-    onSuccess: visit => {
-      const dateISO = localDateISO(visit.visited_at)
-      void qc.invalidateQueries({ queryKey: financeKeys.visits(userId, dateISO) })
-      void qc.invalidateQueries({ queryKey: financeKeys.daily(userId, dateISO) })
-      void qc.invalidateQueries({ queryKey: financeKeys.debt(userId) })
+    onSuccess: () => {
+      invalidateFinance(qc, userId)
     },
   })
 }
@@ -155,13 +183,15 @@ export function useAddPayment() {
   return useMutation({
     mutationFn: async (input: AddPaymentInput) => {
       const repo = await getVisitRepo(userId)
-      return repo.addPayment(input)
+      try {
+        return await repo.addPayment(input)
+      } catch (err) {
+        rethrowOverpayment(err)
+      }
     },
     onSuccess: payment => {
-      const dateISO = localDateISO(payment.paid_at)
       void qc.invalidateQueries({ queryKey: financeKeys.visitDetail(userId, payment.visit_id) })
-      void qc.invalidateQueries({ queryKey: financeKeys.daily(userId, dateISO) })
-      void qc.invalidateQueries({ queryKey: financeKeys.debt(userId) })
+      invalidateFinance(qc, userId)
     },
   })
 }
@@ -175,10 +205,23 @@ export function useCreateExpense() {
       const repo = await getExpenseRepo(userId)
       return repo.create(input)
     },
-    onSuccess: expense => {
-      const dateISO = localDateISO(expense.spent_at)
-      void qc.invalidateQueries({ queryKey: financeKeys.expenses(userId, dateISO) })
-      void qc.invalidateQueries({ queryKey: financeKeys.daily(userId, dateISO) })
+    onSuccess: () => {
+      invalidateFinance(qc, userId)
+    },
+  })
+}
+
+export function useUpdateExpense() {
+  const qc = useQueryClient()
+  const userId = useAuthStore(s => s.userId)!
+
+  return useMutation({
+    mutationFn: async ({ id, input }: { id: string; input: Partial<CreateExpenseInput> }) => {
+      const repo = await getExpenseRepo(userId)
+      return repo.update(id, input)
+    },
+    onSuccess: () => {
+      invalidateFinance(qc, userId)
     },
   })
 }
@@ -188,14 +231,13 @@ export function useDeleteExpense() {
   const userId = useAuthStore(s => s.userId)!
 
   return useMutation({
-    mutationFn: async ({ id, dateISO }: { id: string; dateISO: string }) => {
+    mutationFn: async (id: string) => {
       const repo = await getExpenseRepo(userId)
       await repo.delete(id)
-      return { id, dateISO }
+      return id
     },
-    onSuccess: ({ dateISO }) => {
-      void qc.invalidateQueries({ queryKey: financeKeys.expenses(userId, dateISO) })
-      void qc.invalidateQueries({ queryKey: financeKeys.daily(userId, dateISO) })
+    onSuccess: () => {
+      invalidateFinance(qc, userId)
     },
   })
 }

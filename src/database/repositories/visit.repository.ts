@@ -16,6 +16,12 @@ export interface VisitServiceInput {
   duration_minutes?: number | null
 }
 
+export interface InitialPaymentInput {
+  amount: number // Toman (display)
+  method: PaymentMethod
+  note?: string | null
+}
+
 export interface CreateVisitInput {
   customer_id?: string | null
   appointment_id?: string | null
@@ -23,6 +29,22 @@ export interface CreateVisitInput {
   visited_at?: string // ISO-8601; defaults to now
   notes?: string | null
   services: VisitServiceInput[]
+  /** Optional payment recorded in the same transaction as the visit. */
+  payment?: InitialPaymentInput | null
+}
+
+export interface VisitSummary extends Visit {
+  customer_name: string | null
+  service_total: number
+  paid_total: number
+}
+
+/** Thrown when a payment would exceed the visit's remaining balance. */
+export class OverpaymentError extends Error {
+  constructor(readonly remaining: number) {
+    super(`Payment exceeds remaining balance (${remaining})`)
+    this.name = 'OverpaymentError'
+  }
 }
 
 export interface AddPaymentInput {
@@ -73,6 +95,29 @@ export class VisitRepository {
   async findByDay(dateISO: string): Promise<Visit[]> {
     const { start, end } = localDayRange(dateISO)
     return this.findByDateRange(start, end)
+  }
+
+  /** Day visits with customer name, service total and paid total for lists. */
+  async findSummariesByDay(dateISO: string): Promise<VisitSummary[]> {
+    const { start, end } = localDayRange(dateISO)
+    const result = await this.db.query(
+      `SELECT v.*,
+              c.name AS customer_name,
+              COALESCE((
+                SELECT SUM(vs.line_total) FROM visit_services vs
+                WHERE vs.visit_id = v.id AND vs.user_id = v.user_id
+              ), 0) AS service_total,
+              COALESCE((
+                SELECT SUM(p.amount) FROM payments p
+                WHERE p.visit_id = v.id AND p.user_id = v.user_id
+              ), 0) AS paid_total
+       FROM visits v
+       LEFT JOIN customers c ON c.id = v.customer_id AND c.user_id = v.user_id
+       WHERE v.user_id = ? AND v.visited_at >= ? AND v.visited_at < ?
+       ORDER BY v.visited_at DESC`,
+      [this.userId, start, end]
+    )
+    return (result.values as VisitSummary[]) ?? []
   }
 
   async getServicesForVisit(visitId: UUID): Promise<VisitService[]> {
@@ -139,6 +184,25 @@ export class VisitRepository {
       }
     })
 
+    const serviceTotal = services.reduce((sum, svc) => sum + svc.line_total, 0)
+    const initialPayment: Payment | null = input.payment
+      ? {
+          id: generateUUID(),
+          user_id: this.userId,
+          visit_id: visit.id,
+          amount: tomanToStorage(input.payment.amount),
+          method: input.payment.method,
+          paid_at: visit.visited_at,
+          note: input.payment.note?.trim() ?? null,
+          created_at: now,
+          updated_at: now,
+        }
+      : null
+
+    if (initialPayment && initialPayment.amount > serviceTotal) {
+      throw new OverpaymentError(serviceTotal)
+    }
+
     await withTransaction(this.db, async () => {
       await this.db.run(
         `INSERT INTO visits
@@ -198,6 +262,33 @@ export class VisitRepository {
           client_op_id: `${clientOpId}:${svc.id}`,
         })
       }
+
+      if (initialPayment) {
+        await this.db.run(
+          `INSERT INTO payments
+            (id, user_id, visit_id, amount, method, paid_at, note, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [
+            initialPayment.id,
+            initialPayment.user_id,
+            initialPayment.visit_id,
+            initialPayment.amount,
+            initialPayment.method,
+            initialPayment.paid_at,
+            initialPayment.note,
+            initialPayment.created_at,
+            initialPayment.updated_at,
+          ]
+        )
+
+        await addToOutbox(this.db, {
+          entity_type: 'payments',
+          entity_id: initialPayment.id,
+          operation: 'insert',
+          payload: JSON.stringify(initialPayment),
+          client_op_id: `${clientOpId}:pay:${initialPayment.id}`,
+        })
+      }
     })
 
     return visit
@@ -218,6 +309,29 @@ export class VisitRepository {
     }
 
     await withTransaction(this.db, async () => {
+      const visitResult = await this.db.query(
+        `SELECT id FROM visits WHERE id = ? AND user_id = ? LIMIT 1`,
+        [payment.visit_id, this.userId]
+      )
+      if (!visitResult.values?.length) {
+        throw new Error('Visit not found')
+      }
+
+      const totals = await this.db.query(
+        `SELECT
+           COALESCE((SELECT SUM(line_total) FROM visit_services
+             WHERE visit_id = ? AND user_id = ?), 0) AS service_total,
+           COALESCE((SELECT SUM(amount) FROM payments
+             WHERE visit_id = ? AND user_id = ?), 0) AS paid_total`,
+        [payment.visit_id, this.userId, payment.visit_id, this.userId]
+      )
+      const row = totals.values?.[0] as { service_total: number; paid_total: number } | undefined
+      const remaining = (row?.service_total ?? 0) - (row?.paid_total ?? 0)
+
+      if (payment.amount > remaining) {
+        throw new OverpaymentError(remaining)
+      }
+
       await this.db.run(
         `INSERT INTO payments
           (id, user_id, visit_id, amount, method, paid_at, note, created_at, updated_at)
