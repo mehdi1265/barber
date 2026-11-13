@@ -10,6 +10,9 @@ public/assets/sql-wasm.wasm
 .env
 .env.local
 .env.*.local
+*.keystore
+*.jks
+keystore.properties
 
 # Logs
 *.log

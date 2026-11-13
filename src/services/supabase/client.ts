@@ -5,6 +5,7 @@
 
 import { createClient } from '@supabase/supabase-js'
 import type { Database } from './database.types'
+import { secureSessionStorage } from './secure-session-storage'
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string
@@ -17,7 +18,8 @@ if (!supabaseUrl || !supabaseAnonKey) {
 
 export const supabase = createClient<Database>(supabaseUrl, supabaseAnonKey, {
   auth: {
-    // Persist session in localStorage (Capacitor SecureStorage in Phase 7)
+    // Native: Keychain/Keystore. Web: localStorage (development only, D-21).
+    storage: secureSessionStorage,
     persistSession: true,
     autoRefreshToken: true,
     detectSessionInUrl: false,

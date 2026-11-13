@@ -4,6 +4,7 @@
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { ReactNode } from 'react'
+import { errorDetails, logger } from '@shared/utils/logger'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -19,7 +20,7 @@ const queryClient = new QueryClient({
     mutations: {
       // Mutations always write to SQLite first; network errors don't block UI
       onError: error => {
-        console.error('[mutation error]', error)
+        logger.error('Mutation failed', { error: errorDetails(error) })
       },
     },
   },

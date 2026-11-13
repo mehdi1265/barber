@@ -603,6 +603,16 @@ cover the additions.
 - Fresh-install smoke test: register → create customer/service → book → pay → expense → dashboard correct → restart → data intact → wipe → login → restore.
 - Audit documents updated; no requirement left as “Needs verification” without an owner.
 
+**Status:** complete locally (2026-11-13). Secrets at rest use Keychain/Keystore for Supabase
+sessions and the existing SQLite passphrase path; `ErrorBoundary` and a 200-entry redacting logger
+are wired (`main.tsx`, `bootstrap.ts`, `providers.tsx`). Migration `001` is re-runnable and enforced
+by `supabase-migrations.test.ts`. The two-user probe is `supabase/tests/rls_two_user_check.sql`.
+CI now includes a production audit gate, Dependabot is configured, and
+`docs/11-release-runbook.md` covers RLS, supply chain, backup/restore, and Android signing.
+`npm run android:release-config` patches signing/versioning idempotently. 275/275 tests pass; all
+gates green. **Pending live checks:** execute the RLS script on a real project, build a signed
+AAB, and run the fresh-install smoke test on a clean device.
+
 ---
 
 ## Dependency graph

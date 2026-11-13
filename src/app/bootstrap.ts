@@ -14,6 +14,7 @@ import { useDatabaseStore } from '@state/database.store'
 import { getDatabase } from '@database/sqlite/database'
 import { runMigrations } from '@database/sqlite/migrations'
 import { ensureProfile } from '@features/auth/auth.usecases'
+import { errorDetails, logger } from '@shared/utils/logger'
 
 const DATABASE_INIT_TIMEOUT_MS = 15_000
 
@@ -46,9 +47,9 @@ export async function initializeDatabase(): Promise<void> {
     )
     await runMigrations(db)
     setStatus('ready')
-    console.log('[bootstrap] Database ready')
+    logger.info('Database ready')
   } catch (err) {
-    console.error('[bootstrap] Database initialisation failed:', err)
+    logger.error('Database initialisation failed', { error: errorDetails(err) })
     setStatus('error')
   }
 }
@@ -59,13 +60,13 @@ async function restoreAuthSession(): Promise<void> {
   try {
     const { data, error } = await supabase.auth.getSession()
     if (error) {
-      console.warn('[bootstrap] Could not restore session:', error.message)
+      logger.warn('Could not restore session', { error: error.message })
       setSession(null)
     } else {
       setSession(data.session)
     }
   } catch (err) {
-    console.error('[bootstrap] Session restore failed:', err)
+    logger.error('Session restore failed', { error: errorDetails(err) })
     setSession(null)
   }
 
@@ -77,7 +78,7 @@ async function restoreAuthSession(): Promise<void> {
       if (session?.user) void ensureProfile(session.user)
     })
   } catch (err) {
-    console.error('[bootstrap] Could not subscribe to auth changes:', err)
+    logger.error('Could not subscribe to auth changes', { error: errorDetails(err) })
   }
 }
 
@@ -95,7 +96,7 @@ export async function bootstrapApp(): Promise<void> {
     const currentUser = useAuthStore.getState().user
     if (currentUser) await ensureProfile(currentUser)
 
-    console.log('[bootstrap] Done')
+    logger.info('Bootstrap done')
   } finally {
     setLoading(false)
   }

@@ -165,6 +165,20 @@
 > device measurement. 256/256 tests across 37 files; `type-check`, `lint`, `format:check`, and
 > `build` are green. Real-device timing remains **unverified**.
 
+> **Post-T16 update — 2026-11-13:** Security and release readiness are complete locally. Native
+> sessions use the platform Keychain/Keystore through `@aparajita/capacitor-secure-storage`; web
+> localStorage stays a development-only fallback, and the SQLite file was already encrypted on
+> native. A Persian React `ErrorBoundary` and a bounded 200-entry logger with sensitive-key
+> redaction replace raw error rendering and ad-hoc console output. Supabase migration `001` is now
+> fully re-runnable (indexes, policies, private bucket) and a test enforces that; `002`/`003` already
+> were. `supabase/tests/rls_two_user_check.sql` verifies both users across all 12 tables and the
+> storage bucket in a rolled-back transaction. CI now gates production dependencies on critical
+> advisories, Dependabot groups weekly updates, and `docs/11-release-runbook.md` documents RLS
+> verification, backup/restore, supply chain, and Android release signing. Production dependencies
+> were upgraded (`react-router-dom` 7.18, `supabase-js` 2.49); the remaining zod advisory needs a
+> breaking v4 migration and is documented. 275/275 tests across 42 files; all gates green. Live RLS,
+> signed native builds, and real-device checks remain **unverified**.
+
 ---
 
 ## 1. Repository snapshot

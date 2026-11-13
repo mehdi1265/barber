@@ -5,6 +5,8 @@ import { Providers } from './app/providers'
 import { router } from './app/router'
 import { bootstrapApp } from './app/bootstrap'
 import { DatabaseStatusBanner } from './app/DatabaseStatusBanner'
+import { ErrorBoundary } from './app/ErrorBoundary'
+import { errorDetails, logger } from '@shared/utils/logger'
 import './index.css'
 
 /**
@@ -15,7 +17,7 @@ import './index.css'
  * dynamic import), and deliberately does not render the raw error.
  */
 function showFatalError(err: unknown): void {
-  console.error('Fatal: app startup failed', err)
+  logger.error('Fatal: app startup failed', { error: errorDetails(err) })
 
   const root = document.getElementById('root')
   if (!root) return
@@ -38,17 +40,19 @@ function start(): void {
 
   createRoot(root).render(
     <StrictMode>
-      <Providers>
-        <DatabaseStatusBanner />
-        <RouterProvider router={router} />
-      </Providers>
+      <ErrorBoundary>
+        <Providers>
+          <DatabaseStatusBanner />
+          <RouterProvider router={router} />
+        </Providers>
+      </ErrorBoundary>
     </StrictMode>
   )
 
   // Render first: a database plugin that hangs must not leave the user on a
   // blank page. Auth guards show their loading state until this settles.
   void bootstrapApp().catch(err => {
-    console.error('[bootstrap] Unexpected startup failure:', err)
+    logger.error('Unexpected startup failure', { error: errorDetails(err) })
   })
 }
 

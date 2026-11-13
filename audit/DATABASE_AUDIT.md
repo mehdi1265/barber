@@ -44,11 +44,11 @@ CREATE POLICY "customers: owner only" ON public.customers
   USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
 ```
 
-- 12 table policies + 3 storage policies = **15 policies**.
+- 12 table policies + 4 storage policies = **16 policies**.
 - `profiles` additionally has `handle_new_user()` + `on_auth_user_created` trigger, which inserts a profile row on signup (`001_initial_schema.sql:26-40`).
 - An `update_updated_at()` trigger is attached to all 12 tables (`:267-289`).
-- Storage: bucket `customer-photos` (private) is **not created** — only a commented `INSERT INTO storage.buckets` (`:249-252`). Select/insert/delete policies exist; **no update policy** (upsert overwrite will fail).
-- No `supabase/config.toml`; the file is meant to be pasted into the SQL editor.
+- Storage: migration `001` creates the private `customer-photos` bucket idempotently (`ON CONFLICT (id) DO NOTHING`). Select/insert/delete policies live in `001`; the update policy is added by `003_photo_storage_policy.sql`.
+- No `supabase/config.toml`; the files are meant to be pasted into the SQL editor.
 - No `deleted_at` on `visits`, `visit_services`, `payments`, `expenses`, `color_formulas`, `color_formula_items`.
 
 ---
@@ -107,12 +107,12 @@ Every table carries `user_id`, including child rows, so RLS and local filters ar
 | Aspect | Local | Cloud |
 |---|---|---|
 | Mechanism | `schema_migrations(version, name, applied_at)` + `runMigrations` | Raw SQL file, manual execution |
-| Idempotent | Yes (`IF NOT EXISTS`, version check) | **No** — `CREATE INDEX` without `IF NOT EXISTS`, `CREATE POLICY` without `DROP POLICY IF EXISTS`; second run fails |
+| Idempotent | Yes (`IF NOT EXISTS`, version check) | Yes — `IF NOT EXISTS` indexes/tables, policies dropped before recreation, bucket `ON CONFLICT DO NOTHING` (enforced by `supabase-migrations.test.ts`) |
 | Transactional | `db.execute(sql)` per file; plugin executes statements; no explicit transaction | Supabase SQL editor runs as one batch; partial failure possible |
 | Down migration | none | none |
 | Checksums | none | none |
 | Adding a migration | Must add `import … ?raw` + array entry in `migrations.ts` | Drop a new file; no CLI config present |
-| Bucket provisioning | n/a | Commented out; must be done manually |
+| Bucket provisioning | n/a | Created by `001` with `ON CONFLICT (id) DO NOTHING` |
 | Types | hand-written interfaces | hand-written `database.types.ts` |
 
 `runMigrations` is sound for the current single migration. The risk is future: a failed migration leaves `schema_migrations` without the row (good), but partially-created tables remain because DDL is not wrapped in a transaction.
@@ -132,11 +132,11 @@ Every table carries `user_id`, including child rows, so RLS and local filters ar
 
 | Risk | Detail | Severity |
 |---|---|---|
-| Never executed | No live project; policies are unverified against real JWTs | High |
+| Never executed | No live project; `supabase/tests/rls_two_user_check.sql` is committed but still needs one run against real JWTs | High |
 | No `TO authenticated` clause | Applies to `anon` too; `auth.uid()` is null so no rows — safe but relies on null semantics | Low |
-| Policies not idempotent | Re-running the SQL errors out; a partial run leaves some tables unprotected until fixed | High |
-| Bucket absent | Storage policies exist for a bucket that may not exist; uploads fail until created manually | High (for photos) |
-| No UPDATE policy on storage | Overwriting/upserting an existing photo is denied | Medium |
+| Policies not idempotent | Fixed in T16: every policy is preceded by `DROP POLICY IF EXISTS` (or a `duplicate_object` handler) | Resolved |
+| Bucket absent | Fixed in T16: `001` creates the private bucket idempotently | Resolved |
+| No UPDATE policy on storage | Fixed by `003_photo_storage_policy.sql` | Resolved |
 | `profiles` insert already done by trigger | Client `createProfile` pushes an `insert`; server row exists → plain INSERT conflicts. Sync must use **upsert** | High for T09 |
 | `updated_at` trigger | Server `now()` always wins; client timestamps are ignored on update, breaking last-write-wins | High for T10 |
 | Child rows lack owner consistency checks | `appointment_services.user_id` could differ from parent; only RLS prevents reading, not insertion of mismatched rows | Medium |
@@ -171,7 +171,7 @@ Every table carries `user_id`, including child rows, so RLS and local filters ar
 | DB-05 | Child rows (`appointment_services`, `visit_services`, `color_formula_items`) are never enqueued | repositories | Cloud restore loses line items and therefore all money detail | T03 — **resolved for appointments/visits**; formulas in T11 |
 | DB-06 | Expensive/visit/payment/formula hard deletes have no tombstone and no `deleted_at` server-side | schema | Deletions cannot be replayed on other devices | T03/T10 — **expense tombstone resolved** 2026-11-13 (local migration 004 + server migration 002); visit/payment/formula deletes arrive with their flows |
 | DB-07 | `profiles.id` must equal `auth.uid()`, but the server already inserts the row via trigger; client pushes `insert` | `001_initial_schema.sql:27-40`; `profile.repository.ts:31-58` | First profile sync conflicts unless the push uses upsert | T09 — **resolved** 2026-11-13 (push always upserts by `id`) |
-| DB-08 | Cloud migration is not idempotent; bucket creation is commented out | `001_initial_schema.sql:53-54,57,71,93-94,249-252` | Re-run fails; photos unusable until manual setup | T16 — storage UPDATE policy added in `003_photo_storage_policy.sql` (T12); bucket provisioning still T16 |
+| DB-08 | Cloud migration is not idempotent; bucket creation is commented out | `001_initial_schema.sql` | Re-run fails; photos unusable until manual setup | T16 — **resolved** 2026-11-13 (indexes `IF NOT EXISTS`, policies dropped first, bucket `ON CONFLICT DO NOTHING`, enforced by a test) |
 | DB-09 | `REAL` locally vs `NUMERIC(5,2)/(8,2)` remotely | schemas | Sub-gram rounding differences after round-trip | T11 — **resolved** 2026-11-13 (schema rounds to 2 decimals, caps at 999.99; see D-33) |
 | DB-10 | No constraint/unique guard for overlapping appointments; `end_at > start_at` unchecked | appointments schema | Race can create overlaps; bad rows possible | T06 |
 | DB-11 | Local-day semantics encoded as UTC calendar dates and UTC day bounds | `jalali.ts:54-56`, repositories | Wrong day totals for UTC+3:30 (BUG-05) | T04 |
@@ -221,6 +221,6 @@ Every table carries `user_id`, including child rows, so RLS and local filters ar
 4. **T06:** add overlap re-check inside the transaction; document that SQLite cannot express an exclusion constraint.
 5. **T10:** add `sync_state` (single row: `last_pull_at`, `device_id`) via migration `002`; align `updated_at` semantics with the server trigger; add missing indexes as a separate migration.
 6. **T11:** decide decimal encoding before writing formula sync.
-7. **T16:** make the cloud migration idempotent (`DROP POLICY IF EXISTS`, `CREATE INDEX IF NOT EXISTS`), create the bucket explicitly, add the storage UPDATE policy, and add an RLS test checklist with two users.
+7. **T16:** ~~make the cloud migration idempotent, create the bucket explicitly, add the storage UPDATE policy, add an RLS test checklist~~ **done 2026-11-13**; run `supabase/tests/rls_two_user_check.sql` against a live project before release.
 
 Any schema change must ship as a new numbered migration in both places, never by editing `001`.

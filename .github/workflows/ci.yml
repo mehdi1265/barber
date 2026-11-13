@@ -42,5 +42,11 @@ jobs:
       - name: Test
         run: npm test
 
+      - name: Audit production dependencies
+        # Accepted exception: zod < 4.6.6 (memory exhaustion on oversized
+        # collections). Fixing it requires a breaking zod 4 migration; it is
+        # tracked in docs/11-release-runbook.md. Gate on critical until then.
+        run: npm audit --omit=dev --audit-level=critical
+
       - name: Build
         run: npm run build

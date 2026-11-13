@@ -106,7 +106,17 @@
 > at most 50 rows per group, the page shows 5 with «نمایش همه», excludes soft-deleted rows, scopes
 > every query by `user_id`, and navigates results to their detail pages. 256/256 tests across 37
 > files; gates green. Device timing for the 5,000-customer target remains unverified.
-> **Next action: T16 (security & release readiness) when assigned.**
+> **T16 update (2026-11-13):** Security and release readiness are complete locally. Supabase session
+> tokens now use Keychain/Keystore on native (`secure-session-storage.ts`; web localStorage is
+> dev-only per D-21). A Persian ErrorBoundary and a 200-entry redacting local logger replace raw
+> error rendering. Migration `001` is fully re-runnable (indexes, policies, bucket) and
+> `supabase/tests/rls_two_user_check.sql` probes both users across all 12 tables plus storage inside
+> a rolled-back transaction; it still needs one run against a live project. Added CI production-audit
+> gating, Dependabot, `docs/11-release-runbook.md`, and an idempotent Android signing/version script
+> (`npm run android:release-config`). 275/275 tests across 42 files; gates green. Live RLS, native
+> release builds, and real-device checks remain unverified.
+> **Next action: run the live checks in `docs/11-release-runbook.md` (RLS script, signed Android
+> build) when a project and device are available.**
 
 
 ---
@@ -362,18 +372,20 @@ Every table carries `user_id`; all child tables cascade from their parent **wher
 
 - Local: single `001_initial.sql`, tracked in `schema_migrations`; new migrations need a raw import + array entry.
 - Cloud: single raw SQL file, run manually in the Supabase SQL editor. No `config.toml`, no CLI workflow, no down migrations.
-- The cloud file is **not idempotent** (`CREATE INDEX` without `IF NOT EXISTS`, `CREATE POLICY` without drops) and bucket creation is commented out.
-- Never edit an existing migration; add `002`, `003`, …
+- Cloud migrations are re-runnable: `001` uses `IF NOT EXISTS` indexes, drops policies before
+  recreating them, and creates the private bucket with `ON CONFLICT DO NOTHING`;
+  `src/tests/unit/supabase-migrations.test.ts` enforces the pattern.
+- Never edit an applied migration; add `004`, `005`, …
 
 ### RLS policies
 
-RLS enabled on all 12 tables; one policy per table using `auth.uid() = user_id` with `USING` + `WITH CHECK`. Storage: select/insert/delete on `customer-photos`, path prefix = uid; **no update policy**. `profiles` also auto-created by `handle_new_user()` on signup.
+RLS enabled on all 12 tables; one policy per table using `auth.uid() = user_id` with `USING` + `WITH CHECK`. Storage: select/insert/delete in `001` and update in `003` on `customer-photos`, path prefix = uid. `profiles` also auto-created by `handle_new_user()` on signup.
 
-**Never executed against a live project** — treat RLS as unverified until T16.
+The two-user probe (`supabase/tests/rls_two_user_check.sql`) is committed but **has not been executed against a live project** — run it once per release project (Section 3 of the runbook).
 
 ### Known database defects
 
-DB-01 outbox has no `updated_at`; DB-02 FK pragma not per connection; DB-03 no transactions; DB-04 no sync cursor; DB-05 child rows not synced; DB-06 hard deletes without tombstones; DB-07 profile insert vs trigger conflict; DB-08 non-idempotent cloud migration/bucket; DB-09 REAL vs NUMERIC drift; DB-10 no overlap/`end_at` guard; DB-11 UTC day semantics; DB-12 server `updated_at` trigger overrides client time; DB-13 missing cloud indexes; DB-14 delete FK behaviour; DB-15 no outbox idempotency constraint.
+DB-01 outbox has no `updated_at`; DB-02 FK pragma not per connection; DB-03 no transactions; DB-04 no sync cursor; DB-05 child rows not synced; DB-06 hard deletes without tombstones; DB-07 profile insert vs trigger conflict; ~~DB-08 non-idempotent cloud migration/bucket~~ (fixed in T16); DB-09 REAL vs NUMERIC drift; DB-10 no overlap/`end_at` guard; DB-11 UTC day semantics; DB-12 server `updated_at` trigger overrides client time; DB-13 missing cloud indexes; DB-14 delete FK behaviour; DB-15 no outbox idempotency constraint.
 
 ### Data integrity risks
 
@@ -500,7 +512,7 @@ Priorities and full acceptance criteria: `audit/DEVELOPMENT_BACKLOG.md`. Require
 | 13 | **T13 Notifications (done)** | T06 | Permission + reminder lifecycle |
 | 14 | **T14 Settings/profile/history (done)** | T05, T09, T07 | Real settings + customer history |
 | 15 | **T15 Global search (done)** | T07, T11 | Cross-entity search |
-| 16 | **T16 Security & release** | All | Secure storage, RLS verification, release |
+| 16 | **T16 Security & release (done)** | All | Secure storage, RLS verification, release |
 
 ### Dependency summary
 

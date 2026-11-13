@@ -19,9 +19,11 @@
     "cap:build": "npm run build && npx cap sync",
     "cap:android": "npm run cap:build && npx cap open android",
     "cap:ios": "npm run cap:build && npx cap open ios",
+    "android:release-config": "node scripts/android-release.ts",
     "type-check": "tsc -b"
   },
   "dependencies": {
+    "@aparajita/capacitor-secure-storage": "^7.1.6",
     "@capacitor-community/sqlite": "^7.0.0",
     "@capacitor/android": "^7.6.10",
     "@capacitor/app": "^7.0.1",
@@ -34,7 +36,7 @@
     "@capacitor/local-notifications": "^7.0.1",
     "@capacitor/status-bar": "^7.0.1",
     "@hookform/resolvers": "^3.9.1",
-    "@supabase/supabase-js": "^2.47.10",
+    "@supabase/supabase-js": "^2.119.0",
     "@tanstack/react-query": "^5.62.7",
     "date-fns": "^4.1.0",
     "date-fns-jalali": "^4.1.0-0",
@@ -42,7 +44,7 @@
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
     "react-hook-form": "^7.54.0",
-    "react-router-dom": "^7.0.2",
+    "react-router-dom": "^7.18.5",
     "zod": "^3.24.1",
     "zustand": "^5.0.3"
   },
