@@ -167,17 +167,17 @@ Every table carries `user_id`, including child rows, so RLS and local filters ar
 | DB-01 | `sync_outbox` has no `updated_at`/`processed_at`, but `markOutboxDone` writes `updated_at` | `outbox.repository.ts:51` vs `001_initial.sql:203-214` | First successful push throws; no backoff scheduling | T03 — **resolved** 2026-11-13 (migration 002 + real columns) |
 | DB-02 | `PRAGMA foreign_keys = ON` only inside the migration | `001_initial.sql:7`; no pragma in `database.ts` | FK enforcement off after first launch; orphan rows possible | T02 — **resolved** 2026-11-13 |
 | DB-03 | Multi-table writes are not transactional | appointment/visit/repo code; no `beginTransaction` anywhere | Partial appointments, visits, sales | T03 — **resolved** 2026-11-13 (`withTransaction`) |
-| DB-04 | No pull cursor / `sync_state` table | local schema | Incremental pull cannot be built without a new migration | T10 |
+| DB-04 | No pull cursor / `sync_state` table | local schema | Incremental pull cannot be built without a new migration | T10 — **resolved** 2026-11-13 (migration 003, single-row cursor) |
 | DB-05 | Child rows (`appointment_services`, `visit_services`, `color_formula_items`) are never enqueued | repositories | Cloud restore loses line items and therefore all money detail | T03 — **resolved for appointments/visits**; formulas in T11 |
-| DB-06 | Expensive/visit/payment/formula hard deletes have no tombstone and no `deleted_at` server-side | schema | Deletions cannot be replayed on other devices | T03/T10 — expense tombstone **done**; visit/payment/formula deletes arrive with their flows |
-| DB-07 | `profiles.id` must equal `auth.uid()`, but the server already inserts the row via trigger; client pushes `insert` | `001_initial_schema.sql:27-40`; `profile.repository.ts:31-58` | First profile sync conflicts unless the push uses upsert | T09 |
+| DB-06 | Expensive/visit/payment/formula hard deletes have no tombstone and no `deleted_at` server-side | schema | Deletions cannot be replayed on other devices | T03/T10 — **expense tombstone resolved** 2026-11-13 (local migration 004 + server migration 002); visit/payment/formula deletes arrive with their flows |
+| DB-07 | `profiles.id` must equal `auth.uid()`, but the server already inserts the row via trigger; client pushes `insert` | `001_initial_schema.sql:27-40`; `profile.repository.ts:31-58` | First profile sync conflicts unless the push uses upsert | T09 — **resolved** 2026-11-13 (push always upserts by `id`) |
 | DB-08 | Cloud migration is not idempotent; bucket creation is commented out | `001_initial_schema.sql:53-54,57,71,93-94,249-252` | Re-run fails; photos unusable until manual setup | T16 |
 | DB-09 | `REAL` locally vs `NUMERIC(5,2)/(8,2)` remotely | schemas | Sub-gram rounding differences after round-trip | T11 |
 | DB-10 | No constraint/unique guard for overlapping appointments; `end_at > start_at` unchecked | appointments schema | Race can create overlaps; bad rows possible | T06 |
 | DB-11 | Local-day semantics encoded as UTC calendar dates and UTC day bounds | `jalali.ts:54-56`, repositories | Wrong day totals for UTC+3:30 (BUG-05) | T04 |
-| DB-12 | Server `updated_at` trigger overrides client timestamps | `001_initial_schema.sql:267-289` | Last-write-wins cannot use client clocks; sync conflict policy undefined | T10 |
-| DB-13 | Cloud indexes missing relative to local | both schemas | Slower pull/queries at scale | T10 |
-| DB-14 | `payments.visit_id` lacks `ON DELETE CASCADE`; other FKs lack `ON DELETE` policy | cloud schema | Future delete flows blocked or order-dependent | T10 |
+| DB-12 | Server `updated_at` trigger overrides client timestamps | `001_initial_schema.sql:267-289` | Last-write-wins cannot use client clocks; sync conflict policy undefined | T10 — **resolved** 2026-11-13 (cursor uses the max server timestamp; pending local rows win) |
+| DB-13 | Cloud indexes missing relative to local | both schemas | Slower pull/queries at scale | T10 — **resolved** 2026-11-13 (`002_sync_indexes_and_fk.sql` adds `(user_id, updated_at)` on all 12 tables) |
+| DB-14 | `payments.visit_id` lacks `ON DELETE CASCADE`; other FKs lack `ON DELETE` policy | cloud schema | Future delete flows blocked or order-dependent | T10 — **resolved** 2026-11-13 (CASCADE for owned children, SET NULL for optional references) |
 | DB-15 | No unique constraint on `(entity_type, entity_id, operation, created_at)` in outbox | outbox schema | Duplicate queue entries from retries/double-clicks | T03 |
 
 ---

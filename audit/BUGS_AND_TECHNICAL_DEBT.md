@@ -86,6 +86,7 @@
 - **Repro:** `[code]`; after using the app, all outbox rows remain `pending` forever.
 - **Fix:** T09 (push) + T10 (pull); this is a missing feature, registered here because it invalidates the product claim.
 - **Verify:** end-to-end test with two devices (or one device + wiped DB) restores all data.
+- **Status: resolved locally in T09/T10 (2026-11-13).** `pushOutbox` drains the queue and `pullFromCloud` restores it; `SyncManager` triggers both. Verified with an injected `SyncClient` and real SQLite (18 sync tests). No Supabase project exists, so the network path is **not** verified end-to-end.
 
 ### BUG-09 — Foreign keys are not enforced per connection
 
@@ -135,12 +136,12 @@
 | BUG-20 | Session token and DB passphrase live in `localStorage` | `client.ts:18-26`; `database.ts:24-46` | Extractable on device; contradicts R-43 intent | T16: Capacitor SecureStorage/Keychain |
 | BUG-21 | Over-payment is accepted | `visit.repository.ts:165-198` has no sum check | Paid > total; reports show negative debt | **Resolved in T07:** `OverpaymentError` is thrown inside the transaction for initial and later payments (ownership + remainder re-read); nothing is written. Covered by repository tests |
 | BUG-22 | Double submit can duplicate records | client-op ids are not reused across retries | Duplicate appointments/customers | **Partially resolved (T06/T07):** appointment and all finance forms (visit, payment, expense, quick sale) ignore repeated submits while in flight; customer/service/auth forms still need the guard |
-| BUG-23 | Expenses are hard-deleted with no tombstone | `expense.repository.ts:112-123`; server has no `deleted_at` | Deletion cannot propagate to other devices | **Local capture resolved in T03 (2026-11-13)** — `delete` enqueues the full previous row before deleting. Server-side restore/sync remains T10 |
+| BUG-23 | Expenses are hard-deleted with no tombstone | `expense.repository.ts:112-123`; server has no `deleted_at` | Deletion cannot propagate to other devices | **Resolved in T09/T10 (2026-11-13):** `004_expense_tombstones.sql` adds `deleted_at`, `delete` writes a tombstone and a full-row delete payload, every read filters `deleted_at IS NULL`, `expenses` is in `SOFT_DELETE_TABLES`, and server migration `002` adds the column |
 | BUG-24 | Cloud migration is not idempotent; bucket and UPDATE policy missing | `001_initial_schema.sql:53-54,57,71,93-94,249-252,255-265` | Re-run fails; uploads error; overwrite denied | T16: `IF NOT EXISTS`, `DROP POLICY IF EXISTS`, create bucket, add UPDATE policy |
-| BUG-25 | Server `updated_at` trigger overrides client timestamps | `001_initial_schema.sql:267-289` | LWW conflict resolution based on client time is invalid | T10: define policy using server time + op ordering |
-| BUG-26 | Profile push will conflict with the signup trigger | server trigger inserts profile; client queues `insert` (`profile.repository.ts:51-56`) | First sync of a new account fails on duplicate key | T09: upsert profiles; integration test |
+| BUG-25 | Server `updated_at` trigger overrides client timestamps | `001_initial_schema.sql:267-289` | LWW conflict resolution based on client time is invalid | **Resolved in T10 (2026-11-13):** pull advances the cursor from the max **server** `updated_at` received (with 5-minute overlap); local pending rows win over remote rows, so client clocks never decide a conflict |
+| BUG-26 | Profile push will conflict with the signup trigger | server trigger inserts profile; client queues `insert` (`profile.repository.ts:51-56`) | First sync of a new account fails on duplicate key | **Resolved in T09 (2026-11-13):** push always upserts by `id`; the existing `profiles` row is updated instead of inserted |
 | BUG-27 | `applyTimeToDate` assumes a UTC-parsed base date | `jalali.ts:98-103` (`new Date('YYYY-MM-DD')` then `setHours`) | Wrong day for negative UTC offsets; harmless for Iran but fragile | **Resolved in T04 (2026-11-13):** builds the instant from explicit year/month/day in the target zone; covered by a New York test |
-| BUG-28 | Sync banner is permanently "idle" | `AppShell.tsx:19-39` reads a store that is never set | Misleads the user about backup status | T09: drive store from worker |
+| BUG-28 | Sync banner is permanently "idle" | `AppShell.tsx:19-39` reads a store that is never set | Misleads the user about backup status | **Resolved in T09 (2026-11-13):** `sync.manager.ts` sets `syncing/synced/offline/error`, pending and conflict counts; `AppShell` shows an error banner with retry |
 
 ---
 
@@ -188,7 +189,7 @@ These green signals are misleading and must not be used as evidence that the app
 | TD-07 | Day-range logic duplicated in 4 places | appointment/visit/expense/finance | Bugs fixed in one place only | S | T04 — **resolved:** all four use `shared/utils/datetime.ts` |
 | TD-08 | No application/use-case layer | hooks call repositories directly | Invariants scattered; hard to transactionalise | L | T03 |
 | TD-09 | Finance repository lives under `features/` | `features/finance/finance.repository.ts` | Inconsistent structure | S | T03 |
-| TD-10 | Two hand-written type sources | `shared/types/index.ts`, `services/supabase/database.types.ts` | Silent drift | M | T09 |
+| TD-10 | Two hand-written type sources | `shared/types/index.ts`, `services/supabase/database.types.ts` | Silent drift | M | **Partially resolved in T09:** `sync/engine/payload.ts` is the single explicit mapping between the two shapes, and the Supabase client is typed by the generated `Database`; the shared app types remain hand-written |
 | TD-11 | Substantial dead code | `App.tsx`, `base.repository.ts`, `sync.store.ts` setters, outbox readers, `QuickSaleForm` | Misleading surface area | S | T01/T03 |
 | TD-12 | No error taxonomy or boundary | console-only logging; raw errors | Poor UX and diagnosability | M | T16 |
 | TD-13 | Vite aliases use `URL.pathname` | `vite.config.ts:6-14` | Fragile on Windows/file URLs | S | T01 |
@@ -217,4 +218,4 @@ These green signals are misleading and must not be used as evidence that the app
 - BUG-25/BUG-26 must be resolved as part of the sync design, not after it (T10/T09).
 - BUG-24/BUG-20 are release blockers (T16).
 
-Resolved locally as of 2026-11-13: BUG-04, BUG-06, BUG-07 (T03), BUG-05, BUG-17, BUG-27 (T04), plus the local-capture half of BUG-23. Everything else above remains open.
+Resolved locally as of 2026-11-13: BUG-04, BUG-06, BUG-07 (T03), BUG-05, BUG-17, BUG-27 (T04), BUG-08, BUG-23, BUG-25, BUG-26, BUG-28 (T09/T10). Everything else above remains open.

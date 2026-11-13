@@ -90,6 +90,23 @@
 > still not driven (T09). `dashboard-page.test.tsx` was added (177/177 total); all gates are green.
 > Browser walkthrough and device runtime remain **unverified**.
 
+> **Post-T09/T10 update — 2026-11-13:** The sync engine exists and is wired into the shell. Push
+> drains `sync_outbox` in batches of 50 through an injectable `SyncClient`, upserts by `id` (so the
+> signup-triggered `profiles` row no longer conflicts), maps 401 to a stop-without-burning-attempts,
+> and treats other 4xx as terminal (`attempt_count = max`) while 5xx/429/network retry with
+> exponential backoff (30 s base, 30 min cap, 5 attempts). Pull restores 12 tables in FK-safe order
+> with 500-row pages and a single-row `sync_state` cursor (`003_sync_state.sql`); increments use a
+> 5-minute overlap, pending local edits win, remote tombstones are applied, and booleans/numbers/dates
+> are normalised. `SyncManager` runs on login, online/visibility events, and after successful
+> mutations (2 s debounce), drives the existing banners (pending/conflicts/error), and Settings has
+> "sync now" and a confirm-gated full restore. Expenses are now soft-deletable end-to-end
+> (`004_expense_tombstones.sql`, tombstone payload, `deleted_at` filters, `expenses` added to
+> `SOFT_DELETE_TABLES`), and `supabase/migrations/002_sync_indexes_and_fk.sql` adds `(user_id,
+> updated_at)` indexes, the server `expenses.deleted_at`, and explicit `ON DELETE` policies. 203/203
+> tests pass; `type-check`, `lint`, `format:check`, and `build` are green. No Supabase project is
+> configured, so push/pull is covered by injected clients and real-SQLite tests only — network,
+> device, and remote-CI verification remain **unverified**.
+
 ---
 
 ## 1. Repository snapshot

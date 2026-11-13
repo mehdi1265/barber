@@ -62,7 +62,17 @@
 > cards from the same query as the finance day tab, the net row, and quick actions (new appointment,
 > quick sale, customers). 177/177 tests pass; gates are green. Finance/dashboard UI was not walked
 > through in a browser (no Supabase session); device runtime remains unverified.
-> **Next action: T09 when assigned.**
+> **T09/T10 update (2026-11-13):** The sync engine is complete locally. `src/sync/engine/` contains
+> the push worker (`push.ts`, 50-row batches, upsert by id, 401 stop, terminal 4xx, 5xx backoff),
+> the pull/merge worker (`pull.ts`, 12 tables FK-ordered, 500-row pages, 5-minute overlap cursor,
+> pending-local-wins, tombstone + type normalisation), payload mapping (`payload.ts`), and a lazy
+> Supabase adapter. `sync.manager.ts` + `SyncManager` run on login, connectivity/visibility, and
+> post-mutation (2 s debounce), and Settings exposes "sync now" plus a confirm-gated full restore.
+> Migration 003 adds `sync_state`; migration 004 adds expense tombstones; the server migration
+> `002_sync_indexes_and_fk.sql` adds sync indexes, `expenses.deleted_at`, and explicit FK delete
+> policies. 203/203 tests pass; gates are green. No Supabase project exists, so network/device
+> behaviour is unverified.
+> **Next action: T11 when assigned.**
 
 
 ---
@@ -134,7 +144,7 @@ barber/
 │  │  └─ notifications/      local notification helpers (uncalled)
 │  ├─ shared/                UI kit, hooks, types, utils (money, Jalali, helpers)
 │  ├─ state/                 auth store, sync store (dead)
-│  └─ tests/                 22 test files, 177 tests
+│  └─ tests/                 25 test files, 203 tests
 ├─ index.html                **no jeep-sqlite element** → web boot blocker
 ├─ package.json              broken lint + vacuous type-check scripts
 ├─ capacitor.config.ts       appId com.barberapp.app, webDir dist
@@ -407,7 +417,7 @@ Do not run destructive SQL. Do not point tests at a project with real data.
 ### Testing commands
 
 ```bash
-npm test                      # 22 files, 177 tests
+npm test                      # 25 files, 203 tests
 npx vitest run src/tests/unit/jalali.test.ts   # single file
 npm run test:coverage         # after configuring thresholds
 ```
@@ -449,8 +459,8 @@ Priorities and full acceptance criteria: `audit/DEVELOPMENT_BACKLOG.md`. Require
 | 6 | **T06 Appointments completion (done)** | T03, T04, T05 | Edit/reschedule/change services/delete |
 | 7 | **T07 Finance (done)** | T03, T04, T06 | Visits, payments, expenses, reports, quick sale |
 | 8 | **T08 Dashboard (done)** | T04, T07 | Today at a glance |
-| 9 | **T09 Sync push** | T03 | Reliable idempotent upload |
-| 10 | **T10 Sync pull/recovery** | T09, T04 | New-device restore + conflict policy |
+| 9 | **T09 Sync push (done)** | T03 | Reliable idempotent upload |
+| 10 | **T10 Sync pull/recovery (done)** | T09, T04 | New-device restore + conflict policy |
 | 11 | **T11 Color formulas** | T03, T10 | Formula CRUD + item sync |
 | 12 | **T12 Photos** | T09, T10 | Offline capture → storage → restore |
 | 13 | **T13 Notifications** | T06 | Permission + reminder lifecycle |

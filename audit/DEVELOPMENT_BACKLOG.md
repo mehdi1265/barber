@@ -370,6 +370,8 @@ against `node:sqlite`; migration 002 was also applied/skipped correctly in a pro
 
 **Risks:** RLS/grants may reject writes (verify with a real project); profile trigger conflict; timestamp authority. No push without credentials.
 
+**Status: complete locally (2026-11-13).** `src/sync/engine/push.ts` drains ≤50 rows per run, maps payloads via `payload.ts`, upserts inserts/updates (profiles included), and deletes by id only for tables without a tombstone. 401 stops the run without counting an attempt; terminal 4xx sets `attempt_count = max`; 5xx/429/network use 30 s→30 min exponential backoff with a 5-attempt cap. `sync.manager.ts` installs the mutex, 2 s post-mutation debounce, online/visibility triggers, and drives `sync.store`; Settings has "همگام‌سازی اکنون". Tests: `sync.push.test.ts` (7), `sync.payload.test.ts` (7). Not verified: real Supabase project and device runtime.
+
 ---
 
 ## T10 — Sync Pull, Recovery, and Conflict Policy
@@ -400,6 +402,8 @@ against `node:sqlite`; migration 002 was also applied/skipped correctly in a pro
 - No data loss on repeated pull.
 
 **Risks:** the server `updated_at` trigger invalidates client timestamps (BUG-25); large histories need pagination; photo bytes need a separate strategy (T12).
+
+**Status: complete locally (2026-11-13).** `003_sync_state.sql` adds the single-row cursor; `pull.ts` pages 500 rows per table in FK-safe order, forces a full pull when local data is empty, uses a 5-minute overlap for increments, lets pending local rows win, applies tombstones, and normalises booleans/numbers/dates. `restoreFromCloud()` and the Settings confirm dialog provide full recovery. Expense deletes are now tombstones (`004_expense_tombstones.sql`); server `002_sync_indexes_and_fk.sql` adds sync indexes, `expenses.deleted_at`, and FK delete policies. Tests: `sync.pull.test.ts` (11). Not verified: real Supabase project, two-device convergence, device runtime.
 
 ---
 
