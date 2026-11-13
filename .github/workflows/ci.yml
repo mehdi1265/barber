@@ -50,3 +50,61 @@ jobs:
 
       - name: Build
         run: npm run build
+
+  rls-postgres:
+    name: RLS on ephemeral Postgres
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: barber
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      PGPASSWORD: postgres
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/barber
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
+
+      - name: Bootstrap Supabase stubs
+        run: >-
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1
+          -f supabase/tests/postgres_bootstrap.sql
+
+      - name: Apply migrations twice (idempotency)
+        run: |
+          set -euo pipefail
+          for pass in first second; do
+            for file in 001_initial_schema 002_sync_indexes_and_fk 003_photo_storage_policy; do
+              psql "$DATABASE_URL" -v ON_ERROR_STOP=1 \
+                -f "supabase/migrations/$file.sql" > /dev/null
+            done
+            echo "migration pass '$pass' OK"
+          done
+
+      - name: Seed two test identities
+        run: |
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 <<'SQL'
+          insert into auth.users (id, email) values
+            ('11111111-1111-4111-8111-111111111111', 'rls-a@example.test'),
+            ('22222222-2222-4222-8222-222222222222', 'rls-b@example.test');
+          SQL
+
+      - name: Two-user RLS check
+        run: >-
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1
+          -v email_a=rls-a@example.test
+          -v email_b=rls-b@example.test
+          -f supabase/tests/rls_two_user_check.sql

@@ -75,7 +75,23 @@ policy matches the first path folder to `auth.uid()`.
 Execute the automated two-user probe on a **separate Staging project**, never
 on Production.
 
-### 3.0 Staging project
+### 3.0 Zero-setup policy check (CI)
+
+The `rls-postgres` job in `.github/workflows/ci.yml` runs on every push. It
+starts a throwaway `postgres:15` container, loads
+`supabase/tests/postgres_bootstrap.sql` (minimal stand-ins for `auth.uid()`,
+`auth.users`, and `storage.*`), applies `001`–`003` **twice** to prove
+idempotency, seeds two identities, and runs
+`supabase/tests/rls_two_user_check.sql` inside a transaction that rolls back.
+It needs no Supabase project, no secrets, and cannot reach Production. It
+validates the policies themselves and migration idempotency, not the
+PostgREST/Storage API wiring — use §3.2/§3.3 for the end-to-end probe.
+
+If the job is green, the DB-level isolation (“each barber only sees own rows”)
+is proven automatically on every commit. Creating a Staging project is only
+required for the full HTTP-level probe.
+
+### 3.1 Staging project
 
 1. Supabase Dashboard → **New project**: name it `barber-staging`, pick the
    region closest to you, generate a strong database password and store it in a
@@ -107,7 +123,7 @@ Production and Staging are isolated automatically: separate databases, Auth
 users, storage buckets, and API keys. The app continues to read `.env.local`
 (Production); only the RLS runner reads `.env.rls.local`.
 
-### 3.1 Staging credentials and the safety guard
+### 3.2 Staging credentials and the safety guard
 
 Create `<repo>/.env.rls.local` (gitignored by `.env.*.local`). It **overrides**
 the Production URL/key from `.env.local` for the runner only:
@@ -134,7 +150,7 @@ probes target Staging.
 Never put Staging values in `.env.local` or Production values in
 `.env.rls.local`.
 
-### 3.2 Running the probe
+### 3.3 Running the probe
 
 The probe signs in through the public Auth API and checks PostgREST and Storage
 exactly as the app does. For all 12 tables it seeds a marker-prefixed row,
@@ -178,11 +194,11 @@ directions, prints `RLS verification passed`, then rolls back.
 > applied and verified read-only (`profiles`, `customers`, `expenses`,
 > `customer_photos` return `200 []` for anon), and **no probe has been run
 > there**. The two-user probe will be executed only against the Staging project
-> described in §3.0, after the staging guard prints
+> described in §3.1, after the staging guard prints
 > `staging guard OK: project ref …` and the operator confirms the target.
 > Production migrations must not be re-run as part of this check.
 
-### 3.3 Password-reset deep links
+### 3.4 Password-reset deep links
 
 Native builds return the recovery email to `barberapp://reset-password`
 (`NATIVE_RECOVERY_URL` in `src/features/auth/recovery-link.ts`). The browser
@@ -338,7 +354,7 @@ bump the version in Xcode, and archive. Android signing does not apply.
 
 - RLS script above must be executed against a real project (Section 3).
 - Password-reset deep links are covered by unit tests only; the warm-start and
-  cold-start device flow in Section 3.3 has not been run on hardware here.
+  cold-start device flow in Section 3.4 has not been run on hardware here.
 - No automated end-to-end run on a physical device in this environment.
 - The Android release build was not executed here: the local SDK has platforms
   34/36 but not `compileSdkVersion 35`, and no keystore exists yet. Install SDK
