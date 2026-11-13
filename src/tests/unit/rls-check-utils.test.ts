@@ -7,6 +7,7 @@ import {
   isRlsViolation,
   jwtSubject,
   keyFingerprint,
+  maskEmail,
   normalizeBaseUrl,
   normalizeKey,
   parseEnvFile,
@@ -83,6 +84,11 @@ describe('RLS check helpers', () => {
     expect(projectRefFromUrl('https://staging-ref.supabase.in/')).toBe('staging-ref')
     expect(projectRefFromUrl('https://supabase.example.com')).toBeNull()
     expect(projectRefFromUrl('not a url')).toBeNull()
+  })
+
+  it('masks test addresses in reports', () => {
+    expect(maskEmail('barber-a@example.com')).toBe('b***@example.com')
+    expect(maskEmail('not-an-email')).toBe('…')
   })
 
   it('builds probes under the owner folder and cleans children first', () => {

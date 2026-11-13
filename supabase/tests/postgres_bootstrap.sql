@@ -6,6 +6,9 @@
 
 do $$
 begin
+  if not exists (select 1 from pg_roles where rolname = 'anon') then
+    create role anon nologin noinherit;
+  end if;
   if not exists (select 1 from pg_roles where rolname = 'authenticated') then
     create role authenticated nologin noinherit;
   end if;
@@ -54,13 +57,13 @@ as $$ select string_to_array(path, '/') $$;
 
 alter table storage.objects enable row level security;
 
-grant usage on schema public, auth, storage to authenticated;
-grant select on storage.buckets to authenticated;
-grant select, insert, update, delete on storage.objects to authenticated;
+grant usage on schema public, auth, storage to anon, authenticated;
+grant select on storage.buckets to anon, authenticated;
+grant select, insert, update, delete on storage.objects to anon, authenticated;
 
--- Tables created by the migrations must be usable by the authenticated role;
+-- Tables created by the migrations must be usable by the client roles;
 -- without these grants the test would hit permission errors instead of RLS.
 alter default privileges in schema public
-  grant select, insert, update, delete on tables to authenticated;
+  grant select, insert, update, delete on tables to anon, authenticated;
 alter default privileges in schema public
-  grant usage, select on sequences to authenticated;
+  grant usage, select on sequences to anon, authenticated;

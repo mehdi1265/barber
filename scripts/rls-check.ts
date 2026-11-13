@@ -42,6 +42,7 @@ import {
   isRlsViolation,
   jwtSubject,
   keyFingerprint,
+  maskEmail,
   normalizeBaseUrl,
   normalizeKey,
   parseEnvFile,
@@ -624,7 +625,7 @@ async function cleanupStorage(
     )
     if (read.status === 200) {
       fail(result, `storage object ${path} still exists after cleanup`)
-    } else if (read.status === 401 || read.status === 403) {
+    } else if (read.status === 401 || read.status === 403 || read.status >= 500) {
       fail(result, `could not verify storage cleanup for ${path} (${read.status})`)
     }
   }
@@ -746,8 +747,8 @@ async function main(): Promise<void> {
   )
 
   if (a.userId === b.userId) throw new Error('user A and user B resolve to the same account')
-  log(`INFO  user A: ${a.email} (${a.userId.slice(0, 8)}…)`)
-  log(`INFO  user B: ${b.email} (${b.userId.slice(0, 8)}…)`)
+  log(`INFO  user A: ${maskEmail(a.email)} (${a.userId.slice(0, 8)}…)`)
+  log(`INFO  user B: ${maskEmail(b.email)} (${b.userId.slice(0, 8)}…)`)
 
   if (preflight) {
     await preflightProfiles(baseUrl, key, [a, b])

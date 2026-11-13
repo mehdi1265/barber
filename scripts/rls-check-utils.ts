@@ -50,6 +50,13 @@ export function projectRefFromUrl(raw: string): string | null {
   }
 }
 
+/** Keeps the report useful without storing the full address. */
+export function maskEmail(email: string): string {
+  const at = email.indexOf('@')
+  if (at < 1) return '…'
+  return `${email.slice(0, 1)}***${email.slice(at)}`
+}
+
 export function normalizeKey(raw: string): string {
   return raw.trim().replace(/^["']|["']$/g, '')
 }

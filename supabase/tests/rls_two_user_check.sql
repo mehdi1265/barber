@@ -234,6 +234,35 @@ begin
   end;
 end $$;
 
+-- ── Anonymous (no session): sees nothing ──
+reset role;
+select set_config('request.jwt.claims', '{}', true);
+set local role anon;
+
+do $$
+declare
+  t text;
+  visible bigint;
+begin
+  foreach t in array array[
+    'profiles', 'customers', 'services', 'appointments', 'appointment_services',
+    'visits', 'visit_services', 'payments', 'expenses', 'color_formulas',
+    'color_formula_items', 'customer_photos'
+  ] loop
+    execute format('select count(*) from public.%I', t) into visible;
+    if visible <> 0 then
+      raise exception 'RLS check failed: anonymous sees % rows in %', visible, t;
+    end if;
+  end loop;
+
+  select count(*) into visible
+  from storage.objects
+  where bucket_id = 'customer-photos';
+  if visible <> 0 then
+    raise exception 'RLS check failed: anonymous sees % storage objects', visible;
+  end if;
+end $$;
+
 \echo 'RLS verification passed'
 
 rollback;
