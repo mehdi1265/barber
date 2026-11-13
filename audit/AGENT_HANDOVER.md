@@ -79,6 +79,12 @@
 > lists the customer's formulas with a new-formula shortcut. 215/215 tests across 28 files; gates
 > green. Browser/device verification still pending.
 > **Next action: T12 (photos) when assigned.**
+> **T12 update (2026-11-13):** Photos are complete locally. Camera/file capture writes to
+> app-private storage and requires consent; push uploads bytes to the private bucket before the row
+> upsert and stores `storage_path`, tombstones delete the remote object; the gallery falls back to
+> signed URLs on a restored device. Server migration `003_photo_storage_policy.sql` adds the missing
+> storage UPDATE policy. 222/222 tests across 30 files; gates green. Network/device paths unverified.
+> **Next action: T13 (reminders) when assigned.**
 
 
 ---
@@ -468,7 +474,7 @@ Priorities and full acceptance criteria: `audit/DEVELOPMENT_BACKLOG.md`. Require
 | 9 | **T09 Sync push (done)** | T03 | Reliable idempotent upload |
 | 10 | **T10 Sync pull/recovery (done)** | T09, T04 | New-device restore + conflict policy |
 | 11 | **T11 Color formulas (done)** | T03, T10 | Formula CRUD + item sync |
-| 12 | **T12 Photos** | T09, T10 | Offline capture → storage → restore |
+| 12 | **T12 Photos (done)** | T09, T10 | Offline capture → storage → restore |
 | 13 | **T13 Notifications** | T06 | Permission + reminder lifecycle |
 | 14 | **T14 Settings/profile/history** | T05, T09, T07 | Real settings + customer history |
 | 15 | **T15 Global search** | T07, T11 | Cross-entity search |

@@ -1,9 +1,15 @@
 import { describe, it, expect } from 'vitest'
 import { CustomerRepository } from '@database/repositories/customer.repository'
+import { CustomerPhotoRepository } from '@database/repositories/customer-photo.repository'
 import { ExpenseRepository } from '@database/repositories/expense.repository'
 import { markOutboxProcessing, addToOutbox } from '@sync/outbox/outbox.repository'
 import { pushOutbox, MAX_ATTEMPTS } from '@sync/engine/push'
-import { RemoteError, type RemoteRow, type SyncClient } from '@sync/engine/sync.types'
+import {
+  RemoteError,
+  type PhotoUpload,
+  type RemoteRow,
+  type SyncClient,
+} from '@sync/engine/sync.types'
 import { createTestDb } from '../helpers/sqlite-harness'
 
 const USER = 'user-1'
@@ -235,5 +241,109 @@ describe('pushOutbox', () => {
 
     const serviceCalls = fake.calls.filter(call => call.table === 'appointment_services')
     expect(serviceCalls.at(-1)).toMatchObject({ kind: 'delete', ids: ['as-hard-1'] })
+  })
+})
+
+describe('pushOutbox — photos', () => {
+  function createPhotoClient() {
+    const uploads: PhotoUpload[] = []
+    const deletes: string[] = []
+    const upserts: { table: string; rows: RemoteRow[] }[] = []
+
+    const client: SyncClient = {
+      upsert(table, rows) {
+        upserts.push({ table, rows })
+        return Promise.resolve()
+      },
+      deleteByIds() {
+        return Promise.resolve()
+      },
+      select() {
+        return Promise.resolve([])
+      },
+      uploadPhoto(upload) {
+        uploads.push(upload)
+        return Promise.resolve(`user-1/cus-1/${upload.photoId}.jpg`)
+      },
+      deletePhoto(storagePath) {
+        deletes.push(storagePath)
+        return Promise.resolve()
+      },
+    }
+
+    return { client, uploads, deletes, upserts }
+  }
+
+  function addCustomer(harness: ReturnType<typeof createTestDb>): void {
+    const now = '2026-11-13T10:00:00.000Z'
+    harness.raw
+      .prepare(
+        `INSERT INTO customers (id, user_id, name, phone, notes, created_at, updated_at, deleted_at)
+         VALUES ('cus-1', ?, 'مشتری', NULL, NULL, ?, ?, NULL)`
+      )
+      .run(USER, now, now)
+  }
+
+  it('فایل محلی را قبل از upsert آپلود می‌کند و مسیر ابری را در ردیف می‌گذارد', async () => {
+    const harness = createTestDb()
+    addCustomer(harness)
+    const repo = new CustomerPhotoRepository(harness.db, USER)
+    const photo = await repo.create({
+      customer_id: 'cus-1',
+      local_path: 'photos/user-1/p1.jpg',
+      photo_type: 'after',
+      consent_given: true,
+    })
+
+    const fake = createPhotoClient()
+    const result = await pushOutbox({ db: harness.db, client: fake.client, userId: USER })
+
+    expect(result.pushed).toBe(1)
+    expect(fake.uploads).toEqual([
+      {
+        userId: USER,
+        photoId: photo.id,
+        customerId: 'cus-1',
+        localPath: 'photos/user-1/p1.jpg',
+      },
+    ])
+
+    const [sent] = fake.upserts
+    expect(sent.table).toBe('customer_photos')
+    expect(sent.rows[0]).not.toHaveProperty('local_path')
+    expect(sent.rows[0]).toMatchObject({
+      id: photo.id,
+      storage_path: `user-1/cus-1/${photo.id}.jpg`,
+      consent_given: true,
+    })
+
+    const stored = await repo.findById(photo.id)
+    expect(stored?.storage_path).toBe(`user-1/cus-1/${photo.id}.jpg`)
+  })
+
+  it('حذف عکس، شیء ابری را پاک و tombstone را ارسال می‌کند', async () => {
+    const harness = createTestDb()
+    addCustomer(harness)
+    const repo = new CustomerPhotoRepository(harness.db, USER)
+    const photo = await repo.create({
+      customer_id: 'cus-1',
+      local_path: 'photos/user-1/p2.jpg',
+      consent_given: true,
+    })
+
+    const fake = createPhotoClient()
+    await pushOutbox({ db: harness.db, client: fake.client, userId: USER })
+    fake.upserts.length = 0
+
+    await repo.delete(photo.id)
+    await pushOutbox({ db: harness.db, client: fake.client, userId: USER })
+
+    expect(fake.deletes).toEqual([`user-1/cus-1/${photo.id}.jpg`])
+    const [sent] = fake.upserts
+    expect(sent.rows[0]).toMatchObject({
+      id: photo.id,
+      storage_path: `user-1/cus-1/${photo.id}.jpg`,
+    })
+    expect(sent.rows[0].deleted_at).toBeTruthy()
   })
 })

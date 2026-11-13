@@ -9,6 +9,7 @@
 
 import type { SQLiteDBConnection } from '@capacitor-community/sqlite'
 import type { SyncOutbox } from '@shared/types'
+import { setPhotoStoragePath } from '@database/repositories/customer-photo.repository'
 import {
   getRetryableOutbox,
   markOutboxDone,
@@ -101,6 +102,19 @@ export async function pushOutbox({
         if (entity.mode === 'delete') {
           await client.deleteByIds(entity.table, [entity.id])
         } else {
+          if (entity.photo && client.uploadPhoto) {
+            const storagePath = await client.uploadPhoto(entity.photo)
+            entity.row.storage_path = storagePath
+            await setPhotoStoragePath(db, userId, entity.photo.photoId, storagePath)
+          }
+          // Tombstones keep the remote path so the object is removed too.
+          if (
+            client.deletePhoto &&
+            typeof entity.row.storage_path === 'string' &&
+            entity.row.deleted_at
+          ) {
+            await client.deletePhoto(entity.row.storage_path)
+          }
           await client.upsert(entity.table, [entity.row])
         }
         await markOutboxDone(db, entry.id)

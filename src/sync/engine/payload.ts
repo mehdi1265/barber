@@ -9,7 +9,7 @@
 
 import type { SQLiteDBConnection } from '@capacitor-community/sqlite'
 import type { SyncOutbox } from '@shared/types'
-import type { RemoteRow, SyncTable } from './sync.types'
+import type { PhotoUpload, RemoteRow, SyncTable } from './sync.types'
 
 export const ENTITY_TABLES = {
   profiles: 'profiles',
@@ -133,6 +133,8 @@ export interface UpsertPush {
   table: SyncTable
   mode: 'upsert'
   row: RemoteRow
+  /** Present when a photo still has local bytes waiting to be uploaded. */
+  photo?: PhotoUpload
 }
 
 export interface DeletePush {
@@ -204,7 +206,20 @@ export async function buildPushEntity(
     merged.updated_at = merged.updated_at ?? merged.deleted_at
   }
 
-  return { table, mode: 'upsert', row: toRemoteRow(table, merged) }
+  let photo: PhotoUpload | undefined
+  if (table === 'customer_photos') {
+    const localPath = merged.local_path
+    if (entry.operation !== 'delete' && typeof localPath === 'string' && localPath) {
+      photo = {
+        userId,
+        photoId: id,
+        customerId: typeof merged.customer_id === 'string' ? merged.customer_id : null,
+        localPath,
+      }
+    }
+  }
+
+  return { table, mode: 'upsert', row: toRemoteRow(table, merged), photo }
 }
 
 /** True when deletes for this table are tombstones rather than hard deletes. */

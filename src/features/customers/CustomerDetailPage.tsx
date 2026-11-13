@@ -2,6 +2,9 @@ import { useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useCustomer, useUpdateCustomer, useDeleteCustomer } from './customers.hooks'
 import { useFormulasByCustomer } from '@features/color-formulas/color-formulas.hooks'
+import { useCustomerPhotos, useAddPhoto, useDeletePhoto } from '@features/photos/photos.hooks'
+import { PhotoCaptureForm, type PhotoFormValue } from '@features/photos/PhotoCaptureForm'
+import { PhotoGallery } from '@features/photos/PhotoGallery'
 import { CustomerForm } from './CustomerForm'
 import { PageHeader } from '@shared/components/ui/PageHeader'
 import { Button } from '@shared/components/ui/Button'
@@ -17,15 +20,24 @@ export default function CustomerDetailPage() {
   const navigate = useNavigate()
   const [showEditModal, setShowEditModal] = useState(false)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
+  const [showAddPhoto, setShowAddPhoto] = useState(false)
 
   const { data: customer, isLoading } = useCustomer(id!)
   const { data: formulas = [] } = useFormulasByCustomer(id ?? '')
+  const { data: photos = [] } = useCustomerPhotos(id ?? '')
   const updateMutation = useUpdateCustomer()
   const deleteMutation = useDeleteCustomer()
+  const addPhotoMutation = useAddPhoto()
+  const deletePhotoMutation = useDeletePhoto(id ?? '')
 
   const handleUpdate = async (data: CustomerFormData) => {
     await updateMutation.mutateAsync({ id: id!, input: data })
     setShowEditModal(false)
+  }
+
+  const handleAddPhoto = async (value: PhotoFormValue) => {
+    await addPhotoMutation.mutateAsync({ customerId: id!, ...value })
+    setShowAddPhoto(false)
   }
 
   const handleDelete = async () => {
@@ -144,6 +156,26 @@ export default function CustomerDetailPage() {
           )}
         </section>
 
+        {/* Photos */}
+        <section className={styles.section}>
+          <div className={styles.sectionHeaderRow}>
+            <h3 className={styles.sectionTitle}>عکس‌ها</h3>
+            <button
+              type="button"
+              className={styles.sectionAction}
+              onClick={() => setShowAddPhoto(true)}
+            >
+              + عکس جدید
+            </button>
+          </div>
+          <PhotoGallery
+            photos={photos}
+            onDelete={async photoId => {
+              await deletePhotoMutation.mutateAsync(photoId)
+            }}
+          />
+        </section>
+
         {/* Danger zone */}
         <div className={styles.dangerZone}>
           <Button variant="danger" fullWidth onClick={() => setShowDeleteConfirm(true)}>
@@ -160,6 +192,11 @@ export default function CustomerDetailPage() {
           onCancel={() => setShowEditModal(false)}
           submitLabel="ذخیره تغییرات"
         />
+      </Modal>
+
+      {/* Add photo modal */}
+      <Modal isOpen={showAddPhoto} onClose={() => setShowAddPhoto(false)} title="افزودن عکس">
+        <PhotoCaptureForm onSubmit={handleAddPhoto} onCancel={() => setShowAddPhoto(false)} />
       </Modal>
 
       {/* Delete confirm */}

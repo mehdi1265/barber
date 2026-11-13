@@ -446,6 +446,15 @@ title with `«(کپی)»`. Verified by `color-formula.repository.test.ts` (7),
 
 **Size:** L · **Priority:** P1 · **Requirements:** R-35
 
+**Status:** complete locally (2026-11-13). `@capacitor/camera` + `@capacitor/filesystem` capture a
+compressed data URL into `Directory.Data` (`photos/<userId>/<photoId>.<ext>`). The row requires
+consent, is written transactionally with an outbox insert, and keeps `local_path` local. Push uploads
+bytes to `customer-photos` before the row upsert and writes `storage_path`; tombstone pushes delete
+the remote object (see D-34). Storage path is `<userId>/<customerId|unlinked>/<photoId>.<ext>`, and
+the gallery uses local bytes first, then a one-hour signed URL. The bucket itself is still created in
+T16; migration 003 only adds the missing UPDATE policy. Verified by
+`customer-photo.repository.test.ts` (3), `photo-capture-form.test.tsx` (1), and two photo push tests.
+
 **Read first:** `customer_photos` schema, storage policies (`001_initial_schema.sql:248-266`), T09/T10, `docs/02-prd.md §7`.
 
 **Goal:** before/after photos are captured offline, stored locally, uploaded later, and visible on another device.

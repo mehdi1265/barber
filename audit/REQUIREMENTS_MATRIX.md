@@ -113,7 +113,7 @@
 
 | ID | Requirement | Src | Pri | Status | Evidence (files) | Missing work | Deps | Acceptance criteria |
 |---|---|---|---|---|---|---|---|---|
-| R-35 | Capture/attach before/after photos, store bytes in Supabase Storage, keep local path when offline | P §7, D §5 | P1 | Not implemented | `customer_photos` table + types; storage bucket/policies SQL (`supabase/migrations/001_initial_schema.sql:248-266`); **no** `supabase.storage` calls in `src/` | Camera integration, upload queue, local file handling, gallery UI, bucket provisioning | R-39, R-40 | A photo taken offline is visible immediately, uploads after reconnect, and is retrievable on a second device |
+| R-35 | Capture/attach before/after photos, store bytes in Supabase Storage, keep local path when offline | P §7, D §5 | P1 | Complete (local) | `customer-photo.repository.ts`, `photos.hooks.ts`, `photo-storage.ts`, `PhotoCaptureForm.tsx`, `PhotoGallery.tsx`; push upload via `SyncClient.uploadPhoto`; signed-URL fallback; `supabase/migrations/003_photo_storage_policy.sql`; 3 repo + 1 form + 2 push tests | Bucket provisioning (T16); real-device camera/permission run | R-39, R-40 | A photo taken offline is visible immediately, uploads after reconnect, and is retrievable on a second device |
 
 ---
 

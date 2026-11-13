@@ -31,10 +31,22 @@ export interface SelectOptions {
   offset: number
 }
 
+export interface PhotoUpload {
+  userId: string
+  photoId: string
+  customerId: string | null
+  /** Path inside app-private storage; read on the device, never sent to PostgREST. */
+  localPath: string
+}
+
 export interface SyncClient {
   upsert(table: SyncTable, rows: RemoteRow[]): Promise<void>
   deleteByIds(table: SyncTable, ids: string[]): Promise<void>
   select(table: SyncTable, options: SelectOptions): Promise<RemoteRow[]>
+  /** Uploads local bytes and returns the remote storage path. */
+  uploadPhoto?(upload: PhotoUpload): Promise<string>
+  /** Removes the remote object after a tombstone. */
+  deletePhoto?(storagePath: string): Promise<void>
 }
 
 export type RemoteErrorKind = 'auth' | 'terminal' | 'retryable'

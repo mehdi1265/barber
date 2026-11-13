@@ -59,6 +59,19 @@ function toRemoteError(error: PostgrestErrorLike): RemoteError {
   return new RemoteError(error.message, status)
 }
 
+/** Storage errors carry a string status code; 404/403 are terminal. */
+function storageRemoteError(error: {
+  message: string
+  statusCode?: string | number | null
+}): RemoteError {
+  const raw = error.statusCode
+  const status = typeof raw === 'string' ? Number(raw) : raw
+  return new RemoteError(
+    error.message,
+    typeof status === 'number' && Number.isFinite(status) ? status : null
+  )
+}
+
 export async function createSupabaseSyncClient(): Promise<SyncClient> {
   const { supabase } = await import('@services/supabase/client')
 
@@ -96,6 +109,32 @@ export async function createSupabaseSyncClient(): Promise<SyncClient> {
 
       const { data } = await run(builder)
       return Array.isArray(data) ? (data as RemoteRow[]) : []
+    },
+
+    async uploadPhoto(upload) {
+      // Loaded lazily: Camera/Filesystem plugins are only needed for photos.
+      const { readPhotoBytes, storagePathFor, photoContentType } = await import(
+        '@features/photos/photo-storage'
+      )
+      const bytes = await readPhotoBytes(upload.localPath)
+      if (!bytes) throw new RemoteError('فایل عکس روی دستگاه پیدا نشد', 404)
+
+      const path = storagePathFor(
+        upload.userId,
+        upload.customerId,
+        upload.photoId,
+        upload.localPath
+      )
+      const { error } = await supabase.storage
+        .from('customer-photos')
+        .upload(path, bytes, { contentType: photoContentType(upload.localPath), upsert: true })
+      if (error) throw storageRemoteError(error)
+      return path
+    },
+
+    async deletePhoto(storagePath) {
+      const { error } = await supabase.storage.from('customer-photos').remove([storagePath])
+      if (error) throw storageRemoteError(error)
     },
   }
 }

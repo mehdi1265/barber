@@ -128,6 +128,46 @@ describe('buildPushEntity', () => {
     expect(push).toEqual({ table: 'appointment_services', mode: 'delete', id: 'as-1' })
   })
 
+  it('برای عکس دارای فایل محلی، مسیر آپلود را جدا می‌کند', async () => {
+    const { db, raw } = createTestDb()
+    const now = '2026-11-13T10:00:00.000Z'
+    raw
+      .prepare(
+        `INSERT INTO customers (id, user_id, name, phone, notes, created_at, updated_at, deleted_at)
+         VALUES (?, ?, 'مشتری', NULL, NULL, ?, ?, NULL)`
+      )
+      .run('cus-1', USER, now, now)
+    raw
+      .prepare(
+        `INSERT INTO customer_photos
+          (id, user_id, customer_id, visit_id, storage_path, local_path,
+           photo_type, caption, consent_given, created_at, updated_at, deleted_at)
+         VALUES (?, ?, ?, NULL, NULL, ?, 'before', NULL, 1, ?, ?, NULL)`
+      )
+      .run('ph-1', USER, 'cus-1', 'photos/user-1/ph-1.jpg', now, now)
+
+    await addToOutbox(db, {
+      entity_type: 'customer_photos',
+      entity_id: 'ph-1',
+      operation: 'insert',
+      payload: JSON.stringify({ id: 'ph-1' }),
+    })
+    const entry = await firstOutboxEntry(db)
+
+    const push = await buildPushEntity(db, entry, USER)
+
+    expect(push.mode).toBe('upsert')
+    if (push.mode !== 'upsert') return
+    expect(push.row).not.toHaveProperty('local_path')
+    expect(push.row.consent_given).toBe(true)
+    expect(push.photo).toEqual({
+      userId: USER,
+      photoId: 'ph-1',
+      customerId: 'cus-1',
+      localPath: 'photos/user-1/ph-1.jpg',
+    })
+  })
+
   it('نوع موجودیت ناشناخته یا پیلود خراب را رد می‌کند', async () => {
     const { db } = createTestDb()
     await expect(

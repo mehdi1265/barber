@@ -120,6 +120,19 @@
 > files; `type-check`, `lint`, `format:check`, and `build` are green. Browser walkthrough and
 > device runtime remain **unverified**.
 
+> **Post-T12 update — 2026-11-13:** Customer photos are complete locally. The camera/filesystem
+> plugins capture a compressed (`quality 80`, max width 1600 px) data URL and write it to
+> app-private storage (`local_path`); the row is created transactionally with an outbox insert and
+> requires explicit customer consent. Push uploads local bytes to the private `customer-photos`
+> bucket before the row upsert (`storage_path` is returned and stored locally), strips `local_path`
+> from the payload, and a tombstone deletes the remote object and only then sends the soft delete.
+> Gallery thumbnails resolve local bytes first and fall back to a one-hour signed URL on a restored
+> device; delete removes the local file, the remote object, and never reappears after pull. A missing
+> storage UPDATE policy was added in `supabase/migrations/003_photo_storage_policy.sql`; bucket
+> provisioning remains T16. 222/222 tests across 30 files; gates green. Network upload, signed-URL
+> display, and camera permissions on a real device remain **unverified** (no Supabase project, no
+> device run).
+
 ---
 
 ## 1. Repository snapshot
