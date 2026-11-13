@@ -91,6 +91,13 @@ If the job is green, the DB-level isolation (“each barber only sees own rows�
 is proven automatically on every commit. Creating a Staging project is only
 required for the full HTTP-level probe.
 
+> **Status (2026-11-13): green.** Run
+> [43453924205](https://github.com/mehdi1265/barber/actions/runs/43453924205)
+> completed both passes: `migration pass 'first' OK`, `migration pass 'second'
+OK`, and the two-user RLS check exited 0. Because the test uses
+> `ON_ERROR_STOP`, any cross-user read/write or a failed second migration would
+> have failed the job.
+
 ### 3.1 Staging project
 
 1. Supabase Dashboard → **New project**: name it `barber-staging`, pick the
