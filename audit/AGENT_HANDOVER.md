@@ -43,6 +43,13 @@
 > (151/151 total). A real Supabase project and native runtime remain unverified.
 > **Next action: T06 when assigned.**
 
+> **T06 update (2026-11-13):** The appointment lifecycle is complete locally. Create checks
+> conflicts inside its transaction; update re-checks (excluding itself) and replaces service lines
+> atomically with child tombstones/inserts. Detail has edit and confirm-gated soft delete; the form
+> guards double submits; deleted rows leave every query. Reminders reschedule on edit and cancel for
+> cancelled/no_show. 156/156 tests pass; gates are green. Device runtime remains unverified.
+> **Next action: T07 when assigned.**
+
 ---
 
 ## A. Project identity
@@ -112,7 +119,7 @@ barber/
 │  │  └─ notifications/      local notification helpers (uncalled)
 │  ├─ shared/                UI kit, hooks, types, utils (money, Jalali, helpers)
 │  ├─ state/                 auth store, sync store (dead)
-│  └─ tests/                 17 test files, 151 tests
+│  └─ tests/                 18 test files, 156 tests
 ├─ index.html                **no jeep-sqlite element** → web boot blocker
 ├─ package.json              broken lint + vacuous type-check scripts
 ├─ capacitor.config.ts       appId com.barberapp.app, webDir dist
@@ -385,7 +392,7 @@ Do not run destructive SQL. Do not point tests at a project with real data.
 ### Testing commands
 
 ```bash
-npm test                      # 17 files, 151 tests
+npm test                      # 18 files, 156 tests
 npx vitest run src/tests/unit/jalali.test.ts   # single file
 npm run test:coverage         # after configuring thresholds
 ```
@@ -424,7 +431,7 @@ Priorities and full acceptance criteria: `audit/DEVELOPMENT_BACKLOG.md`. Require
 | 3 | **T03 Data integrity (done)** | T02 | Transactions, fixed outbox, child rows, idempotency |
 | 4 | **T04 Local-day & Jalali (done)** | T03 | Correct "today" everywhere; Jalali input |
 | 5 | **T05 Auth completion (done)** | T02, T03 | Logout, reset, profile guarantee, Persian errors |
-| 6 | **T06 Appointments completion** | T03, T04, T05 | Edit/reschedule/change services/delete |
+| 6 | **T06 Appointments completion (done)** | T03, T04, T05 | Edit/reschedule/change services/delete |
 | 7 | **T07 Finance** | T03, T04, T06 | Visits, payments, expenses, reports, quick sale |
 | 8 | **T08 Dashboard** | T04, T07 | Today at a glance |
 | 9 | **T09 Sync push** | T03 | Reliable idempotent upload |

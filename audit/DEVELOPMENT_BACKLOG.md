@@ -249,6 +249,8 @@ against `node:sqlite`; migration 002 was also applied/skipped correctly in a pro
 
 **Size:** M · **Priority:** P0 · **Requirements:** R-11…R-17 · **Fixes:** BUG-13, BUG-14, BUG-22, DB-10
 
+**Status:** complete locally (2026-11-13). `AppointmentRepository.create` checks conflicts inside the insert transaction; `update` re-checks conflicts (excluding itself), updates the parent, and replaces service lines in the same transaction, queueing a tombstone per removed child and an insert per new child. The detail page now has an edit mode (shared `AppointmentForm`, prefilled from the appointment and services) and a confirm-gated delete that soft-deletes and navigates back. `AppointmentForm` ignores repeated submits while the first is in flight. Every appointment query filters `deleted_at`; a new test proves deleted rows disappear from day/week/detail/count/next. Reminders are rescheduled on edit and cancelled for cancelled/no_show. Tests: appointment repository (15, real SQLite) and double-submit form (1); 156/156 total. Gates green. Device runtime remains unverified.
+
 **Read first:** `features/appointments/*`, `appointment.repository.ts`, `shared/utils/helpers.ts` (`appointmentsOverlap`), `app.test` fixtures.
 
 **Goal:** the full appointment lifecycle is usable: create, view, reschedule, change services, cancel, delete.

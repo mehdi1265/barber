@@ -36,6 +36,16 @@ export interface UpdateAppointmentInput {
   duration_minutes?: number
   notes?: string | null
   status?: AppointmentStatus
+  /** When provided, replaces all service lines atomically. */
+  services?: AppointmentServiceInput[]
+}
+
+/** Thrown when an insert/update would overlap another appointment. */
+export class AppointmentConflictError extends Error {
+  constructor(readonly conflictingTitle: string) {
+    super(`Appointment conflict: ${conflictingTitle}`)
+    this.name = 'AppointmentConflictError'
+  }
 }
 
 export interface ConflictResult {
@@ -160,6 +170,13 @@ export class AppointmentRepository {
     }))
 
     await withTransaction(this.db, async () => {
+      // Check and insert inside the same transaction so two concurrent
+      // bookings cannot both pass the check.
+      const conflict = await this.checkConflict(appointment.start_at, appointment.end_at)
+      if (conflict.hasConflict) {
+        throw new AppointmentConflictError(conflict.conflictingAppointment?.title ?? '')
+      }
+
       await this.db.run(
         `INSERT INTO appointments
           (id, user_id, customer_id, title, start_at, duration_minutes, end_at, status, notes, created_at, updated_at, deleted_at)
@@ -225,7 +242,7 @@ export class AppointmentRepository {
     const now = nowISO()
     await withTransaction(this.db, async () => {
       await this.db.run(
-        `UPDATE appointments SET status = ?, updated_at = ? WHERE id = ? AND user_id = ?`,
+        `UPDATE appointments SET status = ?, updated_at = ? WHERE id = ? AND user_id = ? AND deleted_at IS NULL`,
         [status, now, id, this.userId]
       )
       await addToOutbox(this.db, {
@@ -245,6 +262,7 @@ export class AppointmentRepository {
     const newStartAt = input.start_at ?? existing.start_at
     const newDuration = input.duration_minutes ?? existing.duration_minutes
     const newEndAt = calcEndAt(newStartAt, newDuration)
+    const clientOpId = generateUUID()
 
     const updated: Appointment = {
       ...existing,
@@ -258,7 +276,26 @@ export class AppointmentRepository {
       updated_at: now,
     }
 
+    const newServices: AppointmentService[] | null =
+      input.services?.map(svc => ({
+        id: generateUUID(),
+        user_id: this.userId,
+        appointment_id: id,
+        service_id: svc.service_id ?? null,
+        service_name_snapshot: svc.service_name_snapshot,
+        price: tomanToStorage(svc.price),
+        duration_minutes: svc.duration_minutes ?? null,
+        created_at: now,
+        updated_at: now,
+      })) ?? null
+
     await withTransaction(this.db, async () => {
+      // Re-check inside the transaction; the row is excluded from the query.
+      const conflict = await this.checkConflict(updated.start_at, updated.end_at, id)
+      if (conflict.hasConflict) {
+        throw new AppointmentConflictError(conflict.conflictingAppointment?.title ?? '')
+      }
+
       await this.db.run(
         `UPDATE appointments
          SET customer_id = ?, title = ?, start_at = ?, duration_minutes = ?, end_at = ?,
@@ -283,7 +320,52 @@ export class AppointmentRepository {
         entity_id: id,
         operation: 'update',
         payload: JSON.stringify(updated),
+        client_op_id: clientOpId,
       })
+
+      if (newServices) {
+        const previous = await this.findServicesForAppointment(id)
+
+        for (const old of previous) {
+          await this.db.run(`DELETE FROM appointment_services WHERE id = ? AND user_id = ?`, [
+            old.id,
+            this.userId,
+          ])
+          await addToOutbox(this.db, {
+            entity_type: 'appointment_services',
+            entity_id: old.id,
+            operation: 'delete',
+            payload: JSON.stringify(old),
+            client_op_id: `${clientOpId}:del:${old.id}`,
+          })
+        }
+
+        for (const svc of newServices) {
+          await this.db.run(
+            `INSERT INTO appointment_services
+              (id, user_id, appointment_id, service_id, service_name_snapshot, price, duration_minutes, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [
+              svc.id,
+              svc.user_id,
+              svc.appointment_id,
+              svc.service_id,
+              svc.service_name_snapshot,
+              svc.price,
+              svc.duration_minutes,
+              svc.created_at,
+              svc.updated_at,
+            ]
+          )
+          await addToOutbox(this.db, {
+            entity_type: 'appointment_services',
+            entity_id: svc.id,
+            operation: 'insert',
+            payload: JSON.stringify(svc),
+            client_op_id: `${clientOpId}:${svc.id}`,
+          })
+        }
+      }
     })
 
     return updated

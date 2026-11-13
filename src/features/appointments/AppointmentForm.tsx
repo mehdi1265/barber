@@ -3,7 +3,7 @@
  */
 import { useFieldArray, useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
-import { useEffect, useState, type ChangeEvent } from 'react'
+import { useEffect, useRef, useState, type ChangeEvent } from 'react'
 import { appointmentSchema, type AppointmentFormData } from './appointments.schemas'
 import { FormField } from '@shared/components/forms/FormField'
 import { JalaliDateInput } from '@shared/components/forms/JalaliDateInput'
@@ -12,6 +12,7 @@ import { useCustomers } from '@features/customers/customers.hooks'
 import { useServices } from '@features/services/services.hooks'
 import { todayISO, formatTime, applyTimeToDate } from '@shared/utils/jalali'
 import { calcEndAt, storageToToman } from '@shared/utils/helpers'
+import { localDateISO } from '@shared/utils/datetime'
 import styles from './AppointmentForm.module.css'
 
 // raw form field types (strings from inputs)
@@ -30,8 +31,23 @@ interface RawFormValues {
   }>
 }
 
+export interface AppointmentFormInitial {
+  customer_id: string | null
+  title: string
+  start_at: string
+  duration_minutes: number
+  notes: string | null
+  services: Array<{
+    service_id: string | null
+    service_name_snapshot: string
+    price: number // storage value (Toman × 100)
+    duration_minutes: number | null
+  }>
+}
+
 interface AppointmentFormProps {
   defaultDate?: string // YYYY-MM-DD
+  initial?: AppointmentFormInitial
   onSubmit: (data: AppointmentFormData) => Promise<void>
   onCancel: () => void
   submitLabel?: string
@@ -40,6 +56,7 @@ interface AppointmentFormProps {
 
 export function AppointmentForm({
   defaultDate,
+  initial,
   onSubmit,
   onCancel,
   submitLabel = 'ذخیره نوبت',
@@ -48,6 +65,7 @@ export function AppointmentForm({
   const { data: customers = [] } = useCustomers()
   const { data: services = [] } = useServices(true)
   const [previewEnd, setPreviewEnd] = useState<string | null>(null)
+  const submitLock = useRef(false)
 
   const {
     register,
@@ -58,15 +76,32 @@ export function AppointmentForm({
     formState: { errors, isSubmitting },
   } = useForm<RawFormValues>({
     resolver: zodResolver(appointmentSchema) as never,
-    defaultValues: {
-      customer_id: '',
-      title: '',
-      date: defaultDate ?? todayISO(),
-      time: '09:00',
-      duration_minutes: '60',
-      notes: '',
-      services: [{ service_id: '', service_name_snapshot: '', price: '', duration_minutes: '' }],
-    },
+    defaultValues: initial
+      ? {
+          customer_id: initial.customer_id ?? '',
+          title: initial.title,
+          date: localDateISO(initial.start_at),
+          time: formatTime(initial.start_at),
+          duration_minutes: String(initial.duration_minutes),
+          notes: initial.notes ?? '',
+          services: initial.services.map(svc => ({
+            service_id: svc.service_id ?? '',
+            service_name_snapshot: svc.service_name_snapshot,
+            price: String(storageToToman(svc.price)),
+            duration_minutes: svc.duration_minutes ? String(svc.duration_minutes) : '',
+          })),
+        }
+      : {
+          customer_id: '',
+          title: '',
+          date: defaultDate ?? todayISO(),
+          time: '09:00',
+          duration_minutes: '60',
+          notes: '',
+          services: [
+            { service_id: '', service_name_snapshot: '', price: '', duration_minutes: '' },
+          ],
+        },
   })
 
   const { fields, append, remove } = useFieldArray({ control, name: 'services' })
@@ -107,7 +142,17 @@ export function AppointmentForm({
   return (
     <form
       onSubmit={e => {
-        void handleSubmit(data => onSubmit(data as unknown as AppointmentFormData))(e)
+        void handleSubmit(async data => {
+          // Ignore repeats while the first submit is in flight. This covers
+          // double taps that land before React disables the button.
+          if (submitLock.current) return
+          submitLock.current = true
+          try {
+            await onSubmit(data as unknown as AppointmentFormData)
+          } finally {
+            submitLock.current = false
+          }
+        })(e)
       }}
       noValidate
       className={styles.form}

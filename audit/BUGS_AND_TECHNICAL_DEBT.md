@@ -125,8 +125,8 @@
 
 | ID | Bug | Evidence | Impact | Fix / verify |
 |---|---|---|---|---|
-| BUG-13 | Appointment delete action is suppressed | `AppointmentDetailPage.tsx:60-64` (`void handleDelete`) | Repository + hook exist but users cannot delete | T06: render button + confirm; test soft delete and outbox row |
-| BUG-14 | Editing an appointment cannot change its services | `appointment.repository.ts:202-243` updates the parent only | Rescheduling works only via status/notes; service changes impossible | T06: transactional replace of children; conflict re-check |
+| BUG-13 | Appointment delete action is suppressed | `AppointmentDetailPage.tsx` (`void handleDelete`) | Repository + hook exist but users cannot delete | **Resolved in T06:** confirm-gated delete navigates back; soft delete covered by the query regression test |
+| BUG-14 | Editing an appointment cannot change its services | `appointment.repository.ts` (`update` updated the parent only) | Rescheduling works only via status/notes; service changes impossible | **Resolved in T06:** services are replaced in the same transaction with child tombstones/inserts; conflict re-checked inside |
 | BUG-15 | Quick sale form is dead and imports a missing CSS module | `QuickSaleForm.tsx:7` → `./FinanceForm.module.css` (absent); no route | Routing it would break the Vite build | T07: add stylesheet + route + use-case; build must stay green |
 | BUG-16 | Services page is unreachable from the UI | `/settings/services` exists; `SettingsPage` has no link | Owners cannot manage services in a normal flow | T14: settings list with link; navigation test |
 | BUG-17 | Date inputs are Gregorian | `AppointmentForm.tsx` uses `<input type="date">`; display is Jalali | Inconsistent UX; users must convert dates mentally | **Resolved in T04 (2026-11-13):** `JalaliDateInput` (year/month/day selects) replaces the only date input |
@@ -134,7 +134,7 @@
 | BUG-19 | No error boundary; bootstrap leaks raw errors | `main.tsx:23-31` writes `String(err)` into the page; no React boundary | One render error blanks the app; errors may expose internals | T01/T16: boundary + Persian error screen + log buffer |
 | BUG-20 | Session token and DB passphrase live in `localStorage` | `client.ts:18-26`; `database.ts:24-46` | Extractable on device; contradicts R-43 intent | T16: Capacitor SecureStorage/Keychain |
 | BUG-21 | Over-payment is accepted | `visit.repository.ts:165-198` has no sum check | Paid > total; reports show negative debt | T07: validate against line totals inside transaction |
-| BUG-22 | Double submit can duplicate records | create mutations have no disable/idempotency; `AppointmentForm` submit not guarded | Duplicate appointments/customers | T06/T07: disable while pending + optional client op id |
+| BUG-22 | Double submit can duplicate records | client-op ids are not reused across retries | Duplicate appointments/customers | **Partially resolved in T06:** `AppointmentForm` ignores repeated submits; other forms still need the same guard |
 | BUG-23 | Expenses are hard-deleted with no tombstone | `expense.repository.ts:112-123`; server has no `deleted_at` | Deletion cannot propagate to other devices | **Local capture resolved in T03 (2026-11-13)** — `delete` enqueues the full previous row before deleting. Server-side restore/sync remains T10 |
 | BUG-24 | Cloud migration is not idempotent; bucket and UPDATE policy missing | `001_initial_schema.sql:53-54,57,71,93-94,249-252,255-265` | Re-run fails; uploads error; overwrite denied | T16: `IF NOT EXISTS`, `DROP POLICY IF EXISTS`, create bucket, add UPDATE policy |
 | BUG-25 | Server `updated_at` trigger overrides client timestamps | `001_initial_schema.sql:267-289` | LWW conflict resolution based on client time is invalid | T10: define policy using server time + op ordering |
@@ -166,7 +166,7 @@ These green signals are misleading and must not be used as evidence that the app
 | `npm run type-check` passes | Real since T01, but it only type-checks; runtime/SQL defects still pass |
 | `npm run build` passes | It proves TypeScript and bundling, not that the app boots (BUG-01) |
 | `npx vite build` passes | It does not type-check, and dead code (QuickSaleForm) is not bundled |
-| 151/151 tests pass | Repository tests for appointments/visits/expenses/outbox use real SQLite, but customer/service still use a SQL mock; auth/UI tests mock Supabase and the database; no device, network, or sync coverage |
+| 156/156 tests pass | Repository tests for appointments/visits/expenses/outbox use real SQLite, but customer/service still use a SQL mock; auth/UI tests mock Supabase and the database; no device, network, or sync coverage |
 | `npm test` is fast | Because no real SQLite/network/device is involved |
 | `npm ci` succeeds | esbuild's postinstall is skipped by npm allow-scripts policy but its binary works today; a clean machine may behave differently |
 | `npm run lint` passes | Static analysis only; it does not prove the app boots or the SQL is valid |

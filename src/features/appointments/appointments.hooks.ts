@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
+  AppointmentConflictError,
   AppointmentRepository,
   type CreateAppointmentInput,
   type UpdateAppointmentInput,
@@ -24,6 +25,13 @@ export const appointmentKeys = {
 async function getRepo(userId: string) {
   const db = await getDatabase()
   return new AppointmentRepository(db, userId)
+}
+
+function rethrowConflict(err: unknown): never {
+  if (err instanceof AppointmentConflictError) {
+    throw new Error(`تداخل با نوبت «${err.conflictingTitle}» در همین ساعت`)
+  }
+  throw err
 }
 
 // ── Queries ───────────────────────────────────────────────────────────────────
@@ -101,21 +109,13 @@ export function useCreateAppointment() {
   return useMutation({
     mutationFn: async (input: CreateAppointmentInput) => {
       const repo = await getRepo(userId)
-
-      // Check conflict first
-      const endAt = new Date(input.start_at)
-      endAt.setMinutes(endAt.getMinutes() + input.duration_minutes)
-      const { hasConflict, conflictingAppointment } = await repo.checkConflict(
-        input.start_at,
-        endAt.toISOString()
-      )
-      if (hasConflict) {
-        throw new Error(`تداخل با نوبت «${conflictingAppointment?.title ?? ''}» در همین ساعت`)
+      try {
+        const appt = await repo.create(input)
+        await scheduleAppointmentReminder(appt)
+        return appt
+      } catch (err) {
+        rethrowConflict(err)
       }
-
-      const appt = await repo.create(input)
-      await scheduleAppointmentReminder(appt)
-      return appt
     },
     onSuccess: appt => {
       const dateISO = localDateISO(appt.start_at)
@@ -150,31 +150,22 @@ export function useUpdateAppointment() {
   return useMutation({
     mutationFn: async ({ id, input }: { id: string; input: UpdateAppointmentInput }) => {
       const repo = await getRepo(userId)
-
-      // Check conflict when time is changing
-      if (input.start_at || input.duration_minutes) {
-        const existing = await repo.findById(id)
-        if (existing) {
-          const newStart = input.start_at ?? existing.start_at
-          const newDuration = input.duration_minutes ?? existing.duration_minutes
-          const newEnd = new Date(newStart)
-          newEnd.setMinutes(newEnd.getMinutes() + newDuration)
-          const { hasConflict, conflictingAppointment } = await repo.checkConflict(
-            newStart,
-            newEnd.toISOString(),
-            id
-          )
-          if (hasConflict) {
-            throw new Error(`تداخل با نوبت «${conflictingAppointment?.title ?? ''}» در همین ساعت`)
-          }
-        }
+      try {
+        return await repo.update(id, input)
+      } catch (err) {
+        rethrowConflict(err)
       }
-
-      return repo.update(id, input)
     },
-    onSuccess: updated => {
+    onSuccess: async updated => {
       if (!updated) return
+      if (updated.status === 'cancelled' || updated.status === 'no_show') {
+        await cancelAppointmentReminder(updated.id)
+      } else {
+        // Scheduling with the same notification id replaces the old reminder.
+        await scheduleAppointmentReminder(updated)
+      }
       void qc.invalidateQueries({ queryKey: appointmentKeys.detail(userId, updated.id) })
+      void qc.invalidateQueries({ queryKey: appointmentKeys.services(userId, updated.id) })
       void qc.invalidateQueries({ queryKey: ['appointments', userId] })
     },
   })

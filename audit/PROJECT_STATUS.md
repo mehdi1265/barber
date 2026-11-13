@@ -61,6 +61,15 @@
 > project is not configured yet, so the reset flow is unverified end-to-end; device and remote-CI
 > verification remain **unverified**.
 
+> **Post-T06 update — 2026-11-13:** The appointment lifecycle is complete locally. Create checks
+> conflicts inside its transaction, and update re-checks conflicts (excluding itself), writes the
+> parent, and replaces service lines atomically — tombstones for removed children, inserts for new
+> ones. The detail page has an edit mode using the shared form and a confirm-gated soft delete; the
+> form ignores repeat submits while one is in flight. Deleted rows are filtered from every query
+> (day, week, detail, count, next) with a regression test. Reminders are rescheduled on edit and
+> cancelled for cancelled/no_show. 156/156 tests pass; `type-check`, `lint`, `format:check`, and
+> `build` are green. Device runtime remains **unverified**.
+
 ---
 
 ## 1. Repository snapshot
