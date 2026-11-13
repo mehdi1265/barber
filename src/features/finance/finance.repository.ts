@@ -49,7 +49,7 @@ export class FinanceRepository {
 
   private async getExpensesInRange(start: string, end: string): Promise<Expense[]> {
     const result = await this.db.query(
-      `SELECT * FROM expenses WHERE user_id = ? AND spent_at >= ? AND spent_at < ?`,
+      `SELECT * FROM expenses WHERE user_id = ? AND spent_at >= ? AND spent_at < ? AND deleted_at IS NULL`,
       [this.userId, start, end]
     )
     return (result.values as Expense[]) ?? []

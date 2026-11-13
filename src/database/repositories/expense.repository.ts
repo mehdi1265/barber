@@ -21,7 +21,7 @@ export class ExpenseRepository {
 
   async findById(id: UUID): Promise<Expense | null> {
     const result = await this.db.query(
-      `SELECT * FROM expenses WHERE id = ? AND user_id = ? LIMIT 1`,
+      `SELECT * FROM expenses WHERE id = ? AND user_id = ? AND deleted_at IS NULL LIMIT 1`,
       [id, this.userId]
     )
     return (result.values?.[0] as Expense) ?? null
@@ -30,7 +30,7 @@ export class ExpenseRepository {
   async findByDateRange(startISO: string, endISO: string): Promise<Expense[]> {
     const result = await this.db.query(
       `SELECT * FROM expenses
-       WHERE user_id = ? AND spent_at >= ? AND spent_at < ?
+       WHERE user_id = ? AND spent_at >= ? AND spent_at < ? AND deleted_at IS NULL
        ORDER BY spent_at DESC`,
       [this.userId, startISO, endISO]
     )
@@ -128,18 +128,24 @@ export class ExpenseRepository {
     return updated
   }
 
-  /** Hard delete with a tombstone outbox row carrying the full local record */
+  /** Soft delete — keeps a tombstone so the deletion can propagate to other devices */
   async delete(id: UUID): Promise<void> {
     const existing = await this.findById(id)
     if (!existing) return
 
+    const now = nowISO()
+    const tombstone = { ...existing, deleted_at: now, updated_at: now }
+
     await withTransaction(this.db, async () => {
-      await this.db.run(`DELETE FROM expenses WHERE id = ? AND user_id = ?`, [id, this.userId])
+      await this.db.run(
+        `UPDATE expenses SET deleted_at = ?, updated_at = ? WHERE id = ? AND user_id = ?`,
+        [now, now, id, this.userId]
+      )
       await addToOutbox(this.db, {
         entity_type: 'expenses',
         entity_id: id,
         operation: 'delete',
-        payload: JSON.stringify(existing),
+        payload: JSON.stringify(tombstone),
       })
     })
   }

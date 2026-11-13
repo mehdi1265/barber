@@ -154,9 +154,15 @@ describe('Migration 002', () => {
     expect(columns).toEqual(
       expect.arrayContaining(['client_op_id', 'processed_at', 'last_attempt_at'])
     )
+
+    const expenseColumns = raw
+      .prepare("SELECT name FROM pragma_table_info('expenses')")
+      .all()
+      .map(c => (c as { name: string }).name)
+    expect(expenseColumns).toContain('deleted_at')
   })
 
-  it('migration runner هر دو نسخه را فقط یک بار اعمال می‌کند', async () => {
+  it('migration runner همه نسخه‌ها را فقط یک بار اعمال می‌کند', async () => {
     const harness = createTestDb({ skipMigrations: true })
 
     await runMigrations(harness.db)
@@ -166,6 +172,20 @@ describe('Migration 002', () => {
       .rows<{ version: number }>('schema_migrations')
       .map(r => r.version)
       .sort((a, b) => a - b)
-    expect(versions).toEqual([1, 2])
+    expect(versions).toEqual([1, 2, 3, 4])
+  })
+
+  it('migration 003 یک ردیف sync_state می‌سازد', () => {
+    const { rows, exec } = createTestDb()
+    const state = rows<{ id: number; last_pull_at: string | null; device_id: string | null }>(
+      'sync_state'
+    )
+
+    expect(state).toHaveLength(1)
+    expect(state[0]).toMatchObject({ id: 1, last_pull_at: null, device_id: null })
+
+    // INSERT OR IGNORE must not create a second row when the migration reruns.
+    exec(`INSERT OR IGNORE INTO sync_state (id, schema_version) VALUES (1, 1)`)
+    expect(rows('sync_state')).toHaveLength(1)
   })
 })

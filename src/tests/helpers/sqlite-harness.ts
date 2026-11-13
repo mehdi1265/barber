@@ -9,6 +9,8 @@ import { DatabaseSync } from 'node:sqlite'
 import type { SQLiteDBConnection } from '@capacitor-community/sqlite'
 import migration001 from '@database/migrations/001_initial.sql?raw'
 import migration002 from '@database/migrations/002_outbox_hardening.sql?raw'
+import migration003 from '@database/migrations/003_sync_state.sql?raw'
+import migration004 from '@database/migrations/004_expense_tombstones.sql?raw'
 
 export interface TestDbOptions {
   /** Throw before executing the Nth `run` call (1-based) */
@@ -48,7 +50,11 @@ export function createTestDb(options: TestDbOptions = {}): TestDb {
   raw.exec('PRAGMA foreign_keys = ON;')
   if (!options.skipMigrations) {
     raw.exec(migration001)
-    if (!options.skipMigration002) raw.exec(migration002)
+    if (!options.skipMigration002) {
+      raw.exec(migration002)
+      raw.exec(migration003)
+      raw.exec(migration004)
+    }
   }
 
   let runs = 0

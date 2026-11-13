@@ -6,8 +6,8 @@ import { createTestDb } from '../helpers/sqlite-harness'
 const USER_ID = 'user-write-001'
 
 describe('ExpenseRepository.delete', () => {
-  it('رکورد کامل حذف‌شده را در payload outbox نگه می‌دارد', async () => {
-    const { db, rows, outboxRows, countRows } = createTestDb()
+  it('رکورد کامل حذف‌شده را به‌صورت tombstone در payload outbox نگه می‌دارد', async () => {
+    const { db, rows, outboxRows } = createTestDb()
     const repo = new ExpenseRepository(db, USER_ID)
 
     const expense = await repo.create({
@@ -18,8 +18,6 @@ describe('ExpenseRepository.delete', () => {
     })
     await repo.delete(expense.id)
 
-    expect(countRows('expenses')).toBe(0)
-
     const deletes = outboxRows().filter(r => r.operation === 'delete')
     expect(deletes).toHaveLength(1)
 
@@ -28,9 +26,15 @@ describe('ExpenseRepository.delete', () => {
     expect(payload.title).toBe('رنگ مو')
     expect(payload.amount).toBe(250000 * 100)
     expect(payload.spent_at).toBe(expense.spent_at)
+    expect(payload.deleted_at).toBeTruthy()
 
-    // Only the insert remains locally; the delete tombstone lives in outbox
-    expect(rows('expenses')).toHaveLength(0)
+    // The row is retained locally with a tombstone so pull cannot resurrect it.
+    const [stored] = rows<{ deleted_at: string | null }>('expenses')
+    expect(stored.deleted_at).toBe(payload.deleted_at)
+    expect(await repo.findById(expense.id)).toBeNull()
+    expect(
+      await repo.findByDateRange('2020-01-01T00:00:00.000Z', '2030-01-01T00:00:00.000Z')
+    ).toHaveLength(0)
   })
 
   it('حذف رکورد ناموجود هیچ outbox ثبت نمی‌کند', async () => {
@@ -42,7 +46,7 @@ describe('ExpenseRepository.delete', () => {
   })
 
   it('خطا در ثبت outbox حذف را برمی‌گرداند', async () => {
-    // 1st run = DELETE, 2nd run = outbox insert
+    // 1st run = UPDATE tombstone, 2nd run = outbox insert
     const failing = createTestDb({ failOnRun: 2 })
     const failingRepo = new ExpenseRepository(failing.db, USER_ID)
     failing.exec(
@@ -51,7 +55,8 @@ describe('ExpenseRepository.delete', () => {
     )
 
     await expect(failingRepo.delete('exp-rollback')).rejects.toThrow('injected failure')
-    expect(failing.countRows('expenses')).toBe(1)
+    const [row] = failing.rows<{ deleted_at: string | null }>('expenses')
+    expect(row.deleted_at).toBeNull()
     expect(failing.outboxRows().filter(r => r.operation === 'delete')).toHaveLength(0)
   })
 })

@@ -45,6 +45,22 @@ export async function getPendingOutbox(db: SQLiteDBConnection, limit = 50): Prom
   return (result.values as SyncOutbox[]) ?? []
 }
 
+/** Rows the push worker may still attempt, excluding exhausted ones. */
+export async function getRetryableOutbox(
+  db: SQLiteDBConnection,
+  limit: number,
+  maxAttempts: number
+): Promise<SyncOutbox[]> {
+  const result = await db.query(
+    `SELECT * FROM sync_outbox
+     WHERE status IN ('pending', 'failed') AND attempt_count < ?
+     ORDER BY created_at ASC
+     LIMIT ?`,
+    [maxAttempts, limit]
+  )
+  return (result.values as SyncOutbox[]) ?? []
+}
+
 /** Number of operations not yet accepted by the server (pending or failed). */
 export async function countPendingOutbox(db: SQLiteDBConnection): Promise<number> {
   const result = await db.query(
@@ -79,6 +95,52 @@ export async function markOutboxProcessing(db: SQLiteDBConnection, id: UUID): Pr
     nowISO(),
     id,
   ])
+}
+
+/** Marks an operation as terminally failed so it is never retried automatically. */
+export async function markOutboxTerminal(
+  db: SQLiteDBConnection,
+  id: UUID,
+  error: string,
+  attempts: number
+): Promise<void> {
+  await db.run(
+    `UPDATE sync_outbox
+     SET status = 'failed', last_error = ?, attempt_count = ?, last_attempt_at = ?
+     WHERE id = ?`,
+    [error, attempts, nowISO(), id]
+  )
+}
+
+/**
+ * Puts one row back to `pending` without counting an attempt.
+ * Used when the whole run stops for an expired session: the row was not
+ * rejected, so it must not burn a retry.
+ */
+export async function markOutboxPending(db: SQLiteDBConnection, id: UUID): Promise<void> {
+  await db.run(`UPDATE sync_outbox SET status = 'pending' WHERE id = ?`, [id])
+}
+
+/**
+ * A crash can leave rows in `processing`. On the next start they must become
+ * retryable again, otherwise the queue stalls forever.
+ */
+export async function resetStaleProcessing(db: SQLiteDBConnection): Promise<void> {
+  await db.run(`UPDATE sync_outbox SET status = 'pending' WHERE status = 'processing'`)
+}
+
+/** True when the entity has a queued operation that has not reached the server. */
+export async function hasPendingOperation(
+  db: SQLiteDBConnection,
+  entityId: string
+): Promise<boolean> {
+  const result = await db.query(
+    `SELECT 1 FROM sync_outbox
+     WHERE entity_id = ? AND status IN ('pending', 'processing', 'failed')
+     LIMIT 1`,
+    [entityId]
+  )
+  return (result.values?.length ?? 0) > 0
 }
 
 /** Remove done items older than 7 days to keep the table clean */

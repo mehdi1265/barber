@@ -8,6 +8,8 @@ import { useSyncStore } from '@state/sync.store'
 import { useAuthStore } from '@state/auth.store'
 import { AccountMenu } from '@features/auth/AccountMenu'
 import { getPendingOutboxCount, logoutUseCase } from '@features/auth/auth.usecases'
+import { SyncManager } from '@sync/components/SyncManager'
+import { runSync } from '@sync/engine/sync.manager'
 import styles from './AppShell.module.css'
 
 const navItems = [
@@ -19,7 +21,7 @@ const navItems = [
 ]
 
 export function AppShell() {
-  const { status, pendingCount } = useSyncStore()
+  const { status, pendingCount, errorMessage } = useSyncStore()
   const location = useLocation()
   const navigate = useNavigate()
   const user = useAuthStore(state => state.user)
@@ -33,6 +35,8 @@ export function AppShell() {
 
   return (
     <div className={styles.shell} dir="rtl">
+      <SyncManager />
+
       {user?.email && (
         <AccountMenu
           email={user.email}
@@ -50,6 +54,20 @@ export function AppShell() {
       {status === 'offline' && pendingCount > 0 && (
         <div className={styles.offlineBanner} role="status">
           آفلاین — {pendingCount} تغییر در انتظار
+        </div>
+      )}
+      {status === 'error' && (
+        <div className={styles.errorBanner} role="status">
+          <span>{errorMessage ?? 'همگام‌سازی ناموفق بود'}</span>
+          <button
+            type="button"
+            className={styles.retryBtn}
+            onClick={() => {
+              void runSync('manual')
+            }}
+          >
+            تلاش دوباره
+          </button>
         </div>
       )}
 

@@ -84,3 +84,29 @@
   right: 0;
   z-index: 200;
 }
+
+.errorBanner {
+  background: var(--color-error);
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-3);
+  padding: 4px 8px;
+  font-size: 0.75rem;
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 200;
+}
+
+.retryBtn {
+  border: 1px solid rgb(255 255 255 / 0.6);
+  border-radius: var(--radius-full);
+  background: transparent;
+  color: white;
+  font: inherit;
+  padding: 1px 10px;
+  cursor: pointer;
+}
