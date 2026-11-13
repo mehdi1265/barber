@@ -57,7 +57,12 @@
 > payments, expense create/edit/delete, and `/finance/quick-sale` (visit + service + payment in one
 > transaction, double-submit lock). 175/175 tests pass; gates are green. Finance UI was not walked
 > through in a browser (no Supabase session); device runtime remains unverified.
-> **Next action: T08 when assigned.**
+> **T08 update (2026-11-13):** The dashboard is complete locally. It shows the local Jalali date, the
+> next appointment (customer, date/time, title, tap to detail) or an empty state, six day-summary
+> cards from the same query as the finance day tab, the net row, and quick actions (new appointment,
+> quick sale, customers). 177/177 tests pass; gates are green. Finance/dashboard UI was not walked
+> through in a browser (no Supabase session); device runtime remains unverified.
+> **Next action: T09 when assigned.**
 
 
 ---
@@ -129,7 +134,7 @@ barber/
 │  │  └─ notifications/      local notification helpers (uncalled)
 │  ├─ shared/                UI kit, hooks, types, utils (money, Jalali, helpers)
 │  ├─ state/                 auth store, sync store (dead)
-│  └─ tests/                 21 test files, 175 tests
+│  └─ tests/                 22 test files, 177 tests
 ├─ index.html                **no jeep-sqlite element** → web boot blocker
 ├─ package.json              broken lint + vacuous type-check scripts
 ├─ capacitor.config.ts       appId com.barberapp.app, webDir dist
@@ -402,7 +407,7 @@ Do not run destructive SQL. Do not point tests at a project with real data.
 ### Testing commands
 
 ```bash
-npm test                      # 21 files, 175 tests
+npm test                      # 22 files, 177 tests
 npx vitest run src/tests/unit/jalali.test.ts   # single file
 npm run test:coverage         # after configuring thresholds
 ```
@@ -443,7 +448,7 @@ Priorities and full acceptance criteria: `audit/DEVELOPMENT_BACKLOG.md`. Require
 | 5 | **T05 Auth completion (done)** | T02, T03 | Logout, reset, profile guarantee, Persian errors |
 | 6 | **T06 Appointments completion (done)** | T03, T04, T05 | Edit/reschedule/change services/delete |
 | 7 | **T07 Finance (done)** | T03, T04, T06 | Visits, payments, expenses, reports, quick sale |
-| 8 | **T08 Dashboard** | T04, T07 | Today at a glance |
+| 8 | **T08 Dashboard (done)** | T04, T07 | Today at a glance |
 | 9 | **T09 Sync push** | T03 | Reliable idempotent upload |
 | 10 | **T10 Sync pull/recovery** | T09, T04 | New-device restore + conflict policy |
 | 11 | **T11 Color formulas** | T03, T10 | Formula CRUD + item sync |

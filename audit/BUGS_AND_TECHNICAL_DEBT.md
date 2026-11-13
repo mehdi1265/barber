@@ -166,7 +166,7 @@ These green signals are misleading and must not be used as evidence that the app
 | `npm run type-check` passes | Real since T01, but it only type-checks; runtime/SQL defects still pass |
 | `npm run build` passes | It proves TypeScript and bundling, not that the app boots (BUG-01) |
 | `npx vite build` passes | It does not type-check, and dead code (QuickSaleForm) is not bundled |
-| 175/175 tests pass | Repository tests for appointments/visits/expenses/outbox use real SQLite, but customer/service still use a SQL mock; auth/UI tests mock Supabase and the database; no device, network, or sync coverage |
+| 177/177 tests pass | Repository tests for appointments/visits/expenses/outbox use real SQLite, but customer/service still use a SQL mock; auth/UI tests mock Supabase and the database; no device, network, or sync coverage |
 | `npm test` is fast | Because no real SQLite/network/device is involved |
 | `npm ci` succeeds | esbuild's postinstall is skipped by npm allow-scripts policy but its binary works today; a clean machine may behave differently |
 | `npm run lint` passes | Static analysis only; it does not prove the app boots or the SQL is valid |

@@ -44,8 +44,8 @@
 
 | ID | Requirement | Src | Pri | Status | Evidence (files) | Missing work | Deps | Acceptance criteria |
 |---|---|---|---|---|---|---|---|---|
-| R-08 | Dashboard shows today's counts and money: appointments, completed visits, received, expenses, net, total debt | P §4, W §1 | P1 | Not implemented | `features/dashboard/DashboardPage.tsx` is a 3-line placeholder; data exists via `appointment.repository.ts:261-271`, `finance.hooks.ts` | Whole page; summary cards; loading/empty states | R-28, R-30, R-13 | Opening `/dashboard` shows the six values for the current **local** day and matches the finance page for the same day |
-| R-09 | Show the next upcoming appointment | P §4, W §1 | P1 | Not implemented | `appointment.repository.ts:273` (`findNext`), `appointments.hooks.ts:77` (`useNextAppointment`) | Card UI; empty state | R-13 | With a future appointment, the card shows customer, time, and service; with none, a Persian empty state appears |
+| R-08 | Dashboard shows today’s counts and money: appointments, completed visits, received, expenses, net, total debt | P §4, W §1 | P1 | Complete (T08) | `DashboardPage.tsx` (six cards + net row), `useDailyReport`, `useAppointmentsByDay` | — | R-28, R-30, R-13 | Opening `/dashboard` shows the six values for the current **local** day and matches the finance page for the same day |
+| R-09 | Show the next upcoming appointment | P §4, W §1 | P1 | Complete (T08) | `DashboardPage.tsx` (next card + empty state), `useNextAppointment`, `useCustomer` | — | R-13 | With a future appointment, the card shows customer, time, and service; with none, a Persian empty state appears |
 | R-10 | Show sync status and pending count in the shell | P §4, A §7 | P2 | Partially implemented | `AppShell.tsx:19-39` reads `sync.store.ts`; store is **never** mutated anywhere | Sync engine to drive the store; error/offline states | R-39 | Banner reflects idle/syncing/error; pending count matches `sync_outbox` pending rows |
 
 ---

@@ -314,6 +314,8 @@ against `node:sqlite`; migration 002 was also applied/skipped correctly in a pro
 
 ## T08 — Dashboard
 
+**Status: complete locally (2026-11-13).** `DashboardPage` shows the local day’s Jalali date, the next appointment (customer name, date/time, title, tap → detail), six summary cards (appointments, visits, service amount, received, expenses, debt), a net-after-expenses row, and quick actions (new appointment modal, quick sale, customers). Sync banners already live in `AppShell`; driving the store remains T09. Tests: `dashboard-page.test.tsx` (2); 177/177 total. Gates are green. Not verified: browser walkthrough (no Supabase session) and device runtime.
+
 **Size:** S · **Priority:** P1 · **Requirements:** R-08, R-09, R-10
 
 **Read first:** `features/dashboard/DashboardPage.tsx`, `appointments.hooks.ts` (`useNextAppointment`), `finance.hooks.ts` (`useDailyReport`, `useTotalOpenDebt`), `docs/04-wireframes.md §1`.

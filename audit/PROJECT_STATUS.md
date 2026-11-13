@@ -82,6 +82,14 @@
 > Browser-level verification of the finance UI was not performed because no Supabase project or
 > session is configured; device runtime remains **unverified**.
 
+> **Post-T08 update — 2026-11-13:** The dashboard is complete locally. `/dashboard` shows the local
+> Jalali date, the next appointment (customer name, date/time, title, tap → detail) or a Persian
+> empty state, six summary cards from `useDailyReport`/`useAppointmentsByDay`, the net-after-expenses
+> row, and quick actions (new appointment modal, quick sale, customers). Values match the finance day
+> tab because both read the same local-day report. Sync banners remain shell-level; the store is
+> still not driven (T09). `dashboard-page.test.tsx` was added (177/177 total); all gates are green.
+> Browser walkthrough and device runtime remain **unverified**.
+
 ---
 
 ## 1. Repository snapshot
