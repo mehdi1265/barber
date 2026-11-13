@@ -198,13 +198,14 @@
 > automatically in CI without any Supabase project or secret. The new `rls-postgres` job starts a
 > throwaway `postgres:15` container, loads `supabase/tests/postgres_bootstrap.sql` (minimal
 > `auth.uid()`/`auth.users`/`storage.*` stubs), applies `001`–`003` **twice** (idempotency) and runs
-> `supabase/tests/rls_two_user_check.sql` in a rolled-back transaction. Run
-> [43453924205](https://github.com/mehdi1265/barber/actions/runs/43453924205) is green: user B sees
-> zero foreign rows in all 12 tables, cannot update/delete A's rows, cannot insert rows owned by A,
-> and cannot read or write A's storage folder. The hosted-project REST/Storage probe remains
-> separate and unexecuted; `npm run rls:check` now refuses any target whose project ref differs from
-> `RLS_STAGING_PROJECT_REF` and hard-refuses the Production ref. Production was not touched. 297/297
-> tests across 45 files; all gates green.
+> `supabase/tests/rls_two_user_check.sql` in a rolled-back transaction, including an anonymous
+> session. Run [43456039040](https://github.com/mehdi1265/barber/actions/runs/43456039040) is green
+> (preceded by [43453924205](https://github.com/mehdi1265/barber/actions/runs/43453924205)): user B
+> sees zero foreign rows in all 12 tables, cannot update/delete/insert A-owned rows, and cannot read
+> or write A's storage folder; an anonymous session sees zero rows and objects. The hosted-project
+> REST/Storage probe remains separate and unexecuted; `npm run rls:check` now refuses any target
+> whose project ref differs from `RLS_STAGING_PROJECT_REF` and hard-refuses the Production ref.
+> Production was not touched. 297/297 tests across 45 files; all gates green.
 
 ---
 

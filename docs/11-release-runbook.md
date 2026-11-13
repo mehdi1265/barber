@@ -91,12 +91,23 @@ If the job is green, the DB-level isolation (“each barber only sees own rows�
 is proven automatically on every commit. Creating a Staging project is only
 required for the full HTTP-level probe.
 
-> **Status (2026-11-13): green.** Run
-> [43453924205](https://github.com/mehdi1265/barber/actions/runs/43453924205)
-> completed both passes: `migration pass 'first' OK`, `migration pass 'second'
-OK`, and the two-user RLS check exited 0. Because the test uses
-> `ON_ERROR_STOP`, any cross-user read/write or a failed second migration would
-> have failed the job.
+> **Status (2026-11-13): green.** Latest run
+> [43456039040](https://github.com/mehdi1265/barber/actions/runs/43456039040)
+> completed both migration passes (first and second) and the SQL check exited
+> 0. Because the test uses `ON_ERROR_STOP`, any failure would have failed the
+> job. The check asserts:
+>
+> - user A sees exactly its own row in all 12 tables and its own storage
+>   object;
+> - user B sees 0 foreign rows, and its UPDATE/DELETE probes affect 0 rows;
+> - user B cannot insert rows owned by A (`42501`) or write into A's storage
+>   folder;
+> - an anonymous session (no JWT) sees 0 rows and 0 storage objects;
+> - the whole script ends with `ROLLBACK`, so no probe data persists.
+>
+> Run [43453924205](https://github.com/mehdi1265/barber/actions/runs/43453924205)
+> verified the same two-user matrix before the anonymous-session assertion was
+> added.
 
 ### 3.1 Staging project
 
@@ -182,9 +193,9 @@ the log prints `cleanup verified: no probe rows remain in 11 tables` and
 
 The runner refuses to print secrets and aborts with a clear message when the
 key is malformed, the schema is missing, or an account is not confirmed. The
-saved log contains the two test emails and shortened user IDs — redact them
-before committing it. Commit the log only after checking it contains no
-credentials.
+saved log masks account addresses (`b***@example.com`) and keeps only eight
+characters of each user ID. `*.log` is gitignored: keep the report out of Git
+and attach it to the release ticket or store it in the team’s secure channel.
 
 **psql alternative (needs `SUPABASE_DB_URL` with the database password):**
 
