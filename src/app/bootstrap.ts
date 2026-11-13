@@ -13,6 +13,7 @@ import { useAuthStore } from '@state/auth.store'
 import { useDatabaseStore } from '@state/database.store'
 import { getDatabase } from '@database/sqlite/database'
 import { runMigrations } from '@database/sqlite/migrations'
+import { ensureProfile } from '@features/auth/auth.usecases'
 
 const DATABASE_INIT_TIMEOUT_MS = 15_000
 
@@ -73,6 +74,7 @@ async function restoreAuthSession(): Promise<void> {
   try {
     supabase.auth.onAuthStateChange((_event, session) => {
       setSession(session)
+      if (session?.user) void ensureProfile(session.user)
     })
   } catch (err) {
     console.error('[bootstrap] Could not subscribe to auth changes:', err)
@@ -87,6 +89,12 @@ export async function bootstrapApp(): Promise<void> {
     // Database and session restore are independent: a slow or failing database
     // must not delay the login screen.
     await Promise.all([initializeDatabase(), restoreAuthSession()])
+
+    // The profile row is created on every launch if it is missing (e.g. the
+    // database failed on the first run or the account was created elsewhere).
+    const currentUser = useAuthStore.getState().user
+    if (currentUser) await ensureProfile(currentUser)
+
     console.log('[bootstrap] Done')
   } finally {
     setLoading(false)

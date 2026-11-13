@@ -45,6 +45,14 @@ export async function getPendingOutbox(db: SQLiteDBConnection, limit = 50): Prom
   return (result.values as SyncOutbox[]) ?? []
 }
 
+/** Number of operations not yet accepted by the server (pending or failed). */
+export async function countPendingOutbox(db: SQLiteDBConnection): Promise<number> {
+  const result = await db.query(
+    `SELECT COUNT(*) as cnt FROM sync_outbox WHERE status IN ('pending', 'failed')`
+  )
+  return (result.values?.[0] as { cnt: number })?.cnt ?? 0
+}
+
 export async function markOutboxDone(db: SQLiteDBConnection, id: UUID): Promise<void> {
   const now = nowISO()
   await db.run(

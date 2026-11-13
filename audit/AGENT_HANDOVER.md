@@ -32,6 +32,17 @@
 > `datetime.test.ts` covers Tehran midnight boundaries and New York DST days; finance calculator
 > tests were added (131/131 total). Gates are green. **Next action: T05 when assigned.**
 
+> **T05 update (2026-11-13):** Authentication and session handling are complete locally.
+> `ensureProfile()` is idempotent and runs on login, registration, bootstrap, and `SIGNED_IN`.
+> Registration with email confirmation shows a "check your email" screen (D-20). `AppShell` has an
+> account menu; logout requires confirmation, shows the pending outbox count, falls back to a local
+> scope, and never deletes queued rows. `/forgot-password` and `/reset-password` are routed; the
+> reset page reads implicit-flow recovery tokens from the fragment and calls `setSession` because
+> `detectSessionInUrl` is `false` (web-first; native deep links deferred, D-26). Auth errors are
+> mapped to Persian and raw provider text is logged only. Use-case/menu/reset tests were added
+> (151/151 total). A real Supabase project and native runtime remain unverified.
+> **Next action: T06 when assigned.**
+
 ---
 
 ## A. Project identity
@@ -101,7 +112,7 @@ barber/
 │  │  └─ notifications/      local notification helpers (uncalled)
 │  ├─ shared/                UI kit, hooks, types, utils (money, Jalali, helpers)
 │  ├─ state/                 auth store, sync store (dead)
-│  └─ tests/                 7 unit test files, 71 tests
+│  └─ tests/                 17 test files, 151 tests
 ├─ index.html                **no jeep-sqlite element** → web boot blocker
 ├─ package.json              broken lint + vacuous type-check scripts
 ├─ capacitor.config.ts       appId com.barberapp.app, webDir dist
@@ -374,12 +385,12 @@ Do not run destructive SQL. Do not point tests at a project with real data.
 ### Testing commands
 
 ```bash
-npm test                      # 7 files, 71 tests (baseline)
+npm test                      # 17 files, 151 tests
 npx vitest run src/tests/unit/jalali.test.ts   # single file
 npm run test:coverage         # after configuring thresholds
 ```
 
-Tests use hand-written SQL mocks; they do **not** execute SQL or SQLite. Do not treat green tests as proof that a repository works.
+Repository, write-integrity, and outbox tests execute real SQLite through Node's `node:sqlite`; customer/service repositories still use SQL mocks, and auth/UI tests mock Supabase and the database. Green tests are not proof of device, network, or sync behaviour.
 
 ### Build commands
 
@@ -409,10 +420,10 @@ Priorities and full acceptance criteria: `audit/DEVELOPMENT_BACKLOG.md`. Require
 | # | Ticket | Depends on | Primary outcome |
 |---|---|---|---|
 | 1 | **T01 Quality gates (done)** | — | Green build/lint/format/tests + CI (remote run pending) |
-| 2 | **T02 Runtime DB bootstrap** | T01 | App boots on web + Android; correct encryption/pragma |
-| 3 | **T03 Data integrity** | T02 | Transactions, fixed outbox, child rows, idempotency |
-| 4 | **T04 Local-day & Jalali** | T03 | Correct "today" everywhere; Jalali input |
-| 5 | **T05 Auth completion** | T02, T03 | Logout, reset, profile guarantee, Persian errors |
+| 2 | **T02 Runtime DB bootstrap (done)** | T01 | App boots on web + Android; correct encryption/pragma |
+| 3 | **T03 Data integrity (done)** | T02 | Transactions, fixed outbox, child rows, idempotency |
+| 4 | **T04 Local-day & Jalali (done)** | T03 | Correct "today" everywhere; Jalali input |
+| 5 | **T05 Auth completion (done)** | T02, T03 | Logout, reset, profile guarantee, Persian errors |
 | 6 | **T06 Appointments completion** | T03, T04, T05 | Edit/reschedule/change services/delete |
 | 7 | **T07 Finance** | T03, T04, T06 | Visits, payments, expenses, reports, quick sale |
 | 8 | **T08 Dashboard** | T04, T07 | Today at a glance |

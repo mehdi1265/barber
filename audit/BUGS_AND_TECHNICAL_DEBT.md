@@ -108,16 +108,16 @@
 - **Evidence:** `logoutUseCase` (`auth.usecases.ts:72-90`) has no caller; `AppShell` has no account menu; pending changes produce `console.warn` only.
 - **Impact:** users cannot sign out or switch accounts on a shared device; on logout, unsynced work is silently stranded.
 - **Repro:** `[code]`.
-- **Fix:** T05 — account menu + confirm dialog showing pending count (from a real outbox count).
-- **Verify:** with 3 pending rows, logout asks for confirmation and states the count; after confirm, `/login` shows and rows remain for that user.
+- **Fix:** **Resolved in T05 (2026-11-13).** `AccountMenu` in `AppShell` + confirm dialog showing the real outbox count; sign-out falls back to local scope and never deletes rows.
+- **Verify:** `account-menu.test.tsx` covers the count, confirm, cancel, and a failed count. Device-level row retention is unverified.
 
 ### BUG-12 — Profiles are never ensured for existing users
 
 - **Evidence:** `createProfile` is called only inside `registerUseCase` (`auth.usecases.ts:51-66`); `bootstrapApp` does not check. The Supabase trigger creates the server row, but the local row is missing.
 - **Impact:** a user who logs in on a new device has no local profile → settings/currency dependent features cannot read it; the "profile can be created on next sync" comment is false (no pull).
 - **Repro:** `[code]`; log in with an account created outside the app, then query `profiles` → empty.
-- **Fix:** T05 — `ensureProfile()` on login/bootstrap, idempotent upsert.
-- **Verify:** delete the local profile, restart, it reappears exactly once.
+- **Fix:** **Resolved in T05 (2026-11-13).** `ensureProfile()` runs on login, registration, bootstrap, and `SIGNED_IN`; it returns the existing row or creates one and never throws.
+- **Verify:** `auth.usecases.test.ts` covers create-once and database-unavailable paths. Device restart repair is unverified.
 
 ---
 
@@ -151,7 +151,7 @@
 | BUG-29 | `base.repository.ts` uses CommonJS `require()` | `:19` | Would crash in the browser if ever imported. **Resolved in T01 (ESM import).** |
 | BUG-30 | Dead Vite template component | `src/App.tsx`, `src/App.css` | Confusing entry points |
 | BUG-31 | `matchesSearch` does not normalise the haystack | `helpers.ts:110-112` | Persian-digit matches can miss |
-| BUG-32 | Raw Supabase error messages shown | `LoginPage`/`RegisterPage` | English/technical errors in a Persian UI |
+| BUG-32 | Raw Supabase error messages shown | `LoginPage`/`RegisterPage` | English/technical errors in a Persian UI. **Resolved in T05:** `auth.errors.ts` maps credentials/confirmation/rate-limit/link/password/network failures; raw text is logged only |
 | BUG-33 | `formatToman` treats stored value as "cents" | `helpers.ts:50-53` | Naming confusion only; or `Math.round` hides sub-Toman storage |
 | BUG-34 | No pagination on customer/service lists | repositories `findAll` | Slow with thousands of rows |
 
@@ -166,7 +166,7 @@ These green signals are misleading and must not be used as evidence that the app
 | `npm run type-check` passes | Real since T01, but it only type-checks; runtime/SQL defects still pass |
 | `npm run build` passes | It proves TypeScript and bundling, not that the app boots (BUG-01) |
 | `npx vite build` passes | It does not type-check, and dead code (QuickSaleForm) is not bundled |
-| 131/131 tests pass | Repository tests for appointments/visits/expenses/outbox use real SQLite, but customer/service still use a SQL mock; no device, network, or sync coverage |
+| 151/151 tests pass | Repository tests for appointments/visits/expenses/outbox use real SQLite, but customer/service still use a SQL mock; auth/UI tests mock Supabase and the database; no device, network, or sync coverage |
 | `npm test` is fast | Because no real SQLite/network/device is involved |
 | `npm ci` succeeds | esbuild's postinstall is skipped by npm allow-scripts policy but its binary works today; a clean machine may behave differently |
 | `npm run lint` passes | Static analysis only; it does not prove the app boots or the SQL is valid |

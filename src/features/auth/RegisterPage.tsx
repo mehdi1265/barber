@@ -12,6 +12,7 @@ export default function RegisterPage() {
   const navigate = useNavigate()
   const [serverError, setServerError] = useState<string | null>(null)
   const [showPassword, setShowPassword] = useState(false)
+  const [confirmationEmail, setConfirmationEmail] = useState<string | null>(null)
 
   const {
     register,
@@ -23,12 +24,41 @@ export default function RegisterPage() {
 
   const onSubmit = async (data: RegisterFormData) => {
     setServerError(null)
-    const { error } = await registerUseCase(data)
-    if (error) {
-      setServerError(error.message)
+    const result = await registerUseCase(data)
+    if (result.error) {
+      setServerError(result.error.message)
+    } else if (result.requiresEmailConfirmation) {
+      setConfirmationEmail(data.email)
     } else {
       void navigate('/dashboard', { replace: true })
     }
+  }
+
+  if (confirmationEmail) {
+    return (
+      <div className={styles.page}>
+        <div className={styles.card}>
+          <div className={styles.header}>
+            <div className={styles.logo} aria-hidden="true">
+              📧
+            </div>
+            <h1 className={styles.title}>ایمیل خود را بررسی کنید</h1>
+            <p className={styles.subtitle}>برای فعال‌سازی حساب، لینک تأیید را باز کنید</p>
+          </div>
+
+          <div className={styles.success} role="status">
+            یک لینک تأیید به <strong dir="ltr">{confirmationEmail}</strong> ارسال شد. پس از تأیید،
+            با همان ایمیل و رمز عبور وارد شوید. اگر ایمیل را نمی‌بینید، پوشه هرزنامه را بررسی کنید.
+          </div>
+
+          <div className={styles.footer}>
+            <Link to="/login" className={styles.link}>
+              بازگشت به ورود
+            </Link>
+          </div>
+        </div>
+      </div>
+    )
   }
 
   return (

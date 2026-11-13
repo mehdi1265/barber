@@ -215,6 +215,8 @@ against `node:sqlite`; migration 002 was also applied/skipped correctly in a pro
 
 **Size:** M · **Priority:** P0 · **Requirements:** R-01…R-07 · **Fixes:** BUG-11, BUG-12, BUG-19 (partial), BUG-20 (defer secure storage), BUG-32
 
+**Status:** complete locally (2026-11-13). `ensureProfile()` runs after login, after registration, on bootstrap, and on `SIGNED_IN`; it is idempotent and never throws (a missing database retries on the next launch). Registration shows the "check your email" screen when Supabase returns no session (D-20). The app shell has an account menu; logout always asks for confirmation and shows the pending outbox count, then falls back to `signOut({ scope: 'local' })` and keeps every local row. `/forgot-password` (anti-enumeration copy) and `/reset-password` exist; the reset page creates the session from the URL fragment with `setSession` because `detectSessionInUrl` is `false`. Supabase error text is mapped in `auth.errors.ts` and logged only. Tests: `auth.usecases.test.ts` (14), `account-menu.test.tsx` (4), `reset-password-page.test.tsx` (2); 151/151 total. Gates are green. Not verified: a real Supabase project is not configured yet, and native reset deep links are deferred to T16 (D-26).
+
 **Read first:** `features/auth/*`, `app/bootstrap.ts`, `state/auth.store.ts`, `services/supabase/client.ts`, `database/repositories/profile.repository.ts`, `supabase/migrations/001_initial_schema.sql:26-40`.
 
 **Goal:** a user can register, log in, recover access, sign out safely, and always has a profile.

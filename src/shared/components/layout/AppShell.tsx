@@ -3,8 +3,11 @@
  * All authenticated pages render inside this layout.
  */
 
-import { Outlet, NavLink, useLocation } from 'react-router-dom'
+import { Outlet, NavLink, useLocation, useNavigate } from 'react-router-dom'
 import { useSyncStore } from '@state/sync.store'
+import { useAuthStore } from '@state/auth.store'
+import { AccountMenu } from '@features/auth/AccountMenu'
+import { getPendingOutboxCount, logoutUseCase } from '@features/auth/auth.usecases'
 import styles from './AppShell.module.css'
 
 const navItems = [
@@ -18,9 +21,26 @@ const navItems = [
 export function AppShell() {
   const { status, pendingCount } = useSyncStore()
   const location = useLocation()
+  const navigate = useNavigate()
+  const user = useAuthStore(state => state.user)
+  const clearAuth = useAuthStore(state => state.clearAuth)
+
+  const handleLogout = async () => {
+    await logoutUseCase()
+    clearAuth()
+    void navigate('/login', { replace: true })
+  }
 
   return (
     <div className={styles.shell} dir="rtl">
+      {user?.email && (
+        <AccountMenu
+          email={user.email}
+          onLogout={handleLogout}
+          getPendingCount={getPendingOutboxCount}
+        />
+      )}
+
       {/* Top sync indicator */}
       {status === 'syncing' && (
         <div className={styles.syncBanner} role="status" aria-live="polite">

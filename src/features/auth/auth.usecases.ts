@@ -3,130 +3,239 @@
  * UI components call these functions, never Supabase directly.
  */
 
+import type { User } from '@supabase/supabase-js'
 import { supabase } from '@services/supabase/client'
 import { getDatabase } from '@database/sqlite/database'
 import { ProfileRepository } from '@database/repositories/profile.repository'
+import { countPendingOutbox } from '@sync/outbox/outbox.repository'
+import type { Profile } from '@shared/types'
 import type { LoginFormData, RegisterFormData } from './auth.schemas'
+import { mapAuthError } from './auth.errors'
 
 export interface AuthError {
   message: string
 }
 
+export interface LoginResult {
+  error: AuthError | null
+}
+
+export interface RegisterResult {
+  error: AuthError | null
+  /** True when the project requires email confirmation before the first login. */
+  requiresEmailConfirmation: boolean
+}
+
+export interface SimpleResult {
+  error: AuthError | null
+}
+
+// ── Profile ───────────────────────────────────────────────────────────────────
+
+type ProfileUser = Pick<User, 'id' | 'email'> & {
+  user_metadata?: Record<string, unknown>
+}
+
+function displayNameFor(user: ProfileUser): string {
+  const metaName = user.user_metadata?.display_name
+  if (typeof metaName === 'string' && metaName.trim()) return metaName.trim().slice(0, 60)
+  return user.email?.split('@')[0] || 'کاربر'
+}
+
+/**
+ * Idempotent: returns the existing profile or creates exactly one row.
+ * Never throws — a missing database is retried on the next launch/login.
+ */
+export async function ensureProfile(
+  user: ProfileUser
+): Promise<{ created: boolean; profile: Profile | null }> {
+  try {
+    const db = await getDatabase()
+    const repo = new ProfileRepository(db)
+    const existing = await repo.getProfile(user.id)
+    if (existing) return { created: false, profile: existing }
+
+    const profile = await repo.createProfile({
+      id: user.id,
+      user_id: user.id,
+      display_name: displayNameFor(user),
+      phone: null,
+      currency_code: 'IRR',
+    })
+    return { created: true, profile }
+  } catch (err) {
+    console.error('[auth] ensureProfile deferred to next launch:', err)
+    return { created: false, profile: null }
+  }
+}
+
 // ── Login ──────────────────────────────────────────────────────────────────────
 
-export async function loginUseCase(data: LoginFormData): Promise<{ error: AuthError | null }> {
-  const { error } = await supabase.auth.signInWithPassword({
-    email: data.email,
-    password: data.password,
-  })
+export async function loginUseCase(data: LoginFormData): Promise<LoginResult> {
+  try {
+    const { data: authData, error } = await supabase.auth.signInWithPassword({
+      email: data.email,
+      password: data.password,
+    })
 
-  if (error) {
-    return { error: { message: mapAuthError(error.message) } }
+    if (error) return { error: { message: mapAuthError(error.message) } }
+    if (!authData.user) return { error: { message: 'خطا در ورود. دوباره تلاش کنید.' } }
+
+    await ensureProfile(authData.user)
+    return { error: null }
+  } catch (err) {
+    console.error('[auth] login failed:', err)
+    return { error: { message: mapAuthError(err instanceof Error ? err.message : 'network') } }
   }
-
-  return { error: null }
 }
 
 // ── Register ──────────────────────────────────────────────────────────────────
 
-export async function registerUseCase(
-  data: RegisterFormData
-): Promise<{ error: AuthError | null }> {
-  // 1. Create Supabase auth account
-  const { data: authData, error: signUpError } = await supabase.auth.signUp({
-    email: data.email,
-    password: data.password,
-  })
-
-  if (signUpError) {
-    return { error: { message: mapAuthError(signUpError.message) } }
-  }
-
-  if (!authData.user) {
-    return { error: { message: 'خطا در ایجاد حساب. دوباره تلاش کنید.' } }
-  }
-
-  // 2. Create local profile record
+export async function registerUseCase(data: RegisterFormData): Promise<RegisterResult> {
   try {
-    const db = await getDatabase()
-    const profileRepo = new ProfileRepository(db)
-    await profileRepo.createProfile({
-      id: authData.user.id,
-      user_id: authData.user.id,
-      display_name: data.display_name,
-      phone: null,
-      currency_code: 'IRR',
+    const { data: authData, error } = await supabase.auth.signUp({
+      email: data.email,
+      password: data.password,
+      options: { data: { display_name: data.display_name.trim() } },
     })
-  } catch (err) {
-    console.error('[register] Failed to create local profile:', err)
-    // Don't block registration — profile can be created on next sync
-  }
 
-  return { error: null }
+    if (error) {
+      return { error: { message: mapAuthError(error.message) }, requiresEmailConfirmation: false }
+    }
+    if (!authData.user) {
+      return {
+        error: { message: 'خطا در ایجاد حساب. دوباره تلاش کنید.' },
+        requiresEmailConfirmation: false,
+      }
+    }
+
+    // Supabase returns a user with zero identities when the email is already
+    // registered while confirmations are enabled (anti-enumeration).
+    if (authData.user.identities && authData.user.identities.length === 0) {
+      return { error: { message: 'این ایمیل قبلاً ثبت شده است' }, requiresEmailConfirmation: false }
+    }
+
+    await ensureProfile(authData.user)
+
+    return {
+      error: null,
+      requiresEmailConfirmation: authData.session === null,
+    }
+  } catch (err) {
+    console.error('[auth] register failed:', err)
+    return {
+      error: { message: mapAuthError(err instanceof Error ? err.message : 'network') },
+      requiresEmailConfirmation: false,
+    }
+  }
 }
 
 // ── Logout ────────────────────────────────────────────────────────────────────
 
-export async function logoutUseCase(): Promise<void> {
-  // Check for unsynced changes before logout
+export async function getPendingOutboxCount(): Promise<number> {
   try {
     const db = await getDatabase()
-    const result = await db.query(
-      `SELECT COUNT(*) as cnt FROM sync_outbox WHERE status IN ('pending','failed')`,
-      []
-    )
-    const pendingCount = (result.values?.[0] as { cnt: number })?.cnt ?? 0
-    if (pendingCount > 0) {
-      console.warn(`[logout] ${pendingCount} unsynced changes will remain local`)
-      // We do NOT silently delete unsynced data — per D-02 requirement
-    }
+    return await countPendingOutbox(db)
   } catch (err) {
-    console.error('[logout] Could not check outbox:', err)
+    console.error('[auth] could not count outbox rows:', err)
+    return 0
+  }
+}
+
+/**
+ * Clears the session. Local rows (including queued operations) are never
+ * deleted, so they remain for this user on the next login.
+ */
+export async function logoutUseCase(): Promise<SimpleResult> {
+  try {
+    const { error } = await supabase.auth.signOut()
+    if (!error) return { error: null }
+
+    console.warn('[auth] global sign-out failed, clearing locally:', error.message)
+  } catch (err) {
+    console.warn('[auth] sign-out request failed, clearing locally:', err)
   }
 
-  await supabase.auth.signOut()
+  try {
+    const { error: localError } = await supabase.auth.signOut({ scope: 'local' })
+    if (localError) return { error: { message: mapAuthError(localError.message) } }
+    return { error: null }
+  } catch (err) {
+    console.error('[auth] local sign-out failed:', err)
+    return { error: { message: 'خروج انجام نشد. دوباره تلاش کنید.' } }
+  }
 }
 
 // ── Password reset ────────────────────────────────────────────────────────────
 
-export async function requestPasswordResetUseCase(
-  email: string
-): Promise<{ error: AuthError | null }> {
-  const { error } = await supabase.auth.resetPasswordForEmail(email, {
-    redirectTo: `${window.location.origin}/reset-password`,
-  })
-
-  if (error) {
-    return { error: { message: mapAuthError(error.message) } }
+export async function requestPasswordResetUseCase(email: string): Promise<SimpleResult> {
+  try {
+    const { error } = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo: `${window.location.origin}/reset-password`,
+    })
+    if (error) return { error: { message: mapAuthError(error.message) } }
+    return { error: null }
+  } catch (err) {
+    console.error('[auth] password reset request failed:', err)
+    return { error: { message: mapAuthError(err instanceof Error ? err.message : 'network') } }
   }
-
-  return { error: null }
 }
 
-// ── Error mapping ─────────────────────────────────────────────────────────────
+export async function updatePasswordUseCase(password: string): Promise<SimpleResult> {
+  try {
+    const { error } = await supabase.auth.updateUser({ password })
+    if (error) return { error: { message: mapAuthError(error.message) } }
+    return { error: null }
+  } catch (err) {
+    console.error('[auth] password update failed:', err)
+    return { error: { message: mapAuthError(err instanceof Error ? err.message : 'network') } }
+  }
+}
 
-function mapAuthError(message: string): string {
-  const lower = message.toLowerCase()
+export interface RecoveryTokens {
+  accessToken: string
+  refreshToken: string
+}
 
-  if (lower.includes('invalid login credentials') || lower.includes('invalid credentials')) {
-    return 'ایمیل یا رمز عبور اشتباه است'
+/** True when a persisted session exists (works offline; reads local storage). */
+export async function hasActiveSession(): Promise<boolean> {
+  try {
+    const { data } = await supabase.auth.getSession()
+    return !!data.session
+  } catch (err) {
+    console.error('[auth] session lookup failed:', err)
+    return false
   }
-  if (lower.includes('email already registered') || lower.includes('already registered')) {
-    return 'این ایمیل قبلاً ثبت شده است'
-  }
-  if (lower.includes('email not confirmed')) {
-    return 'ایمیل خود را تأیید کنید'
-  }
-  if (lower.includes('rate limit') || lower.includes('too many')) {
-    return 'تعداد درخواست‌ها زیاد است. کمی صبر کنید'
-  }
-  if (lower.includes('network') || lower.includes('fetch')) {
-    return 'خطا در اتصال به سرور. اینترنت را بررسی کنید'
-  }
-  if (lower.includes('password')) {
-    return 'رمز عبور معتبر نیست'
+}
+
+/** Reads Supabase's implicit-flow recovery tokens from a URL fragment. */
+export function parseRecoveryTokens(hash: string): RecoveryTokens | null {
+  const params = new URLSearchParams(hash.startsWith('#') ? hash.slice(1) : hash)
+  if (params.get('type') !== 'recovery') return null
+
+  const accessToken = params.get('access_token')
+  const refreshToken = params.get('refresh_token')
+  if (!accessToken || !refreshToken) return null
+
+  return { accessToken, refreshToken }
+}
+
+/** Turns the recovery link into a session so the new-password form can save. */
+export async function applyRecoverySession(hash: string): Promise<SimpleResult> {
+  const tokens = parseRecoveryTokens(hash)
+  if (!tokens) {
+    return { error: { message: 'لینک بازیابی نامعتبر یا منقضی شده است. دوباره درخواست دهید' } }
   }
 
-  console.error('[auth] Unmapped error:', message)
-  return 'خطایی رخ داد. دوباره تلاش کنید'
+  try {
+    const { error } = await supabase.auth.setSession({
+      access_token: tokens.accessToken,
+      refresh_token: tokens.refreshToken,
+    })
+    if (error) return { error: { message: mapAuthError(error.message) } }
+    return { error: null }
+  } catch (err) {
+    console.error('[auth] recovery session failed:', err)
+    return { error: { message: mapAuthError(err instanceof Error ? err.message : 'network') } }
+  }
 }

@@ -14,11 +14,13 @@ import {
   CustomersPage,
   DashboardPage,
   FinancePage,
+  ForgotPasswordPage,
   LoginPage,
   NotFoundPage,
   RedirectIfAuth,
   RegisterPage,
   RequireAuth,
+  ResetPasswordPage,
   ServicesPage,
   SettingsPage,
   SuspenseWrapper,
@@ -47,7 +49,26 @@ export const router = createBrowserRouter([
           </SuspenseWrapper>
         ),
       },
+      {
+        path: '/forgot-password',
+        element: (
+          <SuspenseWrapper>
+            <ForgotPasswordPage />
+          </SuspenseWrapper>
+        ),
+      },
     ],
+  },
+
+  // Recovery link target. Must stay outside the auth guards: the page creates
+  // the session itself from the URL fragment before showing the form.
+  {
+    path: '/reset-password',
+    element: (
+      <SuspenseWrapper>
+        <ResetPasswordPage />
+      </SuspenseWrapper>
+    ),
   },
 
   // Protected routes

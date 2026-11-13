@@ -48,6 +48,19 @@
 > file. 131/131 tests pass; `type-check`, `lint`, `format:check`, and `build` are green. Device and
 > remote-CI verification remain **unverified**.
 
+> **Post-T05 update — 2026-11-13:** Authentication is complete locally. `ensureProfile()` creates
+> exactly one local profile on login, registration, bootstrap, and auth-state changes, and never
+> throws when the database is unavailable (retried on the next launch). Registration with email
+> confirmation shows a Persian "check your email" screen (D-20). `AppShell` now has an account menu
+> whose logout confirmation shows the pending outbox count; queued rows are never deleted and a
+> failed global sign-out falls back to a local sign-out. `/forgot-password` and `/reset-password`
+> are routed; the reset page parses the implicit-flow recovery fragment and calls `setSession`
+> (web-first, native deep link deferred to T16 per D-26). All Supabase auth errors are mapped to
+> Persian messages and the raw text is logged only. Use-case, account-menu, and reset-page tests were
+> added (151/151 total); `type-check`, `lint`, `format:check`, and `build` are green. A real Supabase
+> project is not configured yet, so the reset flow is unverified end-to-end; device and remote-CI
+> verification remain **unverified**.
+
 ---
 
 ## 1. Repository snapshot

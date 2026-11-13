@@ -91,6 +91,10 @@ export default function LoginPage() {
         </form>
 
         <div className={styles.footer}>
+          <Link to="/forgot-password" className={styles.link}>
+            رمز عبور را فراموش کرده‌اید؟
+          </Link>
+          <br />
           <Link to="/register" className={styles.link}>
             حساب ندارم — ثبت‌نام
           </Link>

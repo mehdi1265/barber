@@ -15,6 +15,8 @@ import { LoadingScreen } from '@shared/components/ui/LoadingScreen'
 
 export const LoginPage = lazy(() => import('@features/auth/LoginPage'))
 export const RegisterPage = lazy(() => import('@features/auth/RegisterPage'))
+export const ForgotPasswordPage = lazy(() => import('@features/auth/ForgotPasswordPage'))
+export const ResetPasswordPage = lazy(() => import('@features/auth/ResetPasswordPage'))
 export const DashboardPage = lazy(() => import('@features/dashboard/DashboardPage'))
 export const AppointmentsPage = lazy(() => import('@features/appointments/AppointmentsPage'))
 export const AppointmentDetailPage = lazy(
