@@ -520,6 +520,14 @@ matrix (granted/denied, app killed) remains open.
 
 **Size:** M · **Priority:** P2 · **Requirements:** R-22, R-25
 
+**Status:** complete locally (2026-11-13). Settings edits the profile through `ProfileRepository`
+(queues an outbox row), shows account email, confirm-gated logout, services link, sync controls,
+reminder preferences, and `VITE_APP_VERSION`. Currency is label-only via `formatMoney`; stored
+amounts are never converted (D-36). Customer detail uses `findByCustomer` and
+`findSummariesByCustomer` to render upcoming/past appointments, visits with paid/remaining, and a
+financial summary. `profile-settings.test.tsx`, `customer-history.test.tsx`, and repository cases
+cover the additions.
+
 **Read first:** `SettingsPage.tsx`, `ProfileRepository`, `CustomerDetailPage.tsx:94`, `docs/04-wireframes.md §6`.
 
 **Goal:** a real settings screen and complete customer profiles.

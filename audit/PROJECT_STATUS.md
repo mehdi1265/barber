@@ -143,6 +143,17 @@
 > its appointment detail. 227/227 tests across 31 files; gates green. Real-device firing with the
 > app killed, permission prompts, and deep-link routing remain **unverified**.
 
+> **Post-T14 update — 2026-11-13:** Settings and customer history are complete locally. Settings
+> now edits the local profile (display name, phone, currency) through `ProfileRepository` and queues
+> an outbox row; it also shows the account email, a confirm-gated logout, the services link, sync
+> controls, reminder preferences, and the app version from `VITE_APP_VERSION`. Currency is
+> display-only: `formatMoney` swaps the label (Toman/Afghani/Dollar) and never converts or rewrites
+> stored amounts. Customer detail now fetches appointments (`AppointmentRepository.findByCustomer`)
+> and visit summaries (`VisitRepository.findSummariesByCustomer`) and shows upcoming/past
+> appointments, each visit's service total and paid/remaining amount, and a financial summary, all
+> with Jalali dates. 238/238 tests across 34 files; `type-check`, `lint`, `format:check`, and `build`
+> are green. Browser walkthrough with a live session and device runtime remain **unverified**.
+
 ---
 
 ## 1. Repository snapshot

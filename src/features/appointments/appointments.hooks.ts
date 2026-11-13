@@ -20,6 +20,8 @@ export const appointmentKeys = {
   detail: (uid: string, id: string) => ['appointments', uid, id] as const,
   next: (uid: string) => ['appointments', uid, 'next'] as const,
   services: (uid: string, apptId: string) => ['appointment-services', uid, apptId] as const,
+  customer: (uid: string, customerId: string) =>
+    ['appointments', uid, 'customer', customerId] as const,
 }
 
 async function getRepo(userId: string) {
@@ -58,6 +60,19 @@ export function useAppointmentsByWeek(mondayISO: string) {
       return repo.findByWeek(mondayISO)
     },
     enabled: !!userId && !!mondayISO,
+    staleTime: 1000 * 20,
+  })
+}
+
+export function useAppointmentsByCustomer(customerId: string) {
+  const userId = useAuthStore(s => s.userId)!
+  return useQuery({
+    queryKey: appointmentKeys.customer(userId, customerId),
+    queryFn: async () => {
+      const repo = await getRepo(userId)
+      return repo.findByCustomer(customerId)
+    },
+    enabled: !!userId && !!customerId,
     staleTime: 1000 * 20,
   })
 }
@@ -121,6 +136,7 @@ export function useCreateAppointment() {
       const dateISO = localDateISO(appt.start_at)
       void qc.invalidateQueries({ queryKey: appointmentKeys.day(userId, dateISO) })
       void qc.invalidateQueries({ queryKey: appointmentKeys.next(userId) })
+      void qc.invalidateQueries({ queryKey: ['appointments', userId] })
     },
   })
 }

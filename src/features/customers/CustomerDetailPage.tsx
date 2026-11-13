@@ -1,11 +1,15 @@
 import { useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useCustomer, useUpdateCustomer, useDeleteCustomer } from './customers.hooks'
+import { useAppointmentsByCustomer } from '@features/appointments/appointments.hooks'
+import { useVisitSummariesByCustomer } from '@features/finance/finance.hooks'
+import { useProfile } from '@features/settings/settings.hooks'
 import { useFormulasByCustomer } from '@features/color-formulas/color-formulas.hooks'
 import { useCustomerPhotos, useAddPhoto, useDeletePhoto } from '@features/photos/photos.hooks'
 import { PhotoCaptureForm, type PhotoFormValue } from '@features/photos/PhotoCaptureForm'
 import { PhotoGallery } from '@features/photos/PhotoGallery'
 import { CustomerForm } from './CustomerForm'
+import { CustomerHistory } from './CustomerHistory'
 import { PageHeader } from '@shared/components/ui/PageHeader'
 import { Button } from '@shared/components/ui/Button'
 import { Modal } from '@shared/components/ui/Modal'
@@ -23,6 +27,9 @@ export default function CustomerDetailPage() {
   const [showAddPhoto, setShowAddPhoto] = useState(false)
 
   const { data: customer, isLoading } = useCustomer(id!)
+  const { data: appointments = [] } = useAppointmentsByCustomer(id ?? '')
+  const { data: visits = [] } = useVisitSummariesByCustomer(id ?? '')
+  const { data: profile } = useProfile()
   const { data: formulas = [] } = useFormulasByCustomer(id ?? '')
   const { data: photos = [] } = useCustomerPhotos(id ?? '')
   const updateMutation = useUpdateCustomer()
@@ -103,19 +110,15 @@ export default function CustomerDetailPage() {
           </section>
         )}
 
-        {/* Visit history placeholder — will be populated in Phase 3/4 */}
-        <section className={styles.section}>
-          <h3 className={styles.sectionTitle}>تاریخچه مراجعات</h3>
-          <p className={styles.placeholder}>
-            پس از ثبت اولین مراجعه، تاریخچه اینجا نمایش داده می‌شود.
-          </p>
-        </section>
-
-        {/* Financial summary placeholder */}
-        <section className={styles.section}>
-          <h3 className={styles.sectionTitle}>خلاصه مالی</h3>
-          <p className={styles.placeholder}>بعد از ثبت پرداخت، اطلاعات مالی اینجا می‌آید.</p>
-        </section>
+        {/* Appointments, visit history, and money summary */}
+        <CustomerHistory
+          appointments={appointments}
+          visits={visits}
+          currencyCode={profile?.currency_code ?? 'IRR'}
+          onOpenAppointment={appointmentId => {
+            void navigate(`/appointments/${appointmentId}`)
+          }}
+        />
 
         {/* Color formulas */}
         <section className={styles.section}>

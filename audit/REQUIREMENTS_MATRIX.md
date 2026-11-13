@@ -72,7 +72,7 @@
 |---|---|---|---|---|---|---|---|---|
 | R-20 | Customer create/edit/soft-delete with name, phone, notes | P §5, U §3, D §2 | P0 | Complete | `CustomersPage.tsx`, `CustomerDetailPage.tsx`, `CustomerForm.tsx`, `customer.repository.ts`; 11 repo + 6 schema tests | None for scope | R-02 | CRUD works offline; deleted customers disappear from lists but remain for history |
 | R-21 | Search customers by name or phone, Persian/Arabic digit tolerant | P §5, W §2 | P1 | Complete | `customer.repository.ts:38-48` (`LIKE`), `CustomersPage` + `useCustomerSearch` | Index is on `(user_id, name)` / `(user_id, phone)`; `%term%` cannot use them at scale | R-20 | Typing "۰۹۱۲" finds a customer stored as "0912…" within 300 ms for ≤5,000 customers |
-| R-22 | Customer detail shows appointment and visit history | W §3, P §5 | P1 | Partially implemented | Appointments and visits still placeholders; formulas section added in T11 (`CustomerDetailPage.tsx`: `useFormulasByCustomer`, list + "+ فرمول جدید") | History queries + UI for appointments and visits (T14) | R-13, R-18 | Detail lists past/upcoming appointments and visits with Jalali dates and amounts |
+| R-22 | Customer detail shows appointment and visit history | W §3, P §5 | P1 | Complete (local) | `CustomerDetailPage.tsx`, `CustomerHistory.tsx`, `appointment.repository.ts` (`findByCustomer`), `visit.repository.ts` (`findSummariesByCustomer`), `customer-history.test.tsx`; formulas section from T11 | Browser/device walkthrough; multi-device pull refresh | R-13, R-18 | Detail lists past/upcoming appointments and visits with Jalali dates and amounts |
 
 ---
 
@@ -82,7 +82,7 @@
 |---|---|---|---|---|---|---|---|---|
 | R-23 | Service create/edit/deactivate with price and suggested duration | P §5, U §6, D §2 | P0 | Complete | `ServicesPage.tsx`, `ServiceForm.tsx`, `service.repository.ts`; 8 repo + schema tests | None for scope | R-02 | Active services appear in the appointment form; deactivated services disappear from new bookings but remain in history |
 | R-24 | Appointment lines snapshot service name/price/duration so later price edits do not rewrite history | D §2 | P0 | Complete | `appointment_services` schema (`001_initial.sql:69-80`); insert at `appointment.repository.ts:166-177`; `service_name_snapshot`, `price`, `duration_minutes` | — | R-11 | Changing a service price does not alter any existing appointment or visit amount |
-| R-25 | Service management is reachable from Settings | W §6, U §6 | P2 | Partially implemented | Route `/settings/services` exists (`router.tsx:158`); `SettingsPage.tsx` is a placeholder with no link | Settings page + link | R-23 | Tapping "Services" in Settings opens the management page |
+| R-25 | Service management is reachable from Settings | W §6, U §6 | P2 | Complete (local) | `SettingsPage.tsx` services link → `/settings/services`; route in `router.tsx` | Browser/device walkthrough | R-23 | Tapping "Services" in Settings opens the management page |
 
 ---
 
@@ -96,7 +96,7 @@
 | R-29 | Weekly and monthly summary with date range | P §6, W §4 | P1 | Complete (T07) | `FinancePage.tsx` (Summary tab: week/month), `localJalaliMonthRange`, `getSummary` | Arbitrary custom range picker deferred | R-28 | Selecting a Jalali month shows the same totals as the per-day reports summed |
 | R-30 | Outstanding debt per customer | P §6, W §4 | P1 | Complete (T07) | `finance.repository.ts` (`getOpenDebts`), `useOpenDebts`, `FinancePage.tsx` (Debts tab) | — | R-26 | Total debt equals unpaid balances across visits and is attributable per customer |
 | R-31 | One-step quick sale: create visit + service lines + payment | P §6, U §5 | P1 | Complete (T07) | `QuickSalePage.tsx`, `/finance/quick-sale`, one transactional `VisitRepository.create` | — | R-18, R-26 | One form records a paid walk-in and returns to the day list with correct totals |
-| R-32 | Money encoded consistently as integer Toman × 100, displayed as Toman with Persian separators | D §4, L §5 | P0 | Complete | `helpers.ts` (`formatToman`, `tomanToStorage`, `storageToToman`), tests in `helpers.test.ts`; `service.repository.ts` storage ×100 test | Naming (`amountCents`) is misleading but behaviour is correct; no rounding policy for discounts | — | Storing 50,000 Toman yields `5000000`; display returns "۵۰٬۰۰۰ تومان"; no float drift |
+| R-32 | Money encoded consistently as integer Toman × 100, displayed as Toman with Persian separators | D §4, L §5 | P0 | Complete | `helpers.ts` (`formatToman`, `tomanToStorage`, `storageToToman`), `currency.ts` (`formatMoney`, label-only currency display), tests in `helpers.test.ts`; `service.repository.ts` storage ×100 test | Naming (`amountCents`) is misleading but behaviour is correct; no rounding policy for discounts | — | Storing 50,000 Toman yields `5000000`; display returns "۵۰٬۰۰۰ تومان"; no float drift; changing currency only changes the label |
 
 ---
 

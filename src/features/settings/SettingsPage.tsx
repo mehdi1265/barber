@@ -6,7 +6,7 @@
  */
 
 import { useEffect, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { Capacitor } from '@capacitor/core'
 import { PageHeader } from '@shared/components/ui/PageHeader'
 import { Button } from '@shared/components/ui/Button'
@@ -14,6 +14,7 @@ import { ConfirmDialog } from '@shared/components/ui/ConfirmDialog'
 import { useSyncStore } from '@state/sync.store'
 import { useAuthStore } from '@state/auth.store'
 import { REMINDER_LEAD_OPTIONS, usePreferencesStore } from '@state/preferences.store'
+import { logoutUseCase } from '@features/auth/auth.usecases'
 import { restoreFromCloud, runSync } from '@sync/engine/sync.manager'
 import {
   getNotificationPermission,
@@ -22,7 +23,17 @@ import {
   type NotificationPermission,
 } from '@services/notifications/local-notifications'
 import { formatJalaliDate, formatTime } from '@shared/utils/jalali'
+import { useProfile, useUpdateProfile } from './settings.hooks'
+import { ProfileSettings } from './ProfileSettings'
+import type { ProfileFormData } from './settings.schemas'
 import styles from './SettingsPage.module.css'
+
+const APP_NAME = envString(import.meta.env.VITE_APP_NAME, 'آرایشگاه')
+const APP_VERSION = envString(import.meta.env.VITE_APP_VERSION, '1.0.0')
+
+function envString(value: unknown, fallback: string): string {
+  return typeof value === 'string' && value.trim() ? value : fallback
+}
 
 const STATUS_LABELS: Record<string, string> = {
   idle: 'آماده',
@@ -45,8 +56,13 @@ const LEAD_LABELS: Record<number, string> = {
 }
 
 export default function SettingsPage() {
+  const navigate = useNavigate()
   const { status, lastSyncAt, pendingCount, conflicts, errorMessage } = useSyncStore()
   const userId = useAuthStore(state => state.userId)
+  const user = useAuthStore(state => state.user)
+  const clearAuth = useAuthStore(state => state.clearAuth)
+  const { data: profile, isLoading: profileLoading } = useProfile()
+  const updateProfile = useUpdateProfile()
   const remindersEnabled = usePreferencesStore(state => state.remindersEnabled)
   const reminderLeadMinutes = usePreferencesStore(state => state.reminderLeadMinutes)
   const setRemindersEnabled = usePreferencesStore(state => state.setRemindersEnabled)
@@ -55,6 +71,10 @@ export default function SettingsPage() {
   const [restoreOpen, setRestoreOpen] = useState(false)
   const [permission, setPermission] = useState<NotificationPermission>('denied')
   const [reminderBusy, setReminderBusy] = useState(false)
+  const [profileSaved, setProfileSaved] = useState(false)
+  const [profileError, setProfileError] = useState<string | null>(null)
+  const [logoutOpen, setLogoutOpen] = useState(false)
+  const [logoutBusy, setLogoutBusy] = useState(false)
 
   const native = Capacitor.isNativePlatform()
 
@@ -62,6 +82,29 @@ export default function SettingsPage() {
     if (!native) return
     void getNotificationPermission().then(setPermission)
   }, [native])
+
+  const handleProfileSave = async (data: ProfileFormData) => {
+    setProfileSaved(false)
+    setProfileError(null)
+    try {
+      await updateProfile.mutateAsync(data)
+      setProfileSaved(true)
+    } catch {
+      setProfileError('ذخیره پروفایل ناموفق بود. دوباره تلاش کنید.')
+    }
+  }
+
+  const handleLogout = async () => {
+    setLogoutBusy(true)
+    try {
+      await logoutUseCase()
+      clearAuth()
+      void navigate('/login', { replace: true })
+    } finally {
+      setLogoutBusy(false)
+      setLogoutOpen(false)
+    }
+  }
 
   const applyReminderSettings = async () => {
     if (userId) await rescheduleAllReminders(userId)
@@ -125,6 +168,44 @@ export default function SettingsPage() {
   return (
     <div className={styles.page} dir="rtl">
       <PageHeader title="تنظیمات" />
+
+      <section className={styles.section} aria-labelledby="profile-heading">
+        <h2 id="profile-heading" className={styles.sectionTitle}>
+          پروفایل
+        </h2>
+
+        <dl className={styles.facts}>
+          <div className={styles.fact}>
+            <dt>ایمیل</dt>
+            <dd dir="ltr">{user?.email ?? '—'}</dd>
+          </div>
+        </dl>
+
+        {profileLoading ? (
+          <p className={styles.note}>در حال بارگذاری پروفایل…</p>
+        ) : (
+          <ProfileSettings
+            profile={profile ?? null}
+            saved={profileSaved}
+            error={profileError}
+            onSave={handleProfileSave}
+          />
+        )}
+      </section>
+
+      <section className={styles.section} aria-labelledby="account-heading">
+        <h2 id="account-heading" className={styles.sectionTitle}>
+          حساب
+        </h2>
+        <p className={styles.note}>
+          خروج فقط نشست را می‌بندد؛ داده‌های محلی و تغییرات ارسال‌نشده روی این دستگاه می‌مانند.
+        </p>
+        <div className={styles.actions}>
+          <Button variant="danger" onClick={() => setLogoutOpen(true)}>
+            خروج از حساب
+          </Button>
+        </div>
+      </section>
 
       <section className={styles.section} aria-labelledby="sync-heading">
         <h2 id="sync-heading" className={styles.sectionTitle}>
@@ -271,6 +352,26 @@ export default function SettingsPage() {
         </Link>
       </section>
 
+      <section className={styles.section} aria-labelledby="about-heading">
+        <h2 id="about-heading" className={styles.sectionTitle}>
+          درباره
+        </h2>
+        <dl className={styles.facts}>
+          <div className={styles.fact}>
+            <dt>برنامه</dt>
+            <dd>{APP_NAME}</dd>
+          </div>
+          <div className={styles.fact}>
+            <dt>نسخه</dt>
+            <dd dir="ltr">{APP_VERSION}</dd>
+          </div>
+        </dl>
+        <p className={styles.note}>
+          همه اطلاعات ابتدا روی دستگاه ذخیره می‌شود؛ این نسخه بدون اتصال اینترنت هم قابل استفاده
+          است.
+        </p>
+      </section>
+
       <ConfirmDialog
         isOpen={restoreOpen}
         title="بازیابی کامل از ابر"
@@ -281,6 +382,19 @@ export default function SettingsPage() {
           void confirmRestore()
         }}
         onCancel={() => setRestoreOpen(false)}
+      />
+
+      <ConfirmDialog
+        isOpen={logoutOpen}
+        title="خروج از حساب"
+        message="از حساب خارج می‌شوید. داده‌های محلی و تغییرات ارسال‌نشده حذف نمی‌شوند و پس از ورود دوباره در دسترس‌اند."
+        confirmLabel="خروج"
+        cancelLabel="انصراف"
+        danger
+        onConfirm={() => {
+          if (!logoutBusy) void handleLogout()
+        }}
+        onCancel={() => setLogoutOpen(false)}
       />
     </div>
   )

@@ -148,6 +148,41 @@ describe('VisitRepository', () => {
     })
   })
 
+  describe('findSummariesByCustomer', () => {
+    it('مراجعات مشتری را با جمع خدمات و پرداخت‌ها به ترتیب نزولی برمی‌گرداند', async () => {
+      const customers = new CustomerRepository(harness.db, USER_ID)
+      const customer = await customers.create({ name: 'سارا' })
+      const other = await customers.create({ name: 'مینا' })
+
+      const older = await repo.create(
+        makeInput({
+          customer_id: customer.id,
+          visited_at: '2026-01-15T10:00:00.000Z',
+          services: [{ service_name_snapshot: 'کوتاهی', unit_price: 150_000 }],
+          payment: { amount: 100_000, method: 'cash' },
+        })
+      )
+      const newer = await repo.create({
+        customer_id: customer.id,
+        visited_at: '2026-01-20T10:00:00.000Z',
+        services: [{ service_name_snapshot: 'ریش', unit_price: 80_000 }],
+      })
+      await repo.create({
+        customer_id: other.id,
+        visited_at: '2026-01-21T10:00:00.000Z',
+        services: [],
+      })
+
+      const summaries = await repo.findSummariesByCustomer(customer.id)
+      expect(summaries.map(row => row.id)).toEqual([newer.id, older.id])
+      expect(summaries[0].service_total).toBe(8_000_000)
+      expect(summaries[0].paid_total).toBe(0)
+      expect(summaries[1].service_total).toBe(15_000_000)
+      expect(summaries[1].paid_total).toBe(10_000_000)
+      expect(summaries[0].customer_name).toBe('سارا')
+    })
+  })
+
   describe('FinanceRepository.getOpenDebts', () => {
     it('بدهی باز را به ازای هر مشتری تجمیع می‌کند', async () => {
       const customers = new CustomerRepository(harness.db, USER_ID)

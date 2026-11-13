@@ -3,6 +3,7 @@ import {
   AppointmentConflictError,
   AppointmentRepository,
 } from '@database/repositories/appointment.repository'
+import { CustomerRepository } from '@database/repositories/customer.repository'
 import { withTransaction } from '@database/sqlite/transaction'
 import { localDateISO } from '@shared/utils/datetime'
 import { createTestDb, type TestDb } from '../helpers/sqlite-harness'
@@ -282,6 +283,29 @@ describe('AppointmentRepository', () => {
       expect(await repo.findById(appt.id)).toBeNull()
       expect(await repo.findNext()).toBeNull()
       expect(await repo.countToday(dateISO)).toBe(0)
+    })
+  })
+
+  describe('findByCustomer', () => {
+    it('فقط نوبت‌های همان مشتری را بدون ردیف حذف‌شده برمی‌گرداند', async () => {
+      const customers = new CustomerRepository(harness.db, USER_ID)
+      const first = await customers.create({ name: 'علی' })
+      const second = await customers.create({ name: 'رضا' })
+
+      const older = await repo.create(
+        makeInput({ customer_id: first.id, start_at: '2026-02-01T09:00:00.000Z' })
+      )
+      const newer = await repo.create(
+        makeInput({ customer_id: first.id, start_at: '2026-02-03T09:00:00.000Z' })
+      )
+      await repo.create(makeInput({ customer_id: second.id, start_at: '2026-02-04T09:00:00.000Z' }))
+      const deleted = await repo.create(
+        makeInput({ customer_id: first.id, start_at: '2026-02-05T09:00:00.000Z' })
+      )
+      await repo.softDelete(deleted.id)
+
+      const rows = await repo.findByCustomer(first.id)
+      expect(rows.map(row => row.id)).toEqual([newer.id, older.id])
     })
   })
 

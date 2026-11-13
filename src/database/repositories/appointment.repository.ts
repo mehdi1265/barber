@@ -86,6 +86,16 @@ export class AppointmentRepository {
   }
 
   /** All non-cancelled appointments for a single local day */
+  async findByCustomer(customerId: UUID): Promise<Appointment[]> {
+    const result = await this.db.query(
+      `SELECT * FROM appointments
+       WHERE user_id = ? AND customer_id = ? AND deleted_at IS NULL
+       ORDER BY start_at DESC`,
+      [this.userId, customerId]
+    )
+    return (result.values as Appointment[]) ?? []
+  }
+
   async findByDay(dateISO: string): Promise<Appointment[]> {
     const { start, end } = localDayRange(dateISO)
     return this.findByDateRange(start, end)

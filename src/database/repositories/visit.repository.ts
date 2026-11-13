@@ -82,6 +82,28 @@ export class VisitRepository {
     return (result.values as Visit[]) ?? []
   }
 
+  /** Customer visits with service and paid totals for history screens. */
+  async findSummariesByCustomer(customerId: UUID): Promise<VisitSummary[]> {
+    const result = await this.db.query(
+      `SELECT v.*,
+              c.name AS customer_name,
+              COALESCE((
+                SELECT SUM(vs.line_total) FROM visit_services vs
+                WHERE vs.visit_id = v.id AND vs.user_id = v.user_id
+              ), 0) AS service_total,
+              COALESCE((
+                SELECT SUM(p.amount) FROM payments p
+                WHERE p.visit_id = v.id AND p.user_id = v.user_id
+              ), 0) AS paid_total
+       FROM visits v
+       LEFT JOIN customers c ON c.id = v.customer_id AND c.user_id = v.user_id
+       WHERE v.user_id = ? AND v.customer_id = ?
+       ORDER BY v.visited_at DESC`,
+      [this.userId, customerId]
+    )
+    return (result.values as VisitSummary[]) ?? []
+  }
+
   async findByDateRange(startISO: string, endISO: string): Promise<Visit[]> {
     const result = await this.db.query(
       `SELECT * FROM visits

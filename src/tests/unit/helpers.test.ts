@@ -10,6 +10,7 @@ import {
   matchesSearch,
   normalizeDigits,
 } from '@shared/utils/helpers'
+import { formatMoney } from '@shared/utils/currency'
 
 describe('generateUUID', () => {
   it('تولید UUID معتبر', () => {
@@ -82,6 +83,17 @@ describe('formatToman', () => {
   it('صفر را درست نمایش می‌دهد', () => {
     const result = formatToman(0)
     expect(result).toContain('تومان')
+  })
+})
+
+describe('formatMoney', () => {
+  it('فقط برچسب واحد پول را عوض می‌کند و عدد ذخیره‌شده را تغییر نمی‌دهد', () => {
+    const toman = formatMoney(12_345_600, 'IRR')
+    const dollar = formatMoney(12_345_600, 'USD')
+
+    expect(toman).toContain('تومان')
+    expect(dollar).toContain('دلار')
+    expect(toman.replace('تومان', '').trim()).toBe(dollar.replace('دلار', '').trim())
   })
 })
 

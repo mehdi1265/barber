@@ -24,6 +24,8 @@ export const financeKeys = {
   debts: (uid: string) => ['finance', uid, 'debts'] as const,
   expenses: (uid: string, date: string) => ['finance', uid, 'expenses', date] as const,
   visits: (uid: string, date: string) => ['visits', uid, 'day', date] as const,
+  customerVisits: (uid: string, customerId: string) =>
+    ['visits', uid, 'customer', customerId] as const,
   visitDetail: (uid: string, id: string) => ['visits', uid, id] as const,
 }
 
@@ -119,6 +121,19 @@ export function useVisitSummariesByDay(dateISO: string) {
       return repo.findSummariesByDay(dateISO)
     },
     enabled: !!userId,
+    staleTime: 1000 * 20,
+  })
+}
+
+export function useVisitSummariesByCustomer(customerId: string) {
+  const userId = useAuthStore(s => s.userId)!
+  return useQuery({
+    queryKey: financeKeys.customerVisits(userId, customerId),
+    queryFn: async () => {
+      const repo = await getVisitRepo(userId)
+      return repo.findSummariesByCustomer(customerId)
+    },
+    enabled: !!userId && !!customerId,
     staleTime: 1000 * 20,
   })
 }

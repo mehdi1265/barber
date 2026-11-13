@@ -91,7 +91,15 @@
 > stable per-appointment ID, now also cancels on completed/no_show, and app start rebuilds upcoming
 > reminders and removes orphans through `ReminderManager`; notification taps open the appointment.
 > 227/227 tests across 31 files; gates green. Real-device firing and routing are unverified.
-> **Next action: T14 (settings/profile/customer history) when assigned.**
+> **T14 update (2026-11-13):** Settings, profile, and customer history are complete locally.
+> Settings now edits the local profile (display name, phone, currency) through `ProfileRepository`,
+> which queues an outbox row; it also shows the account email, a confirm-gated logout, services,
+> sync controls, the version from `VITE_APP_VERSION`, and the reminder preferences. Currency is
+> label-only (`formatMoney`) and never converts stored amounts. Customer detail fetches the
+> customer's appointments (`findByCustomer`) and visit summaries
+> (`findSummariesByCustomer`) and renders upcoming/past appointments, each visit's amount and
+> paid/remaining, plus a financial summary. 238/238 tests across 34 files; gates green.
+> **Next action: T15 (global search) when assigned.**
 
 
 ---
@@ -483,7 +491,7 @@ Priorities and full acceptance criteria: `audit/DEVELOPMENT_BACKLOG.md`. Require
 | 11 | **T11 Color formulas (done)** | T03, T10 | Formula CRUD + item sync |
 | 12 | **T12 Photos (done)** | T09, T10 | Offline capture → storage → restore |
 | 13 | **T13 Notifications (done)** | T06 | Permission + reminder lifecycle |
-| 14 | **T14 Settings/profile/history** | T05, T09, T07 | Real settings + customer history |
+| 14 | **T14 Settings/profile/history (done)** | T05, T09, T07 | Real settings + customer history |
 | 15 | **T15 Global search** | T07, T11 | Cross-entity search |
 | 16 | **T16 Security & release** | All | Secure storage, RLS verification, release |
 
