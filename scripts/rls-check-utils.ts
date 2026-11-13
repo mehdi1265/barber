@@ -39,6 +39,17 @@ export function normalizeBaseUrl(raw: string): string {
   return trimmed
 }
 
+/** Project ref of a hosted Supabase URL, or null for self-hosted/unknown hosts. */
+export function projectRefFromUrl(raw: string): string | null {
+  try {
+    const host = new URL(raw).hostname
+    const match = /^([a-z0-9-]+)\.supabase\.(?:co|in)$/i.exec(host)
+    return match ? match[1] : null
+  } catch {
+    return null
+  }
+}
+
 export function normalizeKey(raw: string): string {
   return raw.trim().replace(/^["']|["']$/g, '')
 }

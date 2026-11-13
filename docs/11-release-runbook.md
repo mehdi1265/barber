@@ -72,53 +72,96 @@ policy matches the first path folder to `auth.uid()`.
 | `customer_photos`          | own rows only   | 0 rows      | 0 rows affected     | `42501`              |
 | `storage.objects` (bucket) | own folder only | 0 objects   | n/a                 | `42501`              |
 
-Execute the automated two-user probe after the migrations are applied and two
-real, email-confirmed accounts exist.
+Execute the automated two-user probe on a **separate Staging project**, never
+on Production.
 
-**Create the two test accounts.** Email confirmation is enabled (D-20), so a
-self-registered account cannot sign in until its link is clicked. Either path
-works — use two addresses you control, never the owner account:
+### 3.0 Staging project
 
-- _Dashboard (fastest):_ **Authentication → Users → Add user → Create new
-  user**, enter the email and password, and tick **Auto Confirm User**. Repeat
-  for user B.
-- _Through the app:_ register both accounts in the app, then click the
-  confirmation link in each inbox (or use **Authentication → Users → …** to
-  resend/confirm). The `handle_new_user` trigger creates the matching
-  `profiles` row on signup.
+1. Supabase Dashboard → **New project**: name it `barber-staging`, pick the
+   region closest to you, generate a strong database password and store it in a
+   password manager. The Free plan is enough; note that it pauses after a week
+   of inactivity.
+2. **Settings → General** → copy the **Reference ID** (the `<ref>` in
+   `https://<ref>.supabase.co`). It is not a secret, but it must differ from the
+   Production ref.
+3. **Settings → API** → copy the **Project URL** and the **publishable key**
+   (`sb_publishable_…`). Never copy the `sb_secret_…`/service-role key.
+4. **Authentication → Providers → Email**: keep it enabled and keep
+   confirmation ON to match Production.
+5. **Authentication → URL Configuration**: Site URL `http://localhost:5173`,
+   redirect URLs `http://localhost:5173/reset-password` and
+   `barberapp://reset-password` (only needed if you also smoke-test the app
+   against Staging).
+6. Run `001`, `002`, `003` in the SQL Editor in that order (each filename in
+   full, expect “Success. No rows returned”), then **run all three a second
+   time** — this second run is the live idempotency proof and does not touch
+   Production.
+7. Verify with SQL: all 12 tables exist with `rowsecurity = true`, and
+   `select id, public from storage.buckets where id = 'customer-photos'` returns
+   `customer-photos | false`.
+8. **Authentication → Users → Add user → Create new user** twice, ticking
+   **Auto Confirm User** for both. Use Staging-only addresses (e.g. plus
+   aliases), never the owner account.
 
-**Configure the credentials without committing them.** Create
-`<repo>/.env.rls.local` (already gitignored by `.env.*.local`):
+Production and Staging are isolated automatically: separate databases, Auth
+users, storage buckets, and API keys. The app continues to read `.env.local`
+(Production); only the RLS runner reads `.env.rls.local`.
+
+### 3.1 Staging credentials and the safety guard
+
+Create `<repo>/.env.rls.local` (gitignored by `.env.*.local`). It **overrides**
+the Production URL/key from `.env.local` for the runner only:
 
 ```bash
+VITE_SUPABASE_URL=https://<staging-ref>.supabase.co
+VITE_SUPABASE_ANON_KEY=sb_publishable_…
+RLS_STAGING_PROJECT_REF=<staging-ref>
+RLS_PRODUCTION_PROJECT_REF=<production-ref>
 RLS_USER_A_EMAIL=a@example.com
 RLS_USER_A_PASSWORD='…'
 RLS_USER_B_EMAIL=b@example.com
 RLS_USER_B_PASSWORD='…'
 ```
 
-The runner merges `.env.local` → `.env.rls.local` → process environment, so
-`VITE_SUPABASE_URL`/`VITE_SUPABASE_ANON_KEY` keep coming from `.env.local`.
-Environment variables exported in the shell still win when you prefer that.
+The runner merges `.env.local` → `.env.rls.local` → process environment. Do not
+export `VITE_SUPABASE_URL`/`VITE_SUPABASE_ANON_KEY` in the shell: process
+environment wins over both files. `RLS_STAGING_PROJECT_REF` is mandatory; the
+runner aborts before any request when the URL's ref differs from it, and hard
+aborts when the ref equals `RLS_PRODUCTION_PROJECT_REF`. The guard line
+`staging guard OK: project ref …` is the confirmation that the destructive
+probes target Staging.
 
-**Portable runner (recommended; no psql/DB password).** It signs in through the
-public Auth API and checks PostgREST and Storage behaviour exactly as the app
-does. For all 12 tables it seeds a marker-prefixed row, verifies that user B
-cannot SELECT, UPDATE, or DELETE it, and additionally probes forbidden inserts
-plus storage read/write denial. It cleans up and exits non-zero on failure:
+Never put Staging values in `.env.local` or Production values in
+`.env.rls.local`.
+
+### 3.2 Running the probe
+
+The probe signs in through the public Auth API and checks PostgREST and Storage
+exactly as the app does. For all 12 tables it seeds a marker-prefixed row,
+verifies that user B cannot SELECT, UPDATE, or DELETE it, and additionally
+probes forbidden inserts plus storage read/write denial:
 
 ```bash
-npm run rls:check -- --preflight   # key + schema + both sign-ins, writes nothing
+npm run rls:check -- --preflight   # guard + key + schema + sign-ins, writes nothing
 npm run rls:check -- --out supabase/tests/rls-verification.log
 ```
 
-`--preflight` is the setup check: it aborts with a clear hint when an account
-is unconfirmed, both variables resolve to the same user, or the signup trigger
-left a user without a `profiles` row. Only the second command runs the probes.
+`--preflight` aborts with a clear hint when the target is not Staging, an
+account is unconfirmed, both variables resolve to the same user, or the signup
+trigger left a user without a `profiles` row. Only the second command writes
+probe data.
+
+Cleanup is part of the run and now verified: every probe ID is re-read after
+deletion, the two storage paths are re-checked, and A's profile row must still
+exist. Any remaining row or object is reported as `FAIL` and exits non-zero;
+the log prints `cleanup verified: no probe rows remain in 11 tables` and
+`storage cleanup verified: no probe objects remain`.
 
 The runner refuses to print secrets and aborts with a clear message when the
-key is malformed, the schema is missing, or an account is not confirmed.
-Commit the saved log only after checking it contains no credentials.
+key is malformed, the schema is missing, or an account is not confirmed. The
+saved log contains the two test emails and shortened user IDs — redact them
+before committing it. Commit the log only after checking it contains no
+credentials.
 
 **psql alternative (needs `SUPABASE_DB_URL` with the database password):**
 
@@ -131,14 +174,15 @@ psql "$SUPABASE_DB_URL" \
 It seeds one row per table per user inside a transaction, checks both
 directions, prints `RLS verification passed`, then rolls back.
 
-> **Status: ready to run.** The project URL and publishable key are valid (live
-> `auth/v1/health` returns 200) and `001`–`003` have been applied through the
-> SQL Editor (`profiles`, `customers`, `expenses`, `customer_photos` return
-> `200 []` for anon, i.e. RLS is on and no rows leak). The two-user probe has
-> **not** been executed yet — it runs once the two test accounts and
-> `.env.rls.local` are in place. Save the log with the release ticket.
+> **Status: Production is not a test target.** Production has `001`–`003`
+> applied and verified read-only (`profiles`, `customers`, `expenses`,
+> `customer_photos` return `200 []` for anon), and **no probe has been run
+> there**. The two-user probe will be executed only against the Staging project
+> described in §3.0, after the staging guard prints
+> `staging guard OK: project ref …` and the operator confirms the target.
+> Production migrations must not be re-run as part of this check.
 
-## 3.1 Password-reset deep links
+### 3.3 Password-reset deep links
 
 Native builds return the recovery email to `barberapp://reset-password`
 (`NATIVE_RECOVERY_URL` in `src/features/auth/recovery-link.ts`). The browser
@@ -294,7 +338,7 @@ bump the version in Xcode, and archive. Android signing does not apply.
 
 - RLS script above must be executed against a real project (Section 3).
 - Password-reset deep links are covered by unit tests only; the warm-start and
-  cold-start device flow in Section 3.1 has not been run on hardware here.
+  cold-start device flow in Section 3.3 has not been run on hardware here.
 - No automated end-to-end run on a physical device in this environment.
 - The Android release build was not executed here: the local SDK has platforms
   34/36 but not `compileSdkVersion 35`, and no keystore exists yet. Install SDK

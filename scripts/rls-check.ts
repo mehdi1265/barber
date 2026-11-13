@@ -8,10 +8,16 @@
  * that user B cannot read or write user A's rows, then deletes the probes.
  *
  * Requirements (never commit these):
- *   VITE_SUPABASE_URL / SUPABASE_URL
- *   VITE_SUPABASE_ANON_KEY / SUPABASE_ANON_KEY   (publishable key)
+ *   VITE_SUPABASE_URL / SUPABASE_URL                 (Staging project URL)
+ *   VITE_SUPABASE_ANON_KEY / SUPABASE_ANON_KEY       (Staging publishable key)
+ *   RLS_STAGING_PROJECT_REF                          (guard: must match the URL)
+ *   RLS_PRODUCTION_PROJECT_REF                       (optional guard: hard refuse)
  *   RLS_USER_A_EMAIL, RLS_USER_A_PASSWORD
  *   RLS_USER_B_EMAIL, RLS_USER_B_PASSWORD
+ *
+ * The staging guard aborts unless the configured project ref equals
+ * RLS_STAGING_PROJECT_REF, so a stray Production URL in the shell cannot run
+ * the destructive probes against the live project.
  *
  * Usage:
  *   npm run rls:check -- --preflight                 (validate the setup only)
@@ -39,6 +45,7 @@ import {
   normalizeBaseUrl,
   normalizeKey,
   parseEnvFile,
+  projectRefFromUrl,
   storageProbePath,
 } from './rls-check-utils.ts'
 
@@ -420,25 +427,51 @@ async function checkWrites(
 
   const forbiddenCustomer = await request(baseUrl, key, b.token, '/rest/v1/customers', {
     method: 'POST',
+    headers: { Prefer: 'return=representation' },
     body: JSON.stringify({ user_id: a.userId, name: 'RLS forbidden insert' }),
   })
   if (isRlsViolation(forbiddenCustomer.status, forbiddenCustomer.body)) {
     pass(result, "B's insert of an A-owned customer is denied")
   } else {
     fail(result, `B inserted an A-owned customer (${forbiddenCustomer.status})`)
-    await request(baseUrl, key, a.token, '/rest/v1/customers?name=eq.RLS forbidden insert', {
-      method: 'DELETE',
-    })
+    await removeForbiddenRow(result, baseUrl, key, a, 'customers', forbiddenCustomer.body)
   }
 
   const forbiddenVisit = await request(baseUrl, key, b.token, '/rest/v1/visits', {
     method: 'POST',
+    headers: { Prefer: 'return=representation' },
     body: JSON.stringify({ user_id: a.userId, visited_at: new Date().toISOString() }),
   })
   if (isRlsViolation(forbiddenVisit.status, forbiddenVisit.body)) {
     pass(result, "B's insert of an A-owned visit is denied")
   } else {
     fail(result, `B inserted an A-owned visit (${forbiddenVisit.status})`)
+    await removeForbiddenRow(result, baseUrl, key, a, 'visits', forbiddenVisit.body)
+  }
+}
+
+/** Delete a row that B should never have been able to insert; failure is reported. */
+async function removeForbiddenRow(
+  result: RunResult,
+  baseUrl: string,
+  key: string,
+  a: Session,
+  table: string,
+  body: string
+): Promise<void> {
+  const rows = rowsOf(body) as { id?: unknown }[]
+  const id = typeof rows[0]?.id === 'string' ? rows[0].id : null
+  if (!id) {
+    fail(result, `cannot clean up the forbidden ${table} insert: response had no id`)
+    return
+  }
+  const remove = await request(baseUrl, key, a.token, `/rest/v1/${table}?id=eq.${id}`, {
+    method: 'DELETE',
+  })
+  if (remove.status >= 400) {
+    fail(result, `forbidden ${table} row ${id} could not be deleted (${remove.status})`)
+  } else {
+    log(`INFO  removed forbidden ${table} row written by B`)
   }
 }
 
@@ -508,7 +541,13 @@ async function checkStorage(
   else fail(result, `A could not delete the probe object (${remove.status})`)
 }
 
-async function cleanup(baseUrl: string, key: string, a: Session, seeds: Seeds): Promise<void> {
+async function cleanup(
+  result: RunResult,
+  baseUrl: string,
+  key: string,
+  a: Session,
+  seeds: Seeds
+): Promise<void> {
   const ids: Record<string, string> = {
     customers: seeds.customer,
     services: seeds.service,
@@ -528,10 +567,68 @@ async function cleanup(baseUrl: string, key: string, a: Session, seeds: Seeds): 
       method: 'DELETE',
     })
     if (response.status >= 400) {
-      log(`WARN  cleanup of ${table} returned ${response.status}: ${briefError(response.body)}`)
+      fail(result, `cleanup of ${table} returned ${response.status}: ${briefError(response.body)}`)
     }
   }
-  log('INFO  probe rows cleaned up (profiles are created by the signup trigger and left intact)')
+
+  let remaining = 0
+  for (const table of CLEANUP_ORDER) {
+    const response = await request(
+      baseUrl,
+      key,
+      a.token,
+      `/rest/v1/${table}?select=id&id=eq.${ids[table]}`
+    )
+    if (response.status !== 200) {
+      fail(result, `could not verify cleanup of ${table} (${response.status})`)
+      continue
+    }
+    const rows = rowsOf(response.body)
+    if (rows.length > 0) {
+      remaining += rows.length
+      fail(result, `cleanup left ${rows.length} probe row(s) in ${table}`)
+    }
+  }
+  if (remaining === 0)
+    log(`INFO  cleanup verified: no probe rows remain in ${CLEANUP_ORDER.length} tables`)
+
+  const profile = await request(
+    baseUrl,
+    key,
+    a.token,
+    `/rest/v1/profiles?select=id&user_id=eq.${a.userId}`
+  )
+  if (profile.status !== 200 || rowsOf(profile.body).length !== 1) {
+    fail(result, "A's profile row is missing after the run; the account must be re-created")
+  } else {
+    log("INFO  A's profile row is intact")
+  }
+}
+
+async function cleanupStorage(
+  result: RunResult,
+  baseUrl: string,
+  key: string,
+  a: Session,
+  paths: string[]
+): Promise<void> {
+  for (const path of paths) {
+    await request(baseUrl, key, a.token, `/storage/v1/object/${PHOTO_BUCKET}/${path}`, {
+      method: 'DELETE',
+    })
+    const read = await request(
+      baseUrl,
+      key,
+      a.token,
+      `/storage/v1/object/authenticated/${PHOTO_BUCKET}/${path}`
+    )
+    if (read.status === 200) {
+      fail(result, `storage object ${path} still exists after cleanup`)
+    } else if (read.status === 401 || read.status === 403) {
+      fail(result, `could not verify storage cleanup for ${path} (${read.status})`)
+    }
+  }
+  log('INFO  storage cleanup verified: no probe objects remain')
 }
 
 function parseArgs(argv: string[]): { out: string | null; preflight: boolean } {
@@ -593,6 +690,26 @@ async function main(): Promise<void> {
       'the configured key cannot authenticate a client; fix .env.local before running the RLS check'
     )
   }
+
+  const expectedRef = env.RLS_STAGING_PROJECT_REF?.trim()
+  if (!expectedRef) {
+    throw new Error(
+      'missing RLS_STAGING_PROJECT_REF: set it to the Staging project ref in .env.rls.local ' +
+        'so this runner refuses to touch Production'
+    )
+  }
+  const actualRef = projectRefFromUrl(baseUrl)
+  const productionRef = env.RLS_PRODUCTION_PROJECT_REF?.trim()
+  if (actualRef && productionRef && actualRef === productionRef) {
+    throw new Error(`refusing to run: ${actualRef} is marked as the Production project`)
+  }
+  if (actualRef !== expectedRef) {
+    throw new Error(
+      `refusing to run: expected Staging project "${expectedRef}", but the configured URL ` +
+        `resolves to "${actualRef ?? 'an unknown host'}"`
+    )
+  }
+  log(`INFO  staging guard OK: project ref ${actualRef} matches RLS_STAGING_PROJECT_REF`)
 
   const health = await request(baseUrl, key, null, '/auth/v1/health')
   if (health.status !== 200) {
@@ -692,13 +809,8 @@ async function main(): Promise<void> {
     await checkWrites(result, baseUrl, key, b, a, aProfileId, seeds)
     await checkStorage(result, baseUrl, key, a, b, probePath, forbiddenPath)
   } finally {
-    await cleanup(baseUrl, key, a, seeds)
-    await request(baseUrl, key, a.token, `/storage/v1/object/${PHOTO_BUCKET}/${probePath}`, {
-      method: 'DELETE',
-    })
-    await request(baseUrl, key, a.token, `/storage/v1/object/${PHOTO_BUCKET}/${forbiddenPath}`, {
-      method: 'DELETE',
-    })
+    await cleanup(result, baseUrl, key, a, seeds)
+    await cleanupStorage(result, baseUrl, key, a, [probePath, forbiddenPath])
   }
 
   if (result.failures.length > 0) {

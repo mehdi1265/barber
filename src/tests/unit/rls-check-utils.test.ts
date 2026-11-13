@@ -10,6 +10,7 @@ import {
   normalizeBaseUrl,
   normalizeKey,
   parseEnvFile,
+  projectRefFromUrl,
   storageProbePath,
 } from '../../../scripts/rls-check-utils.ts'
 
@@ -75,6 +76,13 @@ describe('RLS check helpers', () => {
   it('keeps error text short and single-line', () => {
     expect(briefError('a\n b\t c')).toBe('a b c')
     expect(briefError('x'.repeat(300), 10)).toBe('xxxxxxxxxx…')
+  })
+
+  it('extracts the hosted project ref used by the staging guard', () => {
+    expect(projectRefFromUrl('https://abcdefghijklmno.supabase.co')).toBe('abcdefghijklmno')
+    expect(projectRefFromUrl('https://staging-ref.supabase.in/')).toBe('staging-ref')
+    expect(projectRefFromUrl('https://supabase.example.com')).toBeNull()
+    expect(projectRefFromUrl('not a url')).toBeNull()
   })
 
   it('builds probes under the owner folder and cleans children first', () => {
