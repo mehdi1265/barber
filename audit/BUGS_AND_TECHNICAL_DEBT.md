@@ -59,6 +59,7 @@
 - **Repro:** `[code]`; run `node -e "process.env.TZ='Asia/Tehran'; console.log(new Date('2026-11-12T00:30:00+03:30').toISOString().slice(0,10))"` → `2026-11-11`.
 - **Fix:** T04 — add `localDateISO(date)` and `localDayRange(dateISO)` using an explicit timezone (device local by default), replace all four repositories and the finance calculator; keep storage in UTC.
 - **Verify:** unit tests at 00:00, 00:30, 23:59, and a DST-observing zone; daily totals equal the sum of rows whose **local** day matches.
+- **Status: resolved in T04 (2026-11-13).** `src/shared/utils/datetime.ts` builds day/week/month boundaries from an explicit IANA zone; every repository, the finance calculator, and the agenda page use it. `datetime.test.ts` covers 00:30 Tehran, 23:59, and New York spring-forward/fall-back.
 
 ### BUG-06 — Multi-table writes are not transactional
 
@@ -128,7 +129,7 @@
 | BUG-14 | Editing an appointment cannot change its services | `appointment.repository.ts:202-243` updates the parent only | Rescheduling works only via status/notes; service changes impossible | T06: transactional replace of children; conflict re-check |
 | BUG-15 | Quick sale form is dead and imports a missing CSS module | `QuickSaleForm.tsx:7` → `./FinanceForm.module.css` (absent); no route | Routing it would break the Vite build | T07: add stylesheet + route + use-case; build must stay green |
 | BUG-16 | Services page is unreachable from the UI | `/settings/services` exists; `SettingsPage` has no link | Owners cannot manage services in a normal flow | T14: settings list with link; navigation test |
-| BUG-17 | Date inputs are Gregorian | `AppointmentForm.tsx` uses `<input type="date">`; display is Jalali | Inconsistent UX; users must convert dates mentally | T04: Jalali date picker component; store ISO |
+| BUG-17 | Date inputs are Gregorian | `AppointmentForm.tsx` uses `<input type="date">`; display is Jalali | Inconsistent UX; users must convert dates mentally | **Resolved in T04 (2026-11-13):** `JalaliDateInput` (year/month/day selects) replaces the only date input |
 | BUG-18 | Notification permission is never requested; edits do not reschedule | `requestNotificationPermission` has no caller; `appointments.hooks.ts:115,134,191` schedule on create and cancel on cancel/delete only | On Android 13+ scheduling can fail silently; a rescheduled appointment reminds at the old time | T13: prompt contextually, reschedule on edit, cancel on completed/no_show, add channel |
 | BUG-19 | No error boundary; bootstrap leaks raw errors | `main.tsx:23-31` writes `String(err)` into the page; no React boundary | One render error blanks the app; errors may expose internals | T01/T16: boundary + Persian error screen + log buffer |
 | BUG-20 | Session token and DB passphrase live in `localStorage` | `client.ts:18-26`; `database.ts:24-46` | Extractable on device; contradicts R-43 intent | T16: Capacitor SecureStorage/Keychain |
@@ -138,7 +139,7 @@
 | BUG-24 | Cloud migration is not idempotent; bucket and UPDATE policy missing | `001_initial_schema.sql:53-54,57,71,93-94,249-252,255-265` | Re-run fails; uploads error; overwrite denied | T16: `IF NOT EXISTS`, `DROP POLICY IF EXISTS`, create bucket, add UPDATE policy |
 | BUG-25 | Server `updated_at` trigger overrides client timestamps | `001_initial_schema.sql:267-289` | LWW conflict resolution based on client time is invalid | T10: define policy using server time + op ordering |
 | BUG-26 | Profile push will conflict with the signup trigger | server trigger inserts profile; client queues `insert` (`profile.repository.ts:51-56`) | First sync of a new account fails on duplicate key | T09: upsert profiles; integration test |
-| BUG-27 | `applyTimeToDate` assumes a UTC-parsed base date | `jalali.ts:98-103` (`new Date('YYYY-MM-DD')` then `setHours`) | Wrong day for negative UTC offsets; harmless for Iran but fragile | T04: construct from explicit y/m/d in local time |
+| BUG-27 | `applyTimeToDate` assumes a UTC-parsed base date | `jalali.ts:98-103` (`new Date('YYYY-MM-DD')` then `setHours`) | Wrong day for negative UTC offsets; harmless for Iran but fragile | **Resolved in T04 (2026-11-13):** builds the instant from explicit year/month/day in the target zone; covered by a New York test |
 | BUG-28 | Sync banner is permanently "idle" | `AppShell.tsx:19-39` reads a store that is never set | Misleads the user about backup status | T09: drive store from worker |
 
 ---
@@ -165,7 +166,7 @@ These green signals are misleading and must not be used as evidence that the app
 | `npm run type-check` passes | Real since T01, but it only type-checks; runtime/SQL defects still pass |
 | `npm run build` passes | It proves TypeScript and bundling, not that the app boots (BUG-01) |
 | `npx vite build` passes | It does not type-check, and dead code (QuickSaleForm) is not bundled |
-| 71/71 tests pass | Tests use a hand-written SQL mock; finance, sync, bootstrap, and components are untested |
+| 131/131 tests pass | Repository tests for appointments/visits/expenses/outbox use real SQLite, but customer/service still use a SQL mock; no device, network, or sync coverage |
 | `npm test` is fast | Because no real SQLite/network/device is involved |
 | `npm ci` succeeds | esbuild's postinstall is skipped by npm allow-scripts policy but its binary works today; a clean machine may behave differently |
 | `npm run lint` passes | Static analysis only; it does not prove the app boots or the SQL is valid |
@@ -184,7 +185,7 @@ These green signals are misleading and must not be used as evidence that the app
 | TD-04 | `type-check` is vacuous | root tsconfig `files: []` | False confidence | S | T01 |
 | TD-05 | Tests mock SQL instead of executing it | `src/tests/unit/*.repository.test.ts:7-109` | SQL defects (BUG-04) pass tests | M | T01/T03 — **partially resolved:** appointment/visit/expense/outbox now run on a real SQLite harness (`src/tests/helpers/sqlite-harness.ts`); customer/service still use mocks |
 | TD-06 | No coverage policy; finance untested | `vitest.config.ts`; no finance tests | Money logic unverified | M | T01/T07 |
-| TD-07 | Day-range logic duplicated in 4 places | appointment/visit/expense/finance | Bugs fixed in one place only | S | T04 |
+| TD-07 | Day-range logic duplicated in 4 places | appointment/visit/expense/finance | Bugs fixed in one place only | S | T04 — **resolved:** all four use `shared/utils/datetime.ts` |
 | TD-08 | No application/use-case layer | hooks call repositories directly | Invariants scattered; hard to transactionalise | L | T03 |
 | TD-09 | Finance repository lives under `features/` | `features/finance/finance.repository.ts` | Inconsistent structure | S | T03 |
 | TD-10 | Two hand-written type sources | `shared/types/index.ts`, `services/supabase/database.types.ts` | Silent drift | M | T09 |
@@ -203,6 +204,8 @@ These green signals are misleading and must not be used as evidence that the app
 
 **T03 status (2026-11-13):** TD-05 is partially resolved (core repositories execute real SQL). TD-08/TD-09/TD-11 remain open. TD-06 still waits on the finance test suite in T04.
 
+**T04 status (2026-11-13):** TD-07 is resolved. TD-06 is partially resolved — the finance calculator now has a dedicated test file; coverage policy remains open.
+
 ---
 
 ## 6. Fix order constraints
@@ -214,4 +217,4 @@ These green signals are misleading and must not be used as evidence that the app
 - BUG-25/BUG-26 must be resolved as part of the sync design, not after it (T10/T09).
 - BUG-24/BUG-20 are release blockers (T16).
 
-Resolved locally as of 2026-11-13: BUG-04, BUG-06, BUG-07 (T03), plus the local-capture half of BUG-23. Everything else above remains open.
+Resolved locally as of 2026-11-13: BUG-04, BUG-06, BUG-07 (T03), BUG-05, BUG-17, BUG-27 (T04), plus the local-capture half of BUG-23. Everything else above remains open.

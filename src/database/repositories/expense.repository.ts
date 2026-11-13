@@ -3,6 +3,7 @@ import type { Expense, UUID } from '@shared/types'
 import { generateUUID, nowISO, tomanToStorage } from '@shared/utils/helpers'
 import { addToOutbox } from '@sync/outbox/outbox.repository'
 import { withTransaction } from '@database/sqlite/transaction'
+import { localDayRange } from '@shared/utils/datetime'
 
 export interface CreateExpenseInput {
   title: string
@@ -29,7 +30,7 @@ export class ExpenseRepository {
   async findByDateRange(startISO: string, endISO: string): Promise<Expense[]> {
     const result = await this.db.query(
       `SELECT * FROM expenses
-       WHERE user_id = ? AND spent_at >= ? AND spent_at <= ?
+       WHERE user_id = ? AND spent_at >= ? AND spent_at < ?
        ORDER BY spent_at DESC`,
       [this.userId, startISO, endISO]
     )
@@ -37,7 +38,8 @@ export class ExpenseRepository {
   }
 
   async findByDay(dateISO: string): Promise<Expense[]> {
-    return this.findByDateRange(`${dateISO}T00:00:00.000Z`, `${dateISO}T23:59:59.999Z`)
+    const { start, end } = localDayRange(dateISO)
+    return this.findByDateRange(start, end)
   }
 
   async create(input: CreateExpenseInput): Promise<Expense> {

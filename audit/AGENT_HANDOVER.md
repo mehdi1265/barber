@@ -24,6 +24,14 @@
 > production browser build (applied once, skipped on reload). Native checks and the first remote CI
 > run remain unverified. **Next action: T04 when assigned.**
 
+> **T04 update (2026-11-13):** Local-day semantics are implemented. `shared/utils/datetime.ts`
+> computes day/week/month ranges from an explicit IANA zone (device default) with an exclusive end;
+> all four repositories, the finance calculator/repository, and the agenda page use it, so a 00:30
+> Tehran action lands on the correct day. `applyTimeToDate` builds instants from explicit y/m/d.
+> The Gregorian date input was replaced by `JalaliDateInput`; no `<input type="date">` remains.
+> `datetime.test.ts` covers Tehran midnight boundaries and New York DST days; finance calculator
+> tests were added (131/131 total). Gates are green. **Next action: T05 when assigned.**
+
 ---
 
 ## A. Project identity

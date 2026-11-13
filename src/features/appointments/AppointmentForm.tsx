@@ -3,9 +3,10 @@
  */
 import { useFieldArray, useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
-import { useState, type ChangeEvent } from 'react'
+import { useEffect, useState, type ChangeEvent } from 'react'
 import { appointmentSchema, type AppointmentFormData } from './appointments.schemas'
 import { FormField } from '@shared/components/forms/FormField'
+import { JalaliDateInput } from '@shared/components/forms/JalaliDateInput'
 import { Button } from '@shared/components/ui/Button'
 import { useCustomers } from '@features/customers/customers.hooks'
 import { useServices } from '@features/services/services.hooks'
@@ -74,17 +75,20 @@ export function AppointmentForm({
   const watchDate = watch('date')
   const watchTime = watch('time')
   const watchDuration = watch('duration_minutes')
-  const updatePreview = () => {
-    try {
-      const startISO = applyTimeToDate(`${watchDate}T12:00:00Z`, watchTime)
-      const dur = parseInt(watchDuration, 10)
-      if (!isNaN(dur) && dur > 0) {
-        setPreviewEnd(formatTime(calcEndAt(startISO, dur)))
-      }
-    } catch {
-      /* ignore */
+
+  useEffect(() => {
+    const duration = parseInt(watchDuration, 10)
+    if (!watchDate || !watchTime || isNaN(duration) || duration <= 0) {
+      setPreviewEnd(null)
+      return
     }
-  }
+    try {
+      const startISO = applyTimeToDate(watchDate, watchTime)
+      setPreviewEnd(formatTime(calcEndAt(startISO, duration)))
+    } catch {
+      setPreviewEnd(null)
+    }
+  }, [watchDate, watchTime, watchDuration])
 
   // When service is selected from dropdown, fill name + price
   const handleServiceSelect = (index: number, serviceId: string) => {
@@ -133,18 +137,18 @@ export function AppointmentForm({
 
       {/* Date + Time row */}
       <div className={styles.row}>
-        <FormField
+        <JalaliDateInput
           label="تاریخ"
-          type="date"
           required
-          {...register('date', { onChange: updatePreview })}
-          error={errors.date}
+          value={watchDate}
+          onChange={next => setValue('date', next, { shouldValidate: true })}
+          error={errors.date?.message}
         />
         <FormField
           label="ساعت شروع"
           type="time"
           required
-          {...register('time', { onChange: updatePreview })}
+          {...register('time')}
           error={errors.time}
         />
       </div>
@@ -158,7 +162,7 @@ export function AppointmentForm({
             inputMode="numeric"
             min={1}
             required
-            {...register('duration_minutes', { onChange: updatePreview })}
+            {...register('duration_minutes')}
             error={errors.duration_minutes}
           />
         </div>

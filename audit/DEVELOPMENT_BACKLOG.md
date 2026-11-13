@@ -207,6 +207,8 @@ against `node:sqlite`; migration 002 was also applied/skipped correctly in a pro
 
 **Risks:** changing week/month boundaries can shift existing reports by one day — document the intended definition before coding; do not migrate stored data (timestamps are already UTC).
 
+**Status:** complete locally (2026-11-13). `src/shared/utils/datetime.ts` provides `localDateISO`, `localDayRange`, `localWeekRange`, `localMonthRange`, `localJalaliMonthRange`, `addLocalDays`, and `localDateTimeToISO`; all ranges are end-exclusive. Week = 7 local days starting on Saturday (Iranian week). Time zone = device `Intl` zone, overridable per call (decision D-25). Repositories and hooks use `localDateISO` for cache invalidation. `JalaliDateInput` (three selects) replaces the only Gregorian date input; the finance UI does not exist yet (T07), where the component will be reused. Tests: `datetime.test.ts` (17), `finance.calculator.test.ts` (11), `jalali-date-input.test.tsx` (4).
+
 ---
 
 ## T05 — Authentication and Session Completion

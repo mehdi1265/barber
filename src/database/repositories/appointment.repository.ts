@@ -9,6 +9,7 @@ import {
 } from '@shared/utils/helpers'
 import { addToOutbox } from '@sync/outbox/outbox.repository'
 import { withTransaction } from '@database/sqlite/transaction'
+import { localDayRange, localWeekRange } from '@shared/utils/datetime'
 
 // ── Input types ───────────────────────────────────────────────────────────────
 
@@ -74,20 +75,15 @@ export class AppointmentRepository {
     return (result.values as Appointment[]) ?? []
   }
 
-  /** All non-cancelled appointments for a single day */
+  /** All non-cancelled appointments for a single local day */
   async findByDay(dateISO: string): Promise<Appointment[]> {
-    const start = `${dateISO}T00:00:00.000Z`
-    const end = `${dateISO}T23:59:59.999Z`
+    const { start, end } = localDayRange(dateISO)
     return this.findByDateRange(start, end)
   }
 
-  /** Appointments for a week starting from mondayISO */
-  async findByWeek(mondayISO: string): Promise<Appointment[]> {
-    const start = `${mondayISO}T00:00:00.000Z`
-    // 7 days later
-    const endDate = new Date(mondayISO)
-    endDate.setDate(endDate.getDate() + 7)
-    const end = endDate.toISOString()
+  /** Appointments for the 7 local days starting at weekStartISO */
+  async findByWeek(weekStartISO: string): Promise<Appointment[]> {
+    const { start, end } = localWeekRange(weekStartISO)
     return this.findByDateRange(start, end)
   }
 
@@ -310,14 +306,15 @@ export class AppointmentRepository {
     })
   }
 
-  /** Count today's appointments */
+  /** Count appointments in the given local day */
   async countToday(todayISO: string): Promise<number> {
+    const { start, end } = localDayRange(todayISO)
     const result = await this.db.query(
       `SELECT COUNT(*) as cnt FROM appointments
        WHERE user_id = ? AND deleted_at IS NULL
          AND status NOT IN ('cancelled','no_show')
-         AND start_at >= ? AND start_at <= ?`,
-      [this.userId, `${todayISO}T00:00:00.000Z`, `${todayISO}T23:59:59.999Z`]
+         AND start_at >= ? AND start_at < ?`,
+      [this.userId, start, end]
     )
     return (result.values?.[0] as { cnt: number })?.cnt ?? 0
   }

@@ -7,6 +7,18 @@
  */
 
 import { format as jalaliFormat, startOfWeek, addDays, parseISO } from 'date-fns-jalali'
+import {
+  getLocalTimeZone,
+  isDateISO,
+  isSameLocalDay,
+  localDateISO,
+  localDateTimeToISO,
+  parseLocalDate,
+} from './datetime'
+
+function parseDateInput(value: string): Date {
+  return isDateISO(value) ? parseLocalDate(value) : new Date(value)
+}
 
 /** Format a date as Jalali — e.g. "۱۴۰۳/۰۸/۱۵" */
 export function formatJalaliDate(date: Date | string): string {
@@ -45,15 +57,14 @@ export function formatTimeRange(startAt: string, endAt: string): string {
   return `${formatTime(startAt)} — ${formatTime(endAt)}`
 }
 
-/** Returns ISO date string "YYYY-MM-DD" for today */
+/** Returns "YYYY-MM-DD" of the current local calendar day */
 export function todayISO(): string {
-  return new Date().toISOString().slice(0, 10)
+  return localDateISO()
 }
 
-/** Returns the Monday of the week containing the given date */
+/** Returns the Saturday starting the week containing the given date (Iranian week) */
 export function getWeekStart(date: Date | string): Date {
-  const d = typeof date === 'string' ? parseISO(date) : date
-  // date-fns-jalali week starts on Saturday; we override to Saturday for Iran
+  const d = typeof date === 'string' ? parseDateInput(date) : date
   return startOfWeek(d, { weekStartsOn: 6 })
 }
 
@@ -64,13 +75,9 @@ export function getWeekDays(weekStart: Date): Date[] {
 
 /** True if two dates fall on the same local calendar day */
 export function isSameDayUtil(a: Date | string, b: Date | string): boolean {
-  const da = typeof a === 'string' ? new Date(a) : a
-  const db = typeof b === 'string' ? new Date(b) : b
-  return (
-    da.getFullYear() === db.getFullYear() &&
-    da.getMonth() === db.getMonth() &&
-    da.getDate() === db.getDate()
-  )
+  const da = typeof a === 'string' ? parseDateInput(a) : a
+  const db = typeof b === 'string' ? parseDateInput(b) : b
+  return isSameLocalDay(da, db)
 }
 
 /** Jalali short day names (Saturday first, Iranian week) */
@@ -89,10 +96,15 @@ export function formatWeekDayHeader(date: Date): string {
   return `${jalaliWeekdayShort(date)} ${formatJalaliDay(date)}`
 }
 
-/** Parse a time string "HH:MM" and apply to a base date, returning ISO string */
-export function applyTimeToDate(baseDateISO: string, timeHHMM: string): string {
-  const [hh, mm] = timeHHMM.split(':').map(Number)
-  const d = new Date(baseDateISO)
-  d.setHours(hh, mm, 0, 0)
-  return d.toISOString()
+/**
+ * Apply a local time to a local `YYYY-MM-DD` date, returning a UTC ISO string.
+ * The date is built from explicit year/month/day, never by parsing a UTC
+ * string, so negative-offset zones keep the intended calendar day.
+ */
+export function applyTimeToDate(
+  baseDateISO: string,
+  timeHHMM: string,
+  timeZone = getLocalTimeZone()
+): string {
+  return localDateTimeToISO(baseDateISO.slice(0, 10), timeHHMM, timeZone)
 }

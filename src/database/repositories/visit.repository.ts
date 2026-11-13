@@ -3,6 +3,7 @@ import type { Visit, VisitService, Payment, UUID, PaymentMethod } from '@shared/
 import { generateUUID, nowISO, tomanToStorage } from '@shared/utils/helpers'
 import { addToOutbox } from '@sync/outbox/outbox.repository'
 import { withTransaction } from '@database/sqlite/transaction'
+import { localDayRange } from '@shared/utils/datetime'
 
 // ── Input types ───────────────────────────────────────────────────────────────
 
@@ -62,7 +63,7 @@ export class VisitRepository {
   async findByDateRange(startISO: string, endISO: string): Promise<Visit[]> {
     const result = await this.db.query(
       `SELECT * FROM visits
-       WHERE user_id = ? AND visited_at >= ? AND visited_at <= ?
+       WHERE user_id = ? AND visited_at >= ? AND visited_at < ?
        ORDER BY visited_at DESC`,
       [this.userId, startISO, endISO]
     )
@@ -70,7 +71,8 @@ export class VisitRepository {
   }
 
   async findByDay(dateISO: string): Promise<Visit[]> {
-    return this.findByDateRange(`${dateISO}T00:00:00.000Z`, `${dateISO}T23:59:59.999Z`)
+    const { start, end } = localDayRange(dateISO)
+    return this.findByDateRange(start, end)
   }
 
   async getServicesForVisit(visitId: UUID): Promise<VisitService[]> {
@@ -93,7 +95,7 @@ export class VisitRepository {
   async getPaymentsByDateRange(startISO: string, endISO: string): Promise<Payment[]> {
     const result = await this.db.query(
       `SELECT * FROM payments
-       WHERE user_id = ? AND paid_at >= ? AND paid_at <= ?
+       WHERE user_id = ? AND paid_at >= ? AND paid_at < ?
        ORDER BY paid_at DESC`,
       [this.userId, startISO, endISO]
     )
@@ -245,10 +247,11 @@ export class VisitRepository {
   }
 
   async countByDay(dateISO: string): Promise<number> {
+    const { start, end } = localDayRange(dateISO)
     const result = await this.db.query(
       `SELECT COUNT(*) as cnt FROM visits
-       WHERE user_id = ? AND visited_at >= ? AND visited_at <= ?`,
-      [this.userId, `${dateISO}T00:00:00.000Z`, `${dateISO}T23:59:59.999Z`]
+       WHERE user_id = ? AND visited_at >= ? AND visited_at < ?`,
+      [this.userId, start, end]
     )
     return (result.values?.[0] as { cnt: number })?.cnt ?? 0
   }

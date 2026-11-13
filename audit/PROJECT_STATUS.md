@@ -36,6 +36,18 @@
 > rAF shim, so this is a harness artifact, not an app change. Native runtime, sync push (T09), and
 > the first remote CI run remain **unverified**.
 
+> **Post-T04 update — 2026-11-13:** "Today" and all report periods now follow the user's local
+> calendar. `src/shared/utils/datetime.ts` derives day/week/month boundaries from an explicit IANA
+> zone (device zone by default, overridable), with an exclusive end instant. Every repository
+> `findByDay`/`countByDay`, the finance repository/calculator, and the agenda page use it; storage
+> stays UTC and no schema changed. `applyTimeToDate` builds instants from explicit year/month/day, so
+> negative-offset zones keep the intended day. Gregorian `<input type="date">` was replaced by
+> `JalaliDateInput` (Jalali year/month/day selects) in the appointment form; the same component is
+> ready for the finance filters when that UI lands in T07. `datetime.test.ts` covers 00:00/00:30/23:59
+> in `Asia/Tehran` and New York DST days (23 h / 25 h), and the finance calculator has its first test
+> file. 131/131 tests pass; `type-check`, `lint`, `format:check`, and `build` are green. Device and
+> remote-CI verification remain **unverified**.
+
 ---
 
 ## 1. Repository snapshot

@@ -11,6 +11,7 @@ import {
 } from '@database/repositories/expense.repository'
 import { useAuthStore } from '@state/auth.store'
 import { getDatabase } from '@database/sqlite/database'
+import { localDateISO } from '@shared/utils/datetime'
 
 // ── Query keys ────────────────────────────────────────────────────────────────
 
@@ -139,7 +140,7 @@ export function useCreateVisit() {
       return repo.create(input)
     },
     onSuccess: visit => {
-      const dateISO = visit.visited_at.slice(0, 10)
+      const dateISO = localDateISO(visit.visited_at)
       void qc.invalidateQueries({ queryKey: financeKeys.visits(userId, dateISO) })
       void qc.invalidateQueries({ queryKey: financeKeys.daily(userId, dateISO) })
       void qc.invalidateQueries({ queryKey: financeKeys.debt(userId) })
@@ -157,7 +158,7 @@ export function useAddPayment() {
       return repo.addPayment(input)
     },
     onSuccess: payment => {
-      const dateISO = payment.paid_at.slice(0, 10)
+      const dateISO = localDateISO(payment.paid_at)
       void qc.invalidateQueries({ queryKey: financeKeys.visitDetail(userId, payment.visit_id) })
       void qc.invalidateQueries({ queryKey: financeKeys.daily(userId, dateISO) })
       void qc.invalidateQueries({ queryKey: financeKeys.debt(userId) })
@@ -175,7 +176,7 @@ export function useCreateExpense() {
       return repo.create(input)
     },
     onSuccess: expense => {
-      const dateISO = expense.spent_at.slice(0, 10)
+      const dateISO = localDateISO(expense.spent_at)
       void qc.invalidateQueries({ queryKey: financeKeys.expenses(userId, dateISO) })
       void qc.invalidateQueries({ queryKey: financeKeys.daily(userId, dateISO) })
     },

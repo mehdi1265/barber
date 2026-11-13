@@ -11,6 +11,7 @@ import {
   cancelAppointmentReminder,
 } from '@services/notifications/local-notifications'
 import type { AppointmentStatus } from '@shared/types'
+import { localDateISO } from '@shared/utils/datetime'
 
 export const appointmentKeys = {
   day: (uid: string, date: string) => ['appointments', uid, 'day', date] as const,
@@ -117,7 +118,7 @@ export function useCreateAppointment() {
       return appt
     },
     onSuccess: appt => {
-      const dateISO = appt.start_at.slice(0, 10)
+      const dateISO = localDateISO(appt.start_at)
       void qc.invalidateQueries({ queryKey: appointmentKeys.day(userId, dateISO) })
       void qc.invalidateQueries({ queryKey: appointmentKeys.next(userId) })
     },

@@ -11,6 +11,7 @@ import {
   type VisitWithServices,
 } from './finance.calculator'
 import type { DailyReport, FinancialSummary } from '@shared/types'
+import { localDayRange } from '@shared/utils/datetime'
 
 export class FinanceRepository {
   constructor(
@@ -24,7 +25,7 @@ export class FinanceRepository {
     const result = await this.db.query(
       `SELECT vs.* FROM visit_services vs
        JOIN visits v ON vs.visit_id = v.id
-       WHERE vs.user_id = ? AND v.visited_at >= ? AND v.visited_at <= ?`,
+       WHERE vs.user_id = ? AND v.visited_at >= ? AND v.visited_at < ?`,
       [this.userId, start, end]
     )
     return (result.values as VisitService[]) ?? []
@@ -32,7 +33,7 @@ export class FinanceRepository {
 
   private async getPaymentsInRange(start: string, end: string): Promise<Payment[]> {
     const result = await this.db.query(
-      `SELECT * FROM payments WHERE user_id = ? AND paid_at >= ? AND paid_at <= ?`,
+      `SELECT * FROM payments WHERE user_id = ? AND paid_at >= ? AND paid_at < ?`,
       [this.userId, start, end]
     )
     return (result.values as Payment[]) ?? []
@@ -40,7 +41,7 @@ export class FinanceRepository {
 
   private async getExpensesInRange(start: string, end: string): Promise<Expense[]> {
     const result = await this.db.query(
-      `SELECT * FROM expenses WHERE user_id = ? AND spent_at >= ? AND spent_at <= ?`,
+      `SELECT * FROM expenses WHERE user_id = ? AND spent_at >= ? AND spent_at < ?`,
       [this.userId, start, end]
     )
     return (result.values as Expense[]) ?? []
@@ -52,7 +53,7 @@ export class FinanceRepository {
   ): Promise<VisitWithServices[]> {
     // Get visits in range
     const visitsResult = await this.db.query(
-      `SELECT id, visited_at FROM visits WHERE user_id = ? AND visited_at >= ? AND visited_at <= ?`,
+      `SELECT id, visited_at FROM visits WHERE user_id = ? AND visited_at >= ? AND visited_at < ?`,
       [this.userId, start, end]
     )
     const visits = (visitsResult.values as { id: string; visited_at: string }[]) ?? []
@@ -82,8 +83,7 @@ export class FinanceRepository {
   // ── Report builders ───────────────────────────────────────────────────────
 
   async getDailyReport(dateISO: string): Promise<DailyReport> {
-    const start = `${dateISO}T00:00:00.000Z`
-    const end = `${dateISO}T23:59:59.999Z`
+    const { start, end } = localDayRange(dateISO)
 
     const [visitServices, paymentsInPeriod, visitsWithServices, expenses] = await Promise.all([
       this.getVisitServicesInRange(start, end),

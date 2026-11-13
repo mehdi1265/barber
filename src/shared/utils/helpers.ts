@@ -2,6 +2,8 @@
  * Shared utility functions used across the entire application.
  */
 
+import { localDateISO } from './datetime'
+
 // ── UUID ──────────────────────────────────────────────────────────────────────
 
 /**
@@ -33,10 +35,9 @@ export function parseISO(value: string): Date {
   return new Date(value)
 }
 
-/** Formats a Date (or ISO string) as YYYY-MM-DD */
+/** Formats a Date (or ISO string) as the local calendar-day YYYY-MM-DD */
 export function toDateString(value: Date | string): string {
-  const d = typeof value === 'string' ? new Date(value) : value
-  return d.toISOString().slice(0, 10)
+  return localDateISO(value)
 }
 
 // ── Money ─────────────────────────────────────────────────────────────────────
