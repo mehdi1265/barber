@@ -22,6 +22,7 @@ import {
   RegisterPage,
   RequireAuth,
   ResetPasswordPage,
+  SearchPage,
   ServicesPage,
   SettingsPage,
   SuspenseWrapper,
@@ -165,6 +166,14 @@ export const router = createBrowserRouter([
             element: (
               <SuspenseWrapper>
                 <ServicesPage />
+              </SuspenseWrapper>
+            ),
+          },
+          {
+            path: '/search',
+            element: (
+              <SuspenseWrapper>
+                <SearchPage />
               </SuspenseWrapper>
             ),
           },

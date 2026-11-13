@@ -161,6 +161,9 @@ export default function DashboardPage() {
             <Link to="/customers" className={styles.actionLink}>
               👥 مشتری جدید
             </Link>
+            <Link to="/search" className={styles.actionLink}>
+              🔎 جست‌وجو
+            </Link>
           </section>
         </>
       )}

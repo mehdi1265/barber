@@ -129,7 +129,7 @@
 
 | ID | Requirement | Src | Pri | Status | Evidence (files) | Missing work | Deps | Acceptance criteria |
 |---|---|---|---|---|---|---|---|---|
-| R-37 | Global search across customers, services, appointments, formulas | P §8, W §5 | P2 | Partially implemented | `customer.repository.ts:38`, `service.repository.ts:39`, `CustomersPage` search bar; `matchesSearch` helper | Appointments/formulas queries; unified results UI; indexing | R-33 | One query returns grouped results from all four domains, tolerant of Persian digits |
+| R-37 | Global search across customers, services, appointments, formulas | P §8, W §5 | P2 | Complete (local, T15) | `shared/utils/search.ts`; `features/search/search.repository.ts`; `SearchPage.tsx`; `search-page.test.tsx`; `search.repository.test.ts`; dashboard `/search` link | Mid-range-device timing for the 5,000-customer target; FTS only if profiling shows a need | R-33 | One query returns grouped results from all four domains, tolerant of Persian digits |
 
 ---
 

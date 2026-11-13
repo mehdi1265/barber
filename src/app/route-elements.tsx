@@ -32,6 +32,7 @@ export const FinancePage = lazy(() => import('@features/finance/FinancePage'))
 export const QuickSalePage = lazy(() => import('@features/finance/QuickSalePage'))
 export const SettingsPage = lazy(() => import('@features/settings/SettingsPage'))
 export const ServicesPage = lazy(() => import('@features/services/ServicesPage'))
+export const SearchPage = lazy(() => import('@features/search/SearchPage'))
 export const NotFoundPage = lazy(() => import('@shared/components/ui/NotFoundPage'))
 
 // ── Guards ────────────────────────────────────────────────────────────────────

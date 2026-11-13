@@ -154,6 +154,17 @@
 > with Jalali dates. 238/238 tests across 34 files; `type-check`, `lint`, `format:check`, and `build`
 > are green. Browser walkthrough with a live session and device runtime remain **unverified**.
 
+> **Post-T15 update — 2026-11-13:** Global search is complete locally. `/search` is reachable from
+> the dashboard quick actions and queries customers, services, appointments, and color formulas in
+> one debounced (250 ms) pass. Both the query and the SQL column are normalised for Persian (۰-۹)
+> and Arabic-Indic (٠-٩) digits, and LIKE wildcards are escaped, so `۰۹۱۲` finds a customer stored
+> as `0912…`. Each group fetches up to 50 rows (`LIMIT`), shows 5 with «نمایش همه», and links each
+> result to its detail page or the services screen. Soft-deleted customers/appointments are
+> excluded and every query is scoped to the signed-in user. There is no FTS index: 5,000-row LIKE
+> scans are acceptable locally, and the acceptance response-time target still needs a mid-range
+> device measurement. 256/256 tests across 37 files; `type-check`, `lint`, `format:check`, and
+> `build` are green. Real-device timing remains **unverified**.
+
 ---
 
 ## 1. Repository snapshot

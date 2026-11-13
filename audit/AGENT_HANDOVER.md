@@ -99,7 +99,14 @@
 > customer's appointments (`findByCustomer`) and visit summaries
 > (`findSummariesByCustomer`) and renders upcoming/past appointments, each visit's amount and
 > paid/remaining, plus a financial summary. 238/238 tests across 34 files; gates green.
-> **Next action: T15 (global search) when assigned.**
+> **T15 update (2026-11-13):** Global search is complete locally. `/search` (linked from the
+> dashboard) runs one debounced pass over customers, services, appointments, and formulas.
+> `shared/utils/search.ts` normalises Persian/Arabic digits on the query side and builds nested
+> `REPLACE` expressions for the column side; LIKE wildcards are escaped. `SearchRepository` fetches
+> at most 50 rows per group, the page shows 5 with «نمایش همه», excludes soft-deleted rows, scopes
+> every query by `user_id`, and navigates results to their detail pages. 256/256 tests across 37
+> files; gates green. Device timing for the 5,000-customer target remains unverified.
+> **Next action: T16 (security & release readiness) when assigned.**
 
 
 ---
@@ -492,7 +499,7 @@ Priorities and full acceptance criteria: `audit/DEVELOPMENT_BACKLOG.md`. Require
 | 12 | **T12 Photos (done)** | T09, T10 | Offline capture → storage → restore |
 | 13 | **T13 Notifications (done)** | T06 | Permission + reminder lifecycle |
 | 14 | **T14 Settings/profile/history (done)** | T05, T09, T07 | Real settings + customer history |
-| 15 | **T15 Global search** | T07, T11 | Cross-entity search |
+| 15 | **T15 Global search (done)** | T07, T11 | Cross-entity search |
 | 16 | **T16 Security & release** | All | Secure storage, RLS verification, release |
 
 ### Dependency summary
