@@ -17,6 +17,9 @@ vi.mock('@capacitor-community/sqlite', () => ({
   CapacitorSQLite: {},
   SQLiteConnection: vi.fn().mockImplementation(() => ({
     initWebStore: vi.fn().mockResolvedValue(undefined),
+    saveToStore: vi.fn().mockResolvedValue(undefined),
+    isSecretStored: vi.fn().mockResolvedValue({ result: true }),
+    setEncryptionSecret: vi.fn().mockResolvedValue(undefined),
     checkConnectionsConsistency: vi.fn().mockResolvedValue({ result: false }),
     isConnection: vi.fn().mockResolvedValue({ result: false }),
     createConnection: vi.fn().mockResolvedValue({

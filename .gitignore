@@ -4,6 +4,7 @@ node_modules/
 # Build
 dist/
 dist-ssr/
+public/assets/sql-wasm.wasm
 
 # Local env — NEVER commit real secrets
 .env
