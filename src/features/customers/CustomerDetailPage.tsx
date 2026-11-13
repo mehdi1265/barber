@@ -1,12 +1,14 @@
 import { useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useCustomer, useUpdateCustomer, useDeleteCustomer } from './customers.hooks'
+import { useFormulasByCustomer } from '@features/color-formulas/color-formulas.hooks'
 import { CustomerForm } from './CustomerForm'
 import { PageHeader } from '@shared/components/ui/PageHeader'
 import { Button } from '@shared/components/ui/Button'
 import { Modal } from '@shared/components/ui/Modal'
 import { ConfirmDialog } from '@shared/components/ui/ConfirmDialog'
 import { LoadingScreen } from '@shared/components/ui/LoadingScreen'
+import { formatJalaliDate } from '@shared/utils/jalali'
 import type { CustomerFormData } from './customers.schemas'
 import styles from './CustomerDetailPage.module.css'
 
@@ -17,6 +19,7 @@ export default function CustomerDetailPage() {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
 
   const { data: customer, isLoading } = useCustomer(id!)
+  const { data: formulas = [] } = useFormulasByCustomer(id ?? '')
   const updateMutation = useUpdateCustomer()
   const deleteMutation = useDeleteCustomer()
 
@@ -100,6 +103,45 @@ export default function CustomerDetailPage() {
         <section className={styles.section}>
           <h3 className={styles.sectionTitle}>خلاصه مالی</h3>
           <p className={styles.placeholder}>بعد از ثبت پرداخت، اطلاعات مالی اینجا می‌آید.</p>
+        </section>
+
+        {/* Color formulas */}
+        <section className={styles.section}>
+          <div className={styles.sectionHeaderRow}>
+            <h3 className={styles.sectionTitle}>فرمول‌های رنگ</h3>
+            <button
+              type="button"
+              className={styles.sectionAction}
+              onClick={() => {
+                void navigate(`/color-formulas?customer=${customer.id}`)
+              }}
+            >
+              + فرمول جدید
+            </button>
+          </div>
+          {formulas.length === 0 ? (
+            <p className={styles.placeholder}>برای این مشتری فرمول رنگی ثبت نشده است.</p>
+          ) : (
+            <ul className={styles.formulaList} role="list">
+              {formulas.map(formula => (
+                <li key={formula.id}>
+                  <button
+                    type="button"
+                    className={styles.formulaBtn}
+                    onClick={() => {
+                      void navigate(`/color-formulas/${formula.id}`)
+                    }}
+                  >
+                    <span className={styles.formulaTitle}>{formula.title}</span>
+                    <span className={styles.formulaMeta}>
+                      {formula.brand ? `${formula.brand} · ` : ''}
+                      {formatJalaliDate(formula.updated_at)}
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
         </section>
 
         {/* Danger zone */}

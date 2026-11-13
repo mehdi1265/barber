@@ -130,7 +130,8 @@ Tickets are numbered in **recommended execution order**. Dependencies are hard p
 **Status:** complete locally (2026-11-13). Strategy chosen: **one outbox row per row**, with
 `entity_type` equal to the table name; a single action-level `client_op_id` is generated per
 repository write and child keys are `${client_op_id}:${rowId}`. Expense delete keeps a full-row
-`delete` tombstone. `color_formula_items` will use the same rule when its repository lands in T11.
+`delete` tombstone; `color_formula_items` follows the same rule (T11, `${client_op_id}:del:${id}`
+for removed items).
 Verified by `src/tests/unit/{appointment.repository,outbox.integration,write-integrity.integration}.test.ts`
 against `node:sqlite`; migration 002 was also applied/skipped correctly in a production browser build.
 
@@ -410,6 +411,13 @@ against `node:sqlite`; migration 002 was also applied/skipped correctly in a pro
 ## T11 — Color Formulas
 
 **Size:** M · **Priority:** P1 · **Requirements:** R-33, R-34 · **Fixes:** DB-09 (decimals)
+
+**Status:** complete locally (2026-11-13). Decimal policy: amounts are rounded to 2 decimals in the
+Zod schema (`round2`), capped at 999.99 per item, oxidant 0–99.99 %, processing 0–1440 min — matching
+server `NUMERIC(5,2)/(8,2)`. `useFieldArray` owns `id`, so DB item ids travel as `item_id` and are
+mapped back by the schema transform. Duplicate creates new IDs through `create` and prefixes the
+title with `«(کپی)»`. Verified by `color-formula.repository.test.ts` (7),
+`color-formulas.schemas.test.ts` (4), `color-formula-form.test.tsx` (1).
 
 **Read first:** `color_formulas`/`color_formula_items` schemas, `docs/02-prd.md §7`, `docs/04-wireframes.md`, T03 payload strategy.
 

@@ -107,6 +107,19 @@
 > configured, so push/pull is covered by injected clients and real-SQLite tests only — network,
 > device, and remote-CI verification remain **unverified**.
 
+> **Post-T11 update — 2026-11-13:** The color-formula book is complete locally.
+> `ColorFormulaRepository` creates/updates/deletes a formula and its items inside one transaction and
+> writes one outbox row per physical row (`client_op_id` = action id, `:rowId` / `:del:rowId`
+> suffixes), so offline replay stays idempotent. Amounts are rounded to two decimals
+> (`MAX_ITEM_AMOUNT = 999.99`, oxidant 0–99.99, processing 0–1440 min) to match server
+> `NUMERIC` columns. `/color-formulas` offers search (title/brand/code/customer),
+> create from `?customer=`, and opens the detail page; detail shows items, notes, edit modal,
+> duplicate as a template (`«(کپی)»`, new IDs), and confirm-gated delete. Customer detail now lists
+> the customer's formulas with a "new formula" shortcut. `useFieldArray` reserves `id`, so DB item
+> ids travel as `item_id` and are mapped back by the Zod transform. 215/215 tests pass across 28
+> files; `type-check`, `lint`, `format:check`, and `build` are green. Browser walkthrough and
+> device runtime remain **unverified**.
+
 ---
 
 ## 1. Repository snapshot

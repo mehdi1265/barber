@@ -72,7 +72,7 @@
 |---|---|---|---|---|---|---|---|---|
 | R-20 | Customer create/edit/soft-delete with name, phone, notes | P §5, U §3, D §2 | P0 | Complete | `CustomersPage.tsx`, `CustomerDetailPage.tsx`, `CustomerForm.tsx`, `customer.repository.ts`; 11 repo + 6 schema tests | None for scope | R-02 | CRUD works offline; deleted customers disappear from lists but remain for history |
 | R-21 | Search customers by name or phone, Persian/Arabic digit tolerant | P §5, W §2 | P1 | Complete | `customer.repository.ts:38-48` (`LIKE`), `CustomersPage` + `useCustomerSearch` | Index is on `(user_id, name)` / `(user_id, phone)`; `%term%` cannot use them at scale | R-20 | Typing "۰۹۱۲" finds a customer stored as "0912…" within 300 ms for ≤5,000 customers |
-| R-22 | Customer detail shows appointment and visit history | W §3, P §5 | P1 | Partially implemented | `CustomerDetailPage.tsx:94` explicit placeholder | History queries + UI (appointments, visits, formulas, photos) | R-13, R-18 | Detail lists past/upcoming appointments and visits with Jalali dates and amounts |
+| R-22 | Customer detail shows appointment and visit history | W §3, P §5 | P1 | Partially implemented | Appointments and visits still placeholders; formulas section added in T11 (`CustomerDetailPage.tsx`: `useFormulasByCustomer`, list + "+ فرمول جدید") | History queries + UI for appointments and visits (T14) | R-13, R-18 | Detail lists past/upcoming appointments and visits with Jalali dates and amounts |
 
 ---
 
@@ -104,8 +104,8 @@
 
 | ID | Requirement | Src | Pri | Status | Evidence (files) | Missing work | Deps | Acceptance criteria |
 |---|---|---|---|---|---|---|---|---|
-| R-33 | Create/edit color formulas for a customer, with multiple items (brand, code, amount, ratio) and notes | P §7, D §2 | P1 | Not implemented | Tables `color_formulas`, `color_formula_items`; types only; `ColorFormulasPage.tsx` / `ColorFormulaDetailPage.tsx` are placeholders | Repository, hooks, forms, list/detail UI, outbox for items | R-03, R-22 | A formula with 3 items saves offline, reopens correctly, and appears in the customer's history |
-| R-34 | Reuse a previous formula as a template for a new one | P §7, U §6 | P2 | Not implemented | none | Duplicate/clone flow | R-33 | "Duplicate" prefills a new formula without modifying the original |
+| R-33 | Create/edit color formulas for a customer, with multiple items (brand, code, amount, ratio) and notes | P §7, D §2 | P1 | Complete (local) | `color-formula.repository.ts`, `color-formulas.schemas.ts`, `color-formulas.hooks.ts`, `ColorFormulaForm.tsx`, `ColorFormulasPage.tsx`, `ColorFormulaDetailPage.tsx`; 7 repo + 4 schema + 1 form tests | Browser/device walkthrough; photo attachment (R-35) | R-03, R-22 | A formula with 3 items saves offline, reopens correctly, and appears in the customer's history |
+| R-34 | Reuse a previous formula as a template for a new one | P §7, U §6 | P2 | Complete (local) | `ColorFormulaRepository.duplicate` (new IDs via `create`, title suffix `«(کپی)»`); detail-page «کپی» button; `color-formula.repository.test.ts` | None for scope | R-33 | "Duplicate" prefills a new formula without modifying the original |
 
 ---
 

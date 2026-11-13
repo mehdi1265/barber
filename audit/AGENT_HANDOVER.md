@@ -72,7 +72,13 @@
 > `002_sync_indexes_and_fk.sql` adds sync indexes, `expenses.deleted_at`, and explicit FK delete
 > policies. 203/203 tests pass; gates are green. No Supabase project exists, so network/device
 > behaviour is unverified.
-> **Next action: T11 when assigned.**
+> **T11 update (2026-11-13):** The color-formula book is complete locally. `ColorFormulaRepository`
+> writes a formula and its items transactionally with one outbox row per row; amounts are rounded to
+> two decimals and capped at 999.99. `/color-formulas` has search/create/detail; detail supports
+> edit, duplicate-as-template (new IDs, `«(کپی)»` title), and confirm-gated delete. Customer detail
+> lists the customer's formulas with a new-formula shortcut. 215/215 tests across 28 files; gates
+> green. Browser/device verification still pending.
+> **Next action: T12 (photos) when assigned.**
 
 
 ---
@@ -461,7 +467,7 @@ Priorities and full acceptance criteria: `audit/DEVELOPMENT_BACKLOG.md`. Require
 | 8 | **T08 Dashboard (done)** | T04, T07 | Today at a glance |
 | 9 | **T09 Sync push (done)** | T03 | Reliable idempotent upload |
 | 10 | **T10 Sync pull/recovery (done)** | T09, T04 | New-device restore + conflict policy |
-| 11 | **T11 Color formulas** | T03, T10 | Formula CRUD + item sync |
+| 11 | **T11 Color formulas (done)** | T03, T10 | Formula CRUD + item sync |
 | 12 | **T12 Photos** | T09, T10 | Offline capture → storage → restore |
 | 13 | **T13 Notifications** | T06 | Permission + reminder lifecycle |
 | 14 | **T14 Settings/profile/history** | T05, T09, T07 | Real settings + customer history |
