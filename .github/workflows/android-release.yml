@@ -1,0 +1,768 @@
+name: Android release (signed APK)
+
+on:
+  workflow_dispatch:
+    inputs:
+      buildMode:
+        description: 'verification = unsigned APK, never published; release = owner keystore, publishable'
+        required: true
+        type: choice
+        options:
+          - verification
+          - release
+        default: verification
+      versionName:
+        description: 'Release version name, e.g. 1.0.1'
+        required: true
+        type: string
+      versionCode:
+        description: 'Positive integer, greater than the last published release'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-release-${{ github.ref }}-${{ inputs.versionCode }}
+  cancel-in-progress: false
+
+env:
+  RELEASE_REPO: ${{ vars.RELEASE_REPO }}
+
+jobs:
+  build:
+    name: Build and verify (${{ inputs.buildMode }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
+
+      - name: Validate inputs
+        env:
+          BUILD_MODE: ${{ inputs.buildMode }}
+          VERSION_NAME: ${{ inputs.versionName }}
+          VERSION_CODE: ${{ inputs.versionCode }}
+          SOURCE_PRIVATE: ${{ github.event.repository.private }}
+        run: |
+          set -euo pipefail
+
+          if [[ "$BUILD_MODE" != "verification" && "$BUILD_MODE" != "release" ]]; then
+            echo "::error::buildMode must be 'verification' or 'release'; got '$BUILD_MODE'"
+            exit 1
+          fi
+
+          if [[ ! "$VERSION_NAME" =~ ^[0-9]+\.[0-9]+\.[0-9]+([-+][0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::versionName must look like 1.0.0 (optionally -rc1); got '$VERSION_NAME'"
+            exit 1
+          fi
+
+          if [[ ! "$VERSION_CODE" =~ ^[1-9][0-9]*$ ]]; then
+            echo "::error::versionCode must be a positive integer; got '$VERSION_CODE'"
+            exit 1
+          fi
+
+          if (( 10#$VERSION_CODE > 2100000000 )); then
+            echo "::error::versionCode must not exceed 2100000000; got '$VERSION_CODE'"
+            exit 1
+          fi
+
+          # A verification build is throwaway and needs no release repository.
+          if [[ "$BUILD_MODE" == "release" && -z "${RELEASE_REPO:-}" ]]; then
+            echo "::error::Repository variable RELEASE_REPO is not set (expected owner/barber-releases)"
+            exit 1
+          fi
+
+          # The baseline requires a private source repository before any signed
+          # release build exists, not only before publication.
+          if [[ "$BUILD_MODE" == "release" && "${SOURCE_PRIVATE:-}" != "true" ]]; then
+            echo "::error::BLOCKED: buildMode=release requires a private source repository."
+            echo "::error::Use buildMode=verification until the repository is private (owner action)."
+            exit 1
+          fi
+
+          echo "buildMode=$BUILD_MODE versionName=$VERSION_NAME versionCode=$VERSION_CODE releaseRepo=${RELEASE_REPO:-<unused for verification>}"
+
+      - name: Preflight official Google Maven
+        run: |
+          set -euo pipefail
+
+          base="https://dl.google.com/dl/android/maven2"
+          artifacts=(
+            "com/google/android/material/material/1.12.0/material-1.12.0.pom"
+            "androidx/activity/activity-ktx/1.9.3/activity-ktx-1.9.3.pom"
+            "com/android/tools/build/gradle/8.11.1/gradle-8.11.1.pom"
+            "com/google/gms/google-services/4.4.2/google-services-4.4.2.pom"
+          )
+
+          failed=0
+          for path in "${artifacts[@]}"; do
+            url="$base/$path"
+            body="$RUNNER_TEMP/preflight.pom"
+            status="$(curl -sS -L -o "$body" -m 60 -w '%{http_code}' "$url" || echo '000')"
+            bytes="$(wc -c < "$body" 2>/dev/null || echo 0)"
+            printf 'HTTP %s  bytes=%s  %s\n' "$status" "$bytes" "$url"
+
+            if [[ "$status" != "200" ]]; then
+              echo "::error::BLOCKED: Google Maven returned HTTP $status for $path"
+              failed=1
+              continue
+            fi
+
+            # A 200 with an HTML error page must not pass as a resolved artifact.
+            if ! grep -q '<project' "$body"; then
+              echo "::error::BLOCKED: the response for $path is not a Maven POM"
+              head -c 200 "$body" || true
+              failed=1
+            fi
+          done
+
+          if (( failed != 0 )); then
+            echo "::error::Do not substitute an unofficial mirror or a local cache. Report BLOCKED and stop."
+            exit 1
+          fi
+
+          echo "Google Maven serves all four required artifacts from this runner"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Set up Java
+        uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
+        with:
+          distribution: temurin
+          # Capacitor 7 plugins in this project compile with
+          # sourceCompatibility/targetCompatibility JavaVersion.VERSION_21 and
+          # kotlin { jvmToolchain(21) }, so JDK 17 fails the build.
+          java-version: '21'
+          cache: gradle
+
+      - name: Guard Java 21 toolchain requirement
+        run: |
+          set -euo pipefail
+          echo "java: $(java -version 2>&1 | head -1)"
+          if ! java -version 2>&1 | head -1 | grep -q '"21\.'; then
+            echo "::error::BLOCKED: the Android build needs a Java 21 JDK for the Capacitor plugin toolchain."
+            exit 1
+          fi
+
+      # Verification runs with no Gradle dependency cache at all, so every artifact
+      # is resolved from google()/mavenCentral() on this run. A cache cannot stand
+      # in for an unreachable Google Maven.
+      - name: Set up Gradle cache
+        if: inputs.buildMode == 'release'
+        uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a # v4
+        with:
+          cache-read-only: false
+
+      - name: Check version monotonicity
+        if: inputs.buildMode == 'release'
+        env:
+          VERSION_CODE: ${{ inputs.versionCode }}
+          VERSION_NAME: ${{ inputs.versionName }}
+        run: |
+          set -euo pipefail
+
+          python3 - <<'PY'
+          import json, os, re, urllib.error, urllib.request
+
+          repo = os.environ["RELEASE_REPO"]
+
+          def get(url):
+              request = urllib.request.Request(
+                  url,
+                  headers={
+                      "Accept": "application/vnd.github+json",
+                      "User-Agent": "barber-android-release-workflow",
+                  },
+              )
+              try:
+                  with urllib.request.urlopen(request, timeout=30) as response:
+                      return json.load(response)
+              except urllib.error.HTTPError as error:
+                  if error.code == 404:
+                      return None
+                  raise SystemExit(f"BLOCKED: GitHub API returned HTTP {error.code} for {url}")
+              except Exception as error:
+                  raise SystemExit(f"BLOCKED: could not reach the GitHub API: {error}")
+
+          if get(f"https://api.github.com/repos/{repo}") is None:
+              raise SystemExit(
+                  f"BLOCKED: release repository {repo} does not exist or is not visible "
+                  "to the workflow token"
+              )
+
+          previous = get(f"https://api.github.com/repos/{repo}/releases/latest")
+          requested = int(os.environ["VERSION_CODE"])
+          if previous is None:
+              print("no previous release found; treating this as the first release")
+              raise SystemExit(0)
+
+          body = previous.get("body") or ""
+          match = re.search(r"versionCode:\s*(\d+)", body)
+          if not match:
+              raise SystemExit(
+                  "previous release has no 'versionCode:' line in its notes; "
+                  "cannot prove monotonicity, refusing to build"
+              )
+
+          previous_code = int(match.group(1))
+          print(f"previous tag={previous.get('tag_name')} versionCode={previous_code} requested={requested}")
+          if requested <= previous_code:
+              raise SystemExit(
+                  f"versionCode {requested} must be greater than previously published {previous_code}"
+              )
+          PY
+
+      - name: Guard Gradle version injection
+        run: |
+          set -euo pipefail
+          if ! grep -q "findProperty('barberVersionCode')" android/app/build.gradle \
+            || ! grep -q "findProperty('barberVersionName')" android/app/build.gradle \
+            || ! grep -q "versionCode barberVersionCode" android/app/build.gradle \
+            || ! grep -q "versionName barberVersionName" android/app/build.gradle; then
+            echo "::error::android/app/build.gradle no longer reads -PbarberVersionCode/-PbarberVersionName."
+            echo "::error::Without it the APK version would not match the workflow inputs."
+            echo "::error::Restore the patch documented in docs/17-direct-distribution-release.md, then re-run."
+            exit 1
+          fi
+
+      - name: Verify Android SDK 36 is installed
+        run: |
+          set -euo pipefail
+
+          sdk="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
+          if [[ -z "$sdk" ]]; then
+            echo "::error::ANDROID_HOME is not set on this runner"
+            exit 1
+          fi
+
+          if [[ ! -d "$sdk/platforms/android-36" || ! -d "$sdk/build-tools/36.1.0" ]]; then
+            echo "Installing missing official SDK packages"
+            yes | sdkmanager --licenses > /dev/null 2>&1 || true
+            sdkmanager "platforms;android-36" "build-tools;36.1.0"
+          fi
+
+          test -d "$sdk/platforms/android-36"
+          test -d "$sdk/build-tools/36.1.0"
+          echo "Android SDK 36 and build-tools 36.1.0 are present"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Type-check
+        run: npm run type-check
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Test
+        run: npm test
+
+      - name: Build web assets
+        run: npm run build
+
+      - name: Sync Capacitor Android
+        run: npx cap sync android
+
+      - name: Verify Capacitor plugin wiring
+        run: |
+          set -euo pipefail
+
+          # `npx cap sync android` regenerates both Gradle files from node_modules.
+          # A stale copy silently drops a plugin from the APK while
+          # assets/capacitor.plugins.json still advertises it, so the failure only
+          # surfaces at the JS call site on a real device.
+          expected_modules=(
+            aparajita-capacitor-secure-storage
+            capacitor-community-sqlite
+            capacitor-app
+            capacitor-camera
+            capacitor-filesystem
+            capacitor-haptics
+            capacitor-keyboard
+            capacitor-local-notifications
+            capacitor-status-bar
+          )
+
+          for module in "${expected_modules[@]}"; do
+            grep -q "project(':$module')" android/app/capacitor.build.gradle || {
+              echo "::error::android/app/capacitor.build.gradle is missing project(':$module')"
+              exit 1
+            }
+            grep -q "include ':$module'" android/capacitor.settings.gradle || {
+              echo "::error::android/capacitor.settings.gradle is missing include ':$module'"
+              exit 1
+            }
+          done
+
+          expected_packages=(
+            "@aparajita/capacitor-secure-storage"
+            "@capacitor-community/sqlite"
+            "@capacitor/app"
+            "@capacitor/camera"
+            "@capacitor/filesystem"
+            "@capacitor/haptics"
+            "@capacitor/keyboard"
+            "@capacitor/local-notifications"
+            "@capacitor/status-bar"
+          )
+          for pkg in "${expected_packages[@]}"; do
+            grep -q "\"pkg\": \"$pkg\"" android/app/src/main/assets/capacitor.plugins.json || {
+              echo "::error::capacitor.plugins.json does not register $pkg"
+              exit 1
+            }
+          done
+          echo "All ${#expected_modules[@]} Capacitor plugin modules are wired and registered"
+
+      - name: Prepare temporary keystore
+        if: inputs.buildMode == 'release'
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+
+          for name in ANDROID_KEYSTORE_BASE64 ANDROID_KEYSTORE_PASSWORD ANDROID_KEY_ALIAS ANDROID_KEY_PASSWORD; do
+            if [[ -z "${!name:-}" ]]; then
+              echo "::error::Missing required secret: $name"
+              echo "::error::Signing secrets must be repository-level secrets because this build job has no environment."
+              exit 1
+            fi
+          done
+
+          umask 077
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/barber-release.jks"
+
+          {
+            printf 'storeFile=%s\n' "$RUNNER_TEMP/barber-release.jks"
+            printf 'storePassword=%s\n' "$ANDROID_KEYSTORE_PASSWORD"
+            printf 'keyAlias=%s\n' "$ANDROID_KEY_ALIAS"
+            printf 'keyPassword=%s\n' "$ANDROID_KEY_PASSWORD"
+          } > android/keystore.properties
+
+          echo "Temporary keystore prepared under RUNNER_TEMP"
+
+      - name: Build release APK
+        env:
+          BUILD_MODE: ${{ inputs.buildMode }}
+          VERSION_NAME: ${{ inputs.versionName }}
+          VERSION_CODE: ${{ inputs.versionCode }}
+        run: |
+          set -euo pipefail
+          cd android
+          ./gradlew --no-daemon \
+            -PbarberVersionName="$VERSION_NAME" \
+            -PbarberVersionCode="$VERSION_CODE" \
+            assembleRelease
+
+          out="app/build/outputs/apk/release"
+          if [[ "$BUILD_MODE" == "release" ]]; then
+            apk="$out/app-release.apk"
+            if [[ ! -f "$apk" ]]; then
+              echo "::error::BLOCKED: $apk is missing; the release signing config was not applied."
+              exit 1
+            fi
+          else
+            apk="$out/app-release-unsigned.apk"
+            if [[ ! -f "$apk" ]]; then
+              echo "::error::Expected the unsigned verification output at $apk"
+              exit 1
+            fi
+            # Signing material must never reach a verification build.
+            if [[ -f "$out/app-release.apk" ]]; then
+              echo "::error::A signed APK exists in verification mode; refusing to continue."
+              exit 1
+            fi
+          fi
+
+          {
+            echo "APK_PATH=android/$apk"
+            echo "APK_NAME=$(basename "$apk")"
+          } >> "$GITHUB_ENV"
+          echo "Built android/$apk"
+
+      - name: Verify plugin classes in APK dex
+        run: |
+          set -euo pipefail
+
+          APK="$APK_PATH"
+          sdk="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
+
+          apkanalyzer_bin="$(command -v apkanalyzer || true)"
+          if [[ -z "$apkanalyzer_bin" ]]; then
+            apkanalyzer_bin="$(find "$sdk/cmdline-tools" -maxdepth 3 -name apkanalyzer -type f 2>/dev/null | sort -V | tail -1)"
+          fi
+          if [[ -z "$apkanalyzer_bin" ]]; then
+            echo "::error::BLOCKED: apkanalyzer was not found; plugin presence in the dex cannot be proven."
+            exit 1
+          fi
+
+          "$apkanalyzer_bin" dex packages "$APK" > "$RUNNER_TEMP/dex-packages.txt"
+
+          # minifyEnabled is false for the release type, so class names survive dexing.
+          # If shrinking is ever enabled these checks must read the R8 mapping file.
+          expected_classes=(
+            com.aparajita.capacitor.securestorage.SecureStorage
+            com.getcapacitor.community.database.sqlite.CapacitorSQLitePlugin
+            com.capacitorjs.plugins.app.AppPlugin
+            com.capacitorjs.plugins.camera.CameraPlugin
+            com.capacitorjs.plugins.filesystem.FilesystemPlugin
+            com.capacitorjs.plugins.haptics.HapticsPlugin
+            com.capacitorjs.plugins.keyboard.KeyboardPlugin
+            com.capacitorjs.plugins.localnotifications.LocalNotificationsPlugin
+            com.capacitorjs.plugins.statusbar.StatusBarPlugin
+          )
+          for class in "${expected_classes[@]}"; do
+            if ! awk -v c="$class" '$1=="C" && $NF==c {found=1} END{exit !found}' "$RUNNER_TEMP/dex-packages.txt"; then
+              echo "::error::Plugin class $class is absent from the APK dex."
+              echo "::error::capacitor.plugins.json would advertise a plugin that fails at runtime."
+              exit 1
+            fi
+          done
+          echo "All ${#expected_classes[@]} Capacitor plugin classes are present in the APK dex"
+
+          unzip -p "$APK" assets/capacitor.plugins.json > "$RUNNER_TEMP/apk-plugins.json"
+          if ! diff -u android/app/src/main/assets/capacitor.plugins.json "$RUNNER_TEMP/apk-plugins.json"; then
+            echo "::error::The packaged capacitor.plugins.json does not match the synced registry."
+            exit 1
+          fi
+          echo "Packaged plugin registry matches the synced registry"
+
+      - name: Verify APK
+        env:
+          BUILD_MODE: ${{ inputs.buildMode }}
+          VERSION_NAME: ${{ inputs.versionName }}
+          VERSION_CODE: ${{ inputs.versionCode }}
+          EXPECTED_CERT_SHA256: ${{ vars.ANDROID_CERT_SHA256 }}
+        run: |
+          set -euo pipefail
+
+          APK="$APK_PATH"
+          if [[ ! -f "$APK" ]]; then
+            echo "::error::Expected APK at $APK"
+            exit 1
+          fi
+
+          sdk="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
+          if [[ -d "$sdk/build-tools/36.1.0" ]]; then
+            build_tools="$sdk/build-tools/36.1.0"
+          else
+            build_tools="$(find "$sdk/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -1)"
+          fi
+          echo "Using build-tools: $build_tools"
+
+          if [[ ! -x "$build_tools/apksigner" ]]; then
+            echo "::error::BLOCKED: apksigner was not found in $build_tools"
+            exit 1
+          fi
+
+          actual_cert=""
+          if [[ "$BUILD_MODE" == "release" ]]; then
+            "$build_tools/apksigner" verify --verbose --print-certs "$APK" | tee "$RUNNER_TEMP/apksigner.txt"
+            grep -q '^Verifies$' "$RUNNER_TEMP/apksigner.txt"
+            grep -qi 'Verified using v[0-9]' "$RUNNER_TEMP/apksigner.txt"
+          else
+            # Unzip still proves the archive is well formed; an unsigned APK must
+            # fail apksigner, so that is asserted rather than treated as a defect.
+            if "$build_tools/apksigner" verify "$APK" > /dev/null 2>&1; then
+              echo "::error::Verification build produced a signed APK; signing material leaked in."
+              exit 1
+            fi
+            echo "Verification build is unsigned as intended"
+          fi
+
+          "$build_tools/zipalign" -c -P 16 4 "$APK"
+          echo "zipalign 16 KB alignment: PASS"
+
+          libs_dir="$RUNNER_TEMP/apk-libs"
+          rm -rf "$libs_dir"
+          mkdir -p "$libs_dir"
+          unzip -q "$APK" 'lib/*/*.so' -d "$libs_dir"
+
+          readelf_tool=""
+          for candidate in \
+            "${ANDROID_NDK_HOME:-/nonexistent}"/toolchains/llvm/prebuilt/*/bin/llvm-readelf \
+            "$sdk"/ndk/*/toolchains/llvm/prebuilt/*/bin/llvm-readelf \
+            /usr/lib/llvm-*/bin/llvm-readelf; do
+            if [[ -x "$candidate" ]]; then
+              readelf_tool="$candidate"
+              break
+            fi
+          done
+          if [[ -z "$readelf_tool" ]]; then
+            echo "::error::BLOCKED: llvm-readelf was not found on the runner, so 16 KB ELF alignment cannot be proven."
+            exit 1
+          fi
+          echo "Using $readelf_tool"
+
+          for lib in "$libs_dir"/lib/*/*.so; do
+            abi="$(basename "$(dirname "$lib")")"
+            mapfile -t loads < <("$readelf_tool" -lW "$lib" | awk '$1=="LOAD" {print $NF}')
+            if [[ "${#loads[@]}" -eq 0 ]]; then
+              echo "::error::No LOAD segments found in $abi/$(basename "$lib")"
+              exit 1
+            fi
+            for align in "${loads[@]}"; do
+              if (( align < 16384 )); then
+                echo "::error::$abi/$(basename "$lib") has LOAD p_align=$align, which is not 16 KB compatible"
+                exit 1
+              fi
+            done
+            printf '%s LOAD p_align: %s\n' "$abi" "${loads[*]}"
+          done
+          echo "ELF LOAD alignment for 16 KB pages: PASS"
+
+          "$build_tools/aapt2" dump badging "$APK" > "$RUNNER_TEMP/badging.txt"
+          grep -q "versionCode='$VERSION_CODE'" "$RUNNER_TEMP/badging.txt"
+          grep -q "versionName='$VERSION_NAME'" "$RUNNER_TEMP/badging.txt"
+          grep -q "package: name='com.barberapp.app'" "$RUNNER_TEMP/badging.txt"
+          grep -q "sdkVersion:'23'" "$RUNNER_TEMP/badging.txt"
+          grep -q "targetSdkVersion:'36'" "$RUNNER_TEMP/badging.txt"
+
+          actual_cert=""
+          if [[ "$BUILD_MODE" == "release" ]]; then
+            actual_cert="$(
+              grep -m1 -i 'SHA-256 digest' "$RUNNER_TEMP/apksigner.txt" \
+                | awk '{print $NF}' | tr -d ':' | tr 'A-F' 'a-f'
+            )"
+            if [[ -z "$actual_cert" ]]; then
+              echo "::error::Could not read the signing certificate SHA-256 digest"
+              exit 1
+            fi
+            echo "Signing certificate SHA-256: $actual_cert"
+            if [[ -z "${EXPECTED_CERT_SHA256:-}" ]]; then
+              echo "::error::ANDROID_CERT_SHA256 is not set; the signing key cannot be checked against the expected certificate."
+              echo "::error::Record the release certificate fingerprint in the repository variable first."
+              exit 1
+            fi
+            expected="$(printf '%s' "$EXPECTED_CERT_SHA256" | tr -d ':' | tr 'A-F' 'a-f')"
+            if [[ "$actual_cert" != "$expected" ]]; then
+              echo "::error::Signing certificate does not match ANDROID_CERT_SHA256 repository variable"
+              exit 1
+            fi
+          fi
+
+          mapfile -t libraries < <(unzip -Z1 "$APK" | grep -E '^lib/[^/]+/libsqlcipher\.so$' | sort)
+          printf 'SQLCipher libraries:\n%s\n' "${libraries[*]}"
+          for abi in arm64-v8a armeabi-v7a x86 x86_64; do
+            if ! printf '%s\n' "${libraries[@]}" | grep -qx "lib/$abi/libsqlcipher.so"; then
+              echo "::error::Missing libsqlcipher.so for ABI $abi"
+              exit 1
+            fi
+          done
+
+          dependency_report="$(cd android && ./gradlew -q :app:dependencies --configuration releaseRuntimeClasspath | grep -m1 'net.zetetic:sqlcipher-android' || true)"
+          echo "SQLCipher dependency: ${dependency_report:-not reported}"
+          if ! grep -q 'net.zetetic:sqlcipher-android:4.10.0' <<< "$dependency_report"; then
+            echo "::error::Expected net.zetetic:sqlcipher-android:4.10.0 in the release runtime classpath"
+            exit 1
+          fi
+
+          aar="$(find "$HOME/.gradle/caches/modules-2/files-2.1/net.zetetic/sqlcipher-android/4.10.0" -name '*.aar' | head -1)"
+          if [[ -z "$aar" ]]; then
+            echo "::error::Could not locate the resolved sqlcipher-android:4.10.0 AAR in the Gradle cache"
+            exit 1
+          fi
+          aar_dir="$RUNNER_TEMP/sqlcipher-aar"
+          rm -rf "$aar_dir"
+          mkdir -p "$aar_dir"
+          unzip -q "$aar" -d "$aar_dir"
+
+          for abi in arm64-v8a armeabi-v7a x86 x86_64; do
+            apk_hash="$(unzip -p "$APK" "lib/$abi/libsqlcipher.so" | sha256sum | awk '{print $1}')"
+            aar_hash="$(sha256sum "$aar_dir/jni/$abi/libsqlcipher.so" 2>/dev/null | awk '{print $1}' || true)"
+            if [[ -z "$aar_hash" ]]; then
+              echo "::error::AAR does not contain jni/$abi/libsqlcipher.so"
+              exit 1
+            fi
+            echo "$abi apk=$apk_hash aar=$aar_hash"
+            if [[ "$apk_hash" != "$aar_hash" ]]; then
+              echo "::error::libsqlcipher.so for $abi does not match the official AAR bytes"
+              exit 1
+            fi
+          done
+
+          apkanalyzer_bin="$(command -v apkanalyzer || true)"
+          if [[ -z "$apkanalyzer_bin" ]]; then
+            apkanalyzer_bin="$(find "$sdk/cmdline-tools" -maxdepth 3 -name apkanalyzer -type f 2>/dev/null | sort -V | tail -1)"
+          fi
+          if [[ -z "$apkanalyzer_bin" ]]; then
+            echo "::error::BLOCKED: apkanalyzer was not found; the dex package check cannot run."
+            exit 1
+          fi
+
+          if "$apkanalyzer_bin" dex packages "$APK" | grep -qE '(^|[[:space:]])net\.sqlcipher([.:[:space:]]|$)'; then
+            echo "::error::Legacy net.sqlcipher classes are present in the dex"
+            exit 1
+          fi
+          echo "No legacy net.sqlcipher packages detected in dex"
+
+          extract_dir="$RUNNER_TEMP/apk-contents"
+          rm -rf "$extract_dir"
+          mkdir -p "$extract_dir"
+          unzip -q "$APK" -d "$extract_dir"
+          if grep -rIalE 'sb_secret_[A-Za-z0-9_-]+|service_role|BEGIN [A-Z ]*PRIVATE KEY|AIza[0-9A-Za-z_-]{35}' "$extract_dir"; then
+            echo "::error::A secret-shaped value was found inside the APK"
+            exit 1
+          fi
+          echo "No secret-shaped values detected in APK payload"
+
+          mkdir -p build/reports
+          {
+            echo "Android build validation ($BUILD_MODE)"
+            echo "Generated: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            echo "buildMode: $BUILD_MODE"
+            echo "distributable: $([[ "$BUILD_MODE" == "release" ]] && echo YES || echo 'NO - verification artifact only')"
+            echo "versionName: $VERSION_NAME"
+            echo "versionCode: $VERSION_CODE"
+            echo "applicationId: com.barberapp.app"
+            echo "minSdk: 23"
+            echo "targetSdk: 36"
+            echo "certificateSha256: ${actual_cert:-unsigned}"
+            echo "sqlcipherDependency: ${dependency_report:-unknown}"
+            echo "sqlcipherLibraries: ${libraries[*]}"
+            echo "zipalign16kStatic: PASS"
+            echo "elfLoadAlign16kStatic: PASS"
+            echo "runtime16k: NOT RUN (no 16 KB page-size device or emulator on the hosted runner)"
+            echo "signature: $([[ "$BUILD_MODE" == "release" ]] && echo VERIFIED || echo UNSIGNED) "
+            echo
+            if [[ "$BUILD_MODE" == "release" ]]; then
+              cat "$RUNNER_TEMP/apksigner.txt"
+              echo
+            fi
+            cat "$RUNNER_TEMP/badging.txt"
+          } > build/reports/android-build-validation.txt
+
+          ( cd "$(dirname "$APK")" && sha256sum "$APK_NAME" > SHA256SUMS )
+          cat "$(dirname "$APK")/SHA256SUMS"
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: android-${{ inputs.buildMode }}-${{ inputs.versionCode }}
+          path: |
+            android/app/build/outputs/apk/release/app-release*.apk
+            android/app/build/outputs/apk/release/SHA256SUMS
+            build/reports/android-build-validation.txt
+          retention-days: 7
+          if-no-files-found: error
+
+      - name: Remove temporary signing material
+        if: always()
+        run: |
+          rm -f android/keystore.properties
+          rm -f "$RUNNER_TEMP/barber-release.jks"
+          rm -rf "$RUNNER_TEMP/apk-contents" "$RUNNER_TEMP/sqlcipher-aar" "$RUNNER_TEMP/apk-libs"
+
+  publish:
+    name: Publish to public release repository
+    needs: build
+    if: ${{ inputs.buildMode == 'release' && vars.ENABLE_AUTO_PUBLISH == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: release-approval
+    permissions:
+      contents: read
+
+    steps:
+      - name: Refuse to publish from a public source repository
+        env:
+          SOURCE_PRIVATE: ${{ github.event.repository.private }}
+        run: |
+          set -euo pipefail
+
+          if [[ "$SOURCE_PRIVATE" != "true" ]]; then
+            echo "::error::BLOCKED: the source repository is public."
+            echo "::error::Publishing a release from a public source repository is forbidden by the baseline."
+            echo "::error::Make the repository private (owner action) and re-run."
+            exit 1
+          fi
+          echo "Source repository is private"
+
+      - name: Download verified artifact
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: android-release-${{ inputs.versionCode }}
+          path: release
+
+      - name: Re-verify signature before publishing
+        env:
+          EXPECTED_CERT_SHA256: ${{ vars.ANDROID_CERT_SHA256 }}
+        run: |
+          set -euo pipefail
+
+          APK="release/android/app/build/outputs/apk/release/app-release.apk"
+          test -f "$APK" || { echo "::error::Signed APK is missing from the artifact"; exit 1; }
+
+          sdk="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
+          build_tools="$sdk/build-tools/36.1.0"
+          [[ -d "$build_tools" ]] || build_tools="$(find "$sdk/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -1)"
+
+          "$build_tools/apksigner" verify --print-certs "$APK" > "$RUNNER_TEMP/publish-apksigner.txt"
+          actual="$(
+            grep -m1 -i 'SHA-256 digest' "$RUNNER_TEMP/publish-apksigner.txt" \
+              | awk '{print $NF}' | tr -d ':' | tr 'A-F' 'a-f'
+          )"
+          expected="$(printf '%s' "${EXPECTED_CERT_SHA256:-}" | tr -d ':' | tr 'A-F' 'a-f')"
+          if [[ -z "$expected" || "$actual" != "$expected" ]]; then
+            echo "::error::The downloaded artifact is not signed with the expected release certificate"
+            exit 1
+          fi
+          "$build_tools/zipalign" -c -P 16 4 "$APK"
+          echo "Artifact signature and 16 KB alignment re-verified"
+
+      - name: Validate artifact before publishing
+        run: |
+          set -euo pipefail
+          test -f release/android/app/build/outputs/apk/release/app-release.apk
+          cd release/android/app/build/outputs/apk/release
+          sha256sum -c SHA256SUMS
+
+      - name: Create GitHub Release in the public repository
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_REPO_TOKEN }}
+          VERSION_NAME: ${{ inputs.versionName }}
+          VERSION_CODE: ${{ inputs.versionCode }}
+          APK: release/android/app/build/outputs/apk/release/app-release.apk
+          SUMS: release/android/app/build/outputs/apk/release/SHA256SUMS
+          REPORT: release/build/reports/android-build-validation.txt
+        run: |
+          set -euo pipefail
+
+          if [[ -z "${GH_TOKEN:-}" ]]; then
+            echo "::error::Missing required secret: RELEASE_REPO_TOKEN"
+            exit 1
+          fi
+
+          tag="v$VERSION_NAME"
+          if gh release view "$tag" --repo "$RELEASE_REPO" > /dev/null 2>&1; then
+            echo "::error::Release $tag already exists in $RELEASE_REPO; refusing to overwrite"
+            exit 1
+          fi
+
+          notes="$RUNNER_TEMP/release-notes.md"
+          {
+            echo "Barber $VERSION_NAME"
+            echo
+            echo "- versionCode: $VERSION_CODE"
+            echo "- Package: com.barberapp.app"
+            echo "- minSdk: 23, targetSdk: 36"
+            echo "- Signed release APK with SHA-256 checksum"
+            echo "- Built from the private source repository on GitHub Actions"
+            echo
+            echo "Upgrade note: install over a previous release signed with the same key."
+          } > "$notes"
+
+          gh release create "$tag" \
+            --repo "$RELEASE_REPO" \
+            --title "Barber $VERSION_NAME (build $VERSION_CODE)" \
+            --notes-file "$notes" \
+            "$APK" "$SUMS" "$REPORT"

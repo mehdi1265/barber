@@ -11,6 +11,9 @@ export interface ReleaseVersion {
 
 const VERSION_NAME = /^[0-9]+\.[0-9]+\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?$/
 
+const PROPERTY_VERSION_CODE = /(project\.findProperty\('barberVersionCode'\)\s*\?:\s*')(\d+)(')/
+const PROPERTY_VERSION_NAME = /(project\.findProperty\('barberVersionName'\)\s*\?:\s*')([^']*)(')/
+
 export function applyVersion(gradle: string, version: ReleaseVersion): string {
   if (!Number.isInteger(version.versionCode) || version.versionCode < 1) {
     throw new Error('versionCode must be a positive integer')
@@ -18,6 +21,13 @@ export function applyVersion(gradle: string, version: ReleaseVersion): string {
   if (!VERSION_NAME.test(version.versionName)) {
     throw new Error('versionName must look like 1.2.3 (or 1.2.3-beta.1)')
   }
+
+  if (PROPERTY_VERSION_CODE.test(gradle) && PROPERTY_VERSION_NAME.test(gradle)) {
+    return gradle
+      .replace(PROPERTY_VERSION_CODE, `$1${version.versionCode}$3`)
+      .replace(PROPERTY_VERSION_NAME, `$1${version.versionName}$3`)
+  }
+
   if (!/versionCode\s+\d+/.test(gradle) || !/versionName\s+"[^"]*"/.test(gradle)) {
     throw new Error('defaultConfig versionCode/versionName not found in build.gradle')
   }

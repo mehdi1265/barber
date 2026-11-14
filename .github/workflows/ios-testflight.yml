@@ -1,0 +1,342 @@
+name: iOS TestFlight
+
+on:
+  workflow_dispatch:
+    inputs:
+      buildNumber:
+        description: 'Positive integer build number for TestFlight'
+        required: true
+        type: string
+      marketingVersion:
+        description: 'Optional marketing version override, e.g. 1.0.1'
+        required: false
+        type: string
+        default: ''
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ios-testflight-${{ inputs.buildNumber }}
+  cancel-in-progress: false
+
+jobs:
+  testflight:
+    name: Archive, export and upload to TestFlight
+    runs-on: macos-26
+    timeout-minutes: 45
+    environment: ios-testflight
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
+
+      - name: Validate inputs
+        env:
+          BUILD_NUMBER: ${{ inputs.buildNumber }}
+          MARKETING_VERSION: ${{ inputs.marketingVersion }}
+        run: |
+          set -euo pipefail
+
+          if [[ ! "$BUILD_NUMBER" =~ ^[1-9][0-9]*$ ]]; then
+            echo "::error::buildNumber must be a positive integer; got '$BUILD_NUMBER'"
+            exit 1
+          fi
+
+          if [[ -n "$MARKETING_VERSION" && ! "$MARKETING_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::marketingVersion must look like 1.0.1 when provided"
+            exit 1
+          fi
+
+      - name: Select Xcode 26.6
+        run: |
+          set -euo pipefail
+          if [[ ! -d /Applications/Xcode_26.6.app ]]; then
+            echo "::error::BLOCKED: expected /Applications/Xcode_26.6.app on this runner."
+            ls -d /Applications/Xcode*.app || true
+            exit 1
+          fi
+          sudo xcode-select -s /Applications/Xcode_26.6.app
+          version="$(xcodebuild -version | head -1)"
+          echo "$version"
+          if [[ "$version" != *"Xcode 26.6"* ]]; then
+            echo "::error::BLOCKED: expected Xcode 26.6, got '$version'"
+            exit 1
+          fi
+          xcrun --sdk iphoneos --show-sdk-version
+
+      - name: Guard shared Xcode scheme
+        run: |
+          set -euo pipefail
+          if ! compgen -G "ios/App/App.xcodeproj/xcshareddata/xcschemes/*.xcscheme" > /dev/null; then
+            echo "::error::BLOCKED: no shared Xcode scheme is committed for ios/App/App.xcodeproj."
+            echo "::error::Open the project once in Xcode and enable 'Shared' for the App scheme,"
+            echo "::error::or add App.xcscheme under xcshareddata/xcschemes. See docs/17-direct-distribution-release.md."
+            exit 1
+          fi
+          ls -1 ios/App/App.xcodeproj/xcshareddata/xcschemes
+
+      - name: Guard CocoaPods lockfile
+        run: |
+          set -euo pipefail
+          if [[ ! -f ios/App/Podfile.lock ]]; then
+            echo "::error::BLOCKED: ios/App/Podfile.lock is not committed."
+            echo "::error::Archive builds must resolve the same dependency versions every time."
+            echo "::error::Generate the lockfile with 'pod install' on macOS, commit it, then re-run."
+            exit 1
+          fi
+
+      - name: Verify required secrets are present
+        env:
+          APPSTORE_API_KEY_ID: ${{ secrets.APPSTORE_API_KEY_ID }}
+          APPSTORE_API_ISSUER_ID: ${{ secrets.APPSTORE_API_ISSUER_ID }}
+          APPSTORE_API_PRIVATE_KEY: ${{ secrets.APPSTORE_API_PRIVATE_KEY }}
+          IOS_DIST_CERT_P12_BASE64: ${{ secrets.IOS_DIST_CERT_P12_BASE64 }}
+          IOS_DIST_CERT_PASSWORD: ${{ secrets.IOS_DIST_CERT_PASSWORD }}
+          IOS_PROVISIONING_PROFILE_BASE64: ${{ secrets.IOS_PROVISIONING_PROFILE_BASE64 }}
+          IOS_PROFILE_NAME: ${{ secrets.IOS_PROFILE_NAME }}
+          IOS_TEAM_ID: ${{ secrets.IOS_TEAM_ID }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+        run: |
+          set -euo pipefail
+
+          missing=0
+          for name in \
+            APPSTORE_API_KEY_ID APPSTORE_API_ISSUER_ID APPSTORE_API_PRIVATE_KEY \
+            IOS_DIST_CERT_P12_BASE64 IOS_DIST_CERT_PASSWORD \
+            IOS_PROVISIONING_PROFILE_BASE64 IOS_PROFILE_NAME IOS_TEAM_ID KEYCHAIN_PASSWORD; do
+            if [[ -z "${!name:-}" ]]; then
+              echo "::error::Missing required secret: $name"
+              missing=1
+            fi
+          done
+          if [[ "$missing" -ne 0 ]]; then
+            exit 1
+          fi
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Type-check and build web assets
+        run: npm run build
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Sync Capacitor iOS
+        run: npx cap sync ios
+
+      - name: Install CocoaPods dependencies
+        run: |
+          set -euo pipefail
+          cd ios/App
+          pod install --deployment
+
+      - name: Audit privacy manifest and export compliance
+        run: |
+          set -euo pipefail
+
+          echo "Privacy manifests inside the app:"
+          find ios/App -name 'PrivacyInfo.xcprivacy' -not -path '*/Pods/*' -print || true
+
+          if ! find ios/App/App -name 'PrivacyInfo.xcprivacy' -print -quit | grep -q .; then
+            echo "::warning::No app-level PrivacyInfo.xcprivacy is committed; required-reason API declarations still need review."
+          fi
+
+          echo "Privacy manifests provided by pods:"
+          find ios/App/Pods -name 'PrivacyInfo.xcprivacy' -print 2>/dev/null | head -50 || true
+
+          echo "Required-reason API categories declared by pods:"
+          grep -Rho 'NSPrivacyAccessedAPICategory[A-Za-z]*' ios/App/Pods --include='PrivacyInfo.xcprivacy' 2>/dev/null | sort -u || true
+
+          echo "ITSAppUsesNonExemptEncryption in Info.plist:"
+          if /usr/libexec/PlistBuddy -c 'Print :ITSAppUsesNonExemptEncryption' ios/App/App/Info.plist > /dev/null 2>&1; then
+            /usr/libexec/PlistBuddy -c 'Print :ITSAppUsesNonExemptEncryption' ios/App/App/Info.plist
+          else
+            echo "not set; owner must answer export compliance in App Store Connect or set it explicitly"
+          fi
+
+      - name: Import signing certificate and provisioning profile
+        env:
+          IOS_DIST_CERT_P12_BASE64: ${{ secrets.IOS_DIST_CERT_P12_BASE64 }}
+          IOS_DIST_CERT_PASSWORD: ${{ secrets.IOS_DIST_CERT_PASSWORD }}
+          IOS_PROVISIONING_PROFILE_BASE64: ${{ secrets.IOS_PROVISIONING_PROFILE_BASE64 }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+        run: |
+          set -euo pipefail
+
+          umask 077
+          keychain="$RUNNER_TEMP/build.keychain-db"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$keychain"
+
+          printf '%s' "$IOS_DIST_CERT_P12_BASE64" | base64 -d > "$RUNNER_TEMP/distribution.p12"
+          security import "$RUNNER_TEMP/distribution.p12" \
+            -k "$keychain" \
+            -P "$IOS_DIST_CERT_PASSWORD" \
+            -A -t cert -f pkcs12
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -k "$KEYCHAIN_PASSWORD" "$keychain" > /dev/null
+          security list-keychains -d user -s "$keychain"
+
+          mkdir -p "$HOME/Library/MobileDevice/Provisioning Profiles"
+          printf '%s' "$IOS_PROVISIONING_PROFILE_BASE64" \
+            | base64 -d > "$HOME/Library/MobileDevice/Provisioning Profiles/barber-distribution.mobileprovision"
+
+          security find-identity -v -p codesigning "$keychain"
+
+      - name: Archive
+        env:
+          BUILD_NUMBER: ${{ inputs.buildNumber }}
+          MARKETING_VERSION: ${{ inputs.marketingVersion }}
+          IOS_TEAM_ID: ${{ secrets.IOS_TEAM_ID }}
+          IOS_PROFILE_NAME: ${{ secrets.IOS_PROFILE_NAME }}
+        run: |
+          set -euo pipefail
+
+          args=(
+            archive
+            -workspace ios/App/App.xcworkspace
+            -scheme App
+            -configuration Release
+            -destination 'generic/platform=iOS'
+            -archivePath "$RUNNER_TEMP/App.xcarchive"
+            CODE_SIGN_STYLE=Manual
+            CODE_SIGN_IDENTITY="Apple Distribution"
+            DEVELOPMENT_TEAM="$IOS_TEAM_ID"
+            PROVISIONING_PROFILE_SPECIFIER="$IOS_PROFILE_NAME"
+            CURRENT_PROJECT_VERSION="$BUILD_NUMBER"
+          )
+          if [[ -n "$MARKETING_VERSION" ]]; then
+            args+=("MARKETING_VERSION=$MARKETING_VERSION")
+          fi
+
+          xcodebuild "${args[@]}"
+
+          test -d "$RUNNER_TEMP/App.xcarchive"
+
+      - name: Export IPA
+        env:
+          IOS_TEAM_ID: ${{ secrets.IOS_TEAM_ID }}
+          IOS_PROFILE_NAME: ${{ secrets.IOS_PROFILE_NAME }}
+        run: |
+          set -euo pipefail
+
+          plist="$RUNNER_TEMP/ExportOptions.plist"
+          {
+            echo '<?xml version="1.0" encoding="UTF-8"?>'
+            echo '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">'
+            echo '<plist version="1.0"><dict>'
+            echo '  <key>method</key><string>app-store-connect</string>'
+            echo "  <key>teamID</key><string>$IOS_TEAM_ID</string>"
+            echo '  <key>signingStyle</key><string>manual</string>'
+            echo '  <key>signingCertificate</key><string>Apple Distribution</string>'
+            echo '  <key>uploadSymbols</key><true/>'
+            echo '  <key>manageAppVersionAndBuildNumber</key><false/>'
+            echo '  <key>provisioningProfiles</key><dict>'
+            echo "    <key>com.barberapp.app</key><string>$IOS_PROFILE_NAME</string>"
+            echo '  </dict>'
+            echo '</dict></plist>'
+          } > "$plist"
+
+          mkdir -p "$RUNNER_TEMP/export"
+          xcodebuild -exportArchive \
+            -archivePath "$RUNNER_TEMP/App.xcarchive" \
+            -exportPath "$RUNNER_TEMP/export" \
+            -exportOptionsPlist "$plist"
+
+          test -f "$RUNNER_TEMP/export/App.ipa"
+
+      - name: Verify exported IPA
+        env:
+          BUILD_NUMBER: ${{ inputs.buildNumber }}
+          MARKETING_VERSION: ${{ inputs.marketingVersion }}
+        run: |
+          set -euo pipefail
+
+          rm -rf "$RUNNER_TEMP/ipa"
+          mkdir -p "$RUNNER_TEMP/ipa"
+          unzip -q "$RUNNER_TEMP/export/App.ipa" -d "$RUNNER_TEMP/ipa"
+
+          app="$RUNNER_TEMP/ipa/Payload/App.app"
+          test -d "$app"
+
+          codesign --verify --deep --strict --verbose=2 "$app"
+          codesign -dv --verbose=4 "$app" 2> "$RUNNER_TEMP/codesign.txt"
+          cat "$RUNNER_TEMP/codesign.txt"
+          grep -q '^Authority=Apple Distribution' "$RUNNER_TEMP/codesign.txt"
+
+          bundle_id="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app/Info.plist")"
+          build="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$app/Info.plist")"
+          echo "bundleId=$bundle_id build=$build"
+          if [[ "$bundle_id" != "com.barberapp.app" ]]; then
+            echo "::error::Exported IPA has bundle id '$bundle_id', expected com.barberapp.app"
+            exit 1
+          fi
+          if [[ "$build" != "$BUILD_NUMBER" ]]; then
+            echo "::error::Exported IPA has build number '$build', expected '$BUILD_NUMBER'"
+            exit 1
+          fi
+
+          if [[ -n "$MARKETING_VERSION" ]]; then
+            marketing="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$app/Info.plist")"
+            echo "marketingVersion=$marketing"
+            if [[ "$marketing" != "$MARKETING_VERSION" ]]; then
+              echo "::error::Exported IPA has marketing version '$marketing', expected '$MARKETING_VERSION'"
+              exit 1
+            fi
+          fi
+
+          echo "IPA signature, bundle id and version fields verified"
+
+      - name: Upload to TestFlight
+        env:
+          APPSTORE_API_KEY_ID: ${{ secrets.APPSTORE_API_KEY_ID }}
+          APPSTORE_API_ISSUER_ID: ${{ secrets.APPSTORE_API_ISSUER_ID }}
+          APPSTORE_API_PRIVATE_KEY: ${{ secrets.APPSTORE_API_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+
+          mkdir -p "$HOME/.appstoreconnect/private_keys"
+          key="$HOME/.appstoreconnect/private_keys/AuthKey_${APPSTORE_API_KEY_ID}.p8"
+          printf '%s' "$APPSTORE_API_PRIVATE_KEY" > "$key"
+          chmod 600 "$key"
+
+          ipa="$RUNNER_TEMP/export/App.ipa"
+          altool_help="$(xcrun altool --help 2>&1 || true)"
+
+          if grep -q -- '--upload-package' <<< "$altool_help"; then
+            echo "Using altool --upload-package (current flag)"
+            xcrun altool --upload-package "$ipa" \
+              --type ios \
+              --apiKey "$APPSTORE_API_KEY_ID" \
+              --apiIssuer "$APPSTORE_API_ISSUER_ID" \
+              --verbose
+          elif grep -q -- '--upload-app' <<< "$altool_help"; then
+            echo "Using deprecated altool --upload-app (not available as --upload-package)"
+            xcrun altool --upload-app \
+              -f "$ipa" \
+              -t ios \
+              --apiKey "$APPSTORE_API_KEY_ID" \
+              --apiIssuer "$APPSTORE_API_ISSUER_ID" \
+              --verbose
+          else
+            echo "::error::BLOCKED: this altool exposes neither --upload-package nor --upload-app."
+            exit 1
+          fi
+
+      - name: Remove temporary signing material
+        if: always()
+        run: |
+          security delete-keychain "$RUNNER_TEMP/build.keychain-db" 2>/dev/null || true
+          rm -f "$RUNNER_TEMP/distribution.p12" "$RUNNER_TEMP/ExportOptions.plist"
+          rm -rf "$RUNNER_TEMP/App.xcarchive" "$RUNNER_TEMP/export" "$RUNNER_TEMP/ipa"
+          rm -f "$RUNNER_TEMP/codesign.txt"
+          rm -f "$HOME/Library/MobileDevice/Provisioning Profiles/barber-distribution.mobileprovision"
+          rm -f "$HOME/.appstoreconnect/private_keys/AuthKey_"*".p8"

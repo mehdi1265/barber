@@ -7,8 +7,12 @@ android {
         applicationId "com.barberapp.app"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 1
-        versionName "1.0"
+        // CI passes -PbarberVersionCode/-PbarberVersionName; the fallback literals below are
+        // what scripts/android-release.ts rewrites for local release builds.
+        def barberVersionCode = (project.findProperty('barberVersionCode') ?: '1').toString()
+        def barberVersionName = (project.findProperty('barberVersionName') ?: '1.0').toString()
+        versionCode barberVersionCode.toInteger()
+        versionName barberVersionName
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.

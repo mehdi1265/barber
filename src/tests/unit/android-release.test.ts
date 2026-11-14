@@ -40,6 +40,23 @@ describe('android release helpers', () => {
     )
   })
 
+  it('updates the fallback literals when versions come from Gradle properties', () => {
+    const propertyGradle = `android {
+    defaultConfig {
+        def barberVersionCode = (project.findProperty('barberVersionCode') ?: '1').toString()
+        def barberVersionName = (project.findProperty('barberVersionName') ?: '1.0').toString()
+        versionCode barberVersionCode.toInteger()
+        versionName barberVersionName
+    }
+}
+`
+    const updated = applyVersion(propertyGradle, { versionName: '1.2.3', versionCode: 42 })
+
+    expect(updated).toContain("findProperty('barberVersionCode') ?: '42'")
+    expect(updated).toContain("findProperty('barberVersionName') ?: '1.2.3'")
+    expect(updated).toContain('versionCode barberVersionCode.toInteger()')
+  })
+
   it('injects the signing block once and keeps the patch idempotent', () => {
     const once = applySigning(GRADLE)
     const twice = applySigning(once)
