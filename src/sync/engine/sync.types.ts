@@ -28,7 +28,11 @@ export interface SelectOptions {
   /** Only rows with `updated_at` strictly greater than this ISO timestamp. */
   since?: string
   limit: number
-  offset: number
+  /**
+   * Keyset cursor: return rows ordered after this `(updated_at, id)` pair.
+   * Offset pagination skips rows when another device deletes mid-scan.
+   */
+  after?: { updatedAt: string; id: string }
 }
 
 export interface PhotoUpload {

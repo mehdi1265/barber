@@ -103,7 +103,10 @@ export const colorFormulaSchema = z.object({
     .optional()
     .nullable()
     .transform(v => (v?.trim() ? v : null)),
-  items: z.array(formulaItemSchema).min(1, 'حداقل یک قلم مواد لازم است'),
+  items: z
+    .array(formulaItemSchema)
+    .min(1, 'حداقل یک قلم مواد لازم است')
+    .max(50, 'حداکثر ۵۰ قلم مواد مجاز است'),
 })
 
 export type ColorFormulaFormData = z.infer<typeof colorFormulaSchema>

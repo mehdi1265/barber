@@ -102,6 +102,7 @@ export class CustomerPhotoRepository {
       )
 
       await addToOutbox(this.db, {
+        user_id: this.userId,
         entity_type: 'customer_photos',
         entity_id: photo.id,
         operation: 'insert',
@@ -128,6 +129,7 @@ export class CustomerPhotoRepository {
         [now, now, id, this.userId]
       )
       await addToOutbox(this.db, {
+        user_id: this.userId,
         entity_type: 'customer_photos',
         entity_id: id,
         operation: 'delete',

@@ -63,9 +63,11 @@ export function isRecoveryTarget(url: string, scheme = 'barberapp'): boolean {
   if (!params) return false
   if (!params.protocol) return true // raw hash from the web reset page
   if (params.protocol === `${scheme}:`) {
-    return params.host === 'reset-password' || params.path.startsWith('/reset-password')
+    return params.host === 'reset-password'
   }
-  return params.path === '/reset-password' || params.path.startsWith('/reset-password')
+  // Exact path only: `/reset-password-anything` must not be treated as a
+  // recovery endpoint.
+  return params.path === '/reset-password' || params.path === '/reset-password/'
 }
 
 export function parseRecoveryLink(url: string): RecoveryLink {
@@ -80,8 +82,10 @@ export function parseRecoveryLink(url: string): RecoveryLink {
   if (error) return { kind: 'error', message: error }
 
   const type = params.hash.get('type') ?? params.query.get('type')
-  const accessToken = params.hash.get('access_token') ?? params.query.get('access_token')
-  const refreshToken = params.hash.get('refresh_token') ?? params.query.get('refresh_token')
+  // Session tokens are read from the fragment only. Query-string tokens would
+  // be sent to the web server and land in proxy/access logs.
+  const accessToken = params.hash.get('access_token')
+  const refreshToken = params.hash.get('refresh_token')
   const rawHash = !params.protocol
 
   if (accessToken && refreshToken && (type === 'recovery' || (!rawHash && isRecoveryTarget(url)))) {

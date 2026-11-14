@@ -9,6 +9,15 @@ export default defineConfig({
     coverage: {
       provider: 'v8',
       reporter: ['text', 'json', 'html'],
+      // Baseline recorded 2026-11-14: 73.58% stmts / 66.11% branch /
+      // 67.68% funcs / 75.47% lines. Thresholds sit below it to catch
+      // regressions without failing on minor v8 variance.
+      thresholds: {
+        statements: 70,
+        branches: 60,
+        functions: 60,
+        lines: 70,
+      },
       exclude: [
         'node_modules/',
         'src/tests/',

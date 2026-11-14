@@ -9,6 +9,7 @@ import { supabase } from '@services/supabase/client'
 import { getDatabase } from '@database/sqlite/database'
 import { ProfileRepository } from '@database/repositories/profile.repository'
 import { countPendingOutbox } from '@sync/outbox/outbox.repository'
+import { useAuthStore } from '@state/auth.store'
 import type { Profile } from '@shared/types'
 import type { LoginFormData, RegisterFormData } from './auth.schemas'
 import { mapAuthError } from './auth.errors'
@@ -48,7 +49,12 @@ function displayNameFor(user: ProfileUser): string {
 }
 
 /**
- * Idempotent: returns the existing profile or creates exactly one row.
+ * Idempotent: returns the existing profile or creates exactly one local row.
+ *
+ * The local row is a placeholder and is not queued for push: the account's
+ * cloud profile already exists, and upserting device defaults would overwrite
+ * its phone/currency. Pulling the cloud row fills it in.
+ *
  * Never throws — a missing database is retried on the next launch/login.
  */
 export async function ensureProfile(
@@ -60,7 +66,7 @@ export async function ensureProfile(
     const existing = await repo.getProfile(user.id)
     if (existing) return { created: false, profile: existing }
 
-    const profile = await repo.createProfile({
+    const profile = await repo.ensureLocalProfile({
       id: user.id,
       user_id: user.id,
       display_name: displayNameFor(user),
@@ -138,9 +144,11 @@ export async function registerUseCase(data: RegisterFormData): Promise<RegisterR
 // ── Logout ────────────────────────────────────────────────────────────────────
 
 export async function getPendingOutboxCount(): Promise<number> {
+  const userId = useAuthStore.getState().userId
+  if (!userId) return 0
   try {
     const db = await getDatabase()
-    return await countPendingOutbox(db)
+    return await countPendingOutbox(db, userId)
   } catch (err) {
     console.error('[auth] could not count outbox rows:', err)
     return 0
@@ -173,17 +181,78 @@ export async function logoutUseCase(): Promise<SimpleResult> {
 
 // ── Password reset ────────────────────────────────────────────────────────────
 
-export async function requestPasswordResetUseCase(email: string): Promise<SimpleResult> {
-  const redirectTo = Capacitor.isNativePlatform()
-    ? NATIVE_RECOVERY_URL
-    : `${window.location.origin}/reset-password`
+/**
+ * Optional verified HTTPS redirect configured at build time. When present it
+ * replaces the custom scheme for recovery emails, so another installed app
+ * cannot intercept the link. The value must be an https URL on the
+ * `/reset-password` path (the bare origin is accepted and normalised).
+ */
+function configuredRecoveryRedirect(): string | null {
+  const raw = (import.meta.env.VITE_RECOVERY_REDIRECT_URL as string | undefined)?.trim()
+  if (!raw) return null
 
   try {
-    const { error } = await supabase.auth.resetPasswordForEmail(email, { redirectTo })
+    const url = new URL(raw)
+    if (url.protocol !== 'https:') {
+      console.error('[auth] VITE_RECOVERY_REDIRECT_URL must use https; ignoring it')
+      return null
+    }
+    if (url.pathname === '/' || url.pathname === '') url.pathname = '/reset-password'
+    if (url.pathname !== '/reset-password' && url.pathname !== '/reset-password/') {
+      console.error('[auth] VITE_RECOVERY_REDIRECT_URL must point at /reset-password; ignoring it')
+      return null
+    }
+    url.search = ''
+    url.hash = ''
+    return url.toString()
+  } catch {
+    console.error('[auth] VITE_RECOVERY_REDIRECT_URL is not a valid URL; ignoring it')
+    return null
+  }
+}
+
+/** Recovery emails go to the verified HTTPS domain when configured. */
+export function recoveryRedirectUrl(): string {
+  const configured = configuredRecoveryRedirect()
+  if (configured) return configured
+  return Capacitor.isNativePlatform()
+    ? NATIVE_RECOVERY_URL
+    : `${window.location.origin}/reset-password`
+}
+
+export async function requestPasswordResetUseCase(email: string): Promise<SimpleResult> {
+  try {
+    const { error } = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo: recoveryRedirectUrl(),
+    })
     if (error) return { error: { message: mapAuthError(error.message) } }
     return { error: null }
   } catch (err) {
     console.error('[auth] password reset request failed:', err)
+    return { error: { message: mapAuthError(err instanceof Error ? err.message : 'network') } }
+  }
+}
+
+/**
+ * Completes recovery with the code from the reset email. The code is bound to
+ * the email address and is consumed by Supabase, so an intercepted code cannot
+ * be replayed and cannot target another account.
+ */
+export async function verifyRecoveryOtpUseCase(
+  email: string,
+  token: string
+): Promise<SimpleResult> {
+  try {
+    const { data, error } = await supabase.auth.verifyOtp({
+      email: email.trim(),
+      token: token.trim(),
+      type: 'recovery',
+    })
+    if (error) return { error: { message: mapAuthError(error.message) } }
+    if (!data.session) return { error: { message: INVALID_RECOVERY_MESSAGE } }
+    return { error: null }
+  } catch (err) {
+    console.error('[auth] recovery code verification failed:', err)
     return { error: { message: mapAuthError(err instanceof Error ? err.message : 'network') } }
   }
 }

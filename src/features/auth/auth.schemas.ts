@@ -37,6 +37,15 @@ const strongPassword = z
   .regex(/[A-Za-z]/, 'رمز عبور باید حداقل یک حرف داشته باشد')
   .regex(/[0-9]/, 'رمز عبور باید حداقل یک عدد داشته باشد')
 
+/** Supabase email OTPs are 6 digits by default and configurable up to 10. */
+export const recoveryOtpSchema = z.object({
+  email: z.string().min(1, 'ایمیل الزامی است').email('ایمیل معتبر وارد کنید'),
+  token: z
+    .string()
+    .trim()
+    .regex(/^\d{6,10}$/, 'کد بازیابی باید ۶ تا ۱۰ رقم باشد'),
+})
+
 export const resetPasswordSchema = z
   .object({
     password: strongPassword,
@@ -48,4 +57,5 @@ export const resetPasswordSchema = z
   })
 
 export type ForgotPasswordFormData = z.infer<typeof forgotPasswordSchema>
+export type RecoveryOtpFormData = z.infer<typeof recoveryOtpSchema>
 export type ResetPasswordFormData = z.infer<typeof resetPasswordSchema>

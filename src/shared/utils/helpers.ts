@@ -109,5 +109,5 @@ export function normalizeDigits(value: string): string {
 
 /** Simple search: checks if needle exists (case-insensitive) in haystack */
 export function matchesSearch(haystack: string, needle: string): boolean {
-  return haystack.toLowerCase().includes(normalizeDigits(needle).toLowerCase())
+  return normalizeDigits(haystack).toLowerCase().includes(normalizeDigits(needle).toLowerCase())
 }

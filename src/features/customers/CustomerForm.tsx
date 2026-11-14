@@ -1,4 +1,5 @@
 import { useForm } from 'react-hook-form'
+import type { z } from 'zod'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { customerSchema, type CustomerFormData } from './customers.schemas'
 import { FormField } from '@shared/components/forms/FormField'
@@ -23,7 +24,7 @@ export function CustomerForm({
     register,
     handleSubmit,
     formState: { errors, isSubmitting },
-  } = useForm<CustomerFormData>({
+  } = useForm<z.input<typeof customerSchema>, unknown, CustomerFormData>({
     resolver: zodResolver(customerSchema),
     defaultValues: {
       name: defaultValues?.name ?? '',

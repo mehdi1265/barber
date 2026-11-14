@@ -1,5 +1,6 @@
 import { useEffect } from 'react'
 import { useForm } from 'react-hook-form'
+import type { z } from 'zod'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { FormField } from '@shared/components/forms/FormField'
 import { Button } from '@shared/components/ui/Button'
@@ -21,7 +22,7 @@ export function ProfileSettings({ profile, saved, error, onSave }: ProfileSettin
     handleSubmit,
     reset,
     formState: { errors, isSubmitting },
-  } = useForm<ProfileFormData>({
+  } = useForm<z.input<typeof profileSchema>, unknown, ProfileFormData>({
     resolver: zodResolver(profileSchema),
     defaultValues: {
       display_name: profile?.display_name ?? '',

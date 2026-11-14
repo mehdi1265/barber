@@ -2,7 +2,7 @@
  * Vitest global test setup.
  */
 
-import '@testing-library/jest-dom'
+import '@testing-library/jest-dom/vitest'
 import { vi } from 'vitest'
 
 declare global {
@@ -20,22 +20,26 @@ vi.mock('@capacitor/core', () => ({
 
 vi.mock('@capacitor-community/sqlite', () => ({
   CapacitorSQLite: {},
-  SQLiteConnection: vi.fn().mockImplementation(() => ({
-    initWebStore: vi.fn().mockResolvedValue(undefined),
-    saveToStore: vi.fn().mockResolvedValue(undefined),
-    isSecretStored: vi.fn().mockResolvedValue({ result: true }),
-    setEncryptionSecret: vi.fn().mockResolvedValue(undefined),
-    checkConnectionsConsistency: vi.fn().mockResolvedValue({ result: false }),
-    isConnection: vi.fn().mockResolvedValue({ result: false }),
-    createConnection: vi.fn().mockResolvedValue({
-      open: vi.fn().mockResolvedValue(undefined),
-      execute: vi.fn().mockResolvedValue(undefined),
-      run: vi.fn().mockResolvedValue(undefined),
-      query: vi.fn().mockResolvedValue({ values: [] }),
-    }),
-    retrieveConnection: vi.fn(),
-    closeConnection: vi.fn().mockResolvedValue(undefined),
-  })),
+  // Must stay a regular function: Vitest 5 no longer allows `new` on mocks
+  // built from arrow functions (`mockImplementation(() => ...)`).
+  SQLiteConnection: vi.fn(function () {
+    return {
+      initWebStore: vi.fn().mockResolvedValue(undefined),
+      saveToStore: vi.fn().mockResolvedValue(undefined),
+      isSecretStored: vi.fn().mockResolvedValue({ result: true }),
+      setEncryptionSecret: vi.fn().mockResolvedValue(undefined),
+      checkConnectionsConsistency: vi.fn().mockResolvedValue({ result: false }),
+      isConnection: vi.fn().mockResolvedValue({ result: false }),
+      createConnection: vi.fn().mockResolvedValue({
+        open: vi.fn().mockResolvedValue(undefined),
+        execute: vi.fn().mockResolvedValue(undefined),
+        run: vi.fn().mockResolvedValue(undefined),
+        query: vi.fn().mockResolvedValue({ values: [] }),
+      }),
+      retrieveConnection: vi.fn(),
+      closeConnection: vi.fn().mockResolvedValue(undefined),
+    }
+  }),
   SQLiteDBConnection: vi.fn(),
 }))
 

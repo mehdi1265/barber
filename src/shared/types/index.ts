@@ -145,6 +145,8 @@ export interface CustomerPhoto extends BaseEntity, SoftDeletable {
 
 export interface SyncOutbox {
   id: UUID
+  /** Account that owns this operation; never crosses accounts */
+  user_id: UUID
   entity_type: string
   entity_id: UUID
   operation: OutboxOperation

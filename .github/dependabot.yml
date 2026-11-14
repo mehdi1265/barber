@@ -11,9 +11,6 @@ updates:
       production-dependencies:
         dependency-type: production
     ignore:
-      # zod 4 is a breaking migration; revisit deliberately.
-      - dependency-name: zod
-        update-types: ['version-update:semver-major']
       # Capacitor majors must move together with the native projects.
       - dependency-name: '@capacitor/*'
         update-types: ['version-update:semver-major']

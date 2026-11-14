@@ -80,6 +80,7 @@ export class ServiceRepository {
       )
 
       await addToOutbox(this.db, {
+        user_id: this.userId,
         entity_type: 'services',
         entity_id: service.id,
         operation: 'insert',
@@ -129,6 +130,7 @@ export class ServiceRepository {
       )
 
       await addToOutbox(this.db, {
+        user_id: this.userId,
         entity_type: 'services',
         entity_id: id,
         operation: 'update',
@@ -141,6 +143,7 @@ export class ServiceRepository {
 
   /** Deactivate instead of delete — preserves snapshot history */
   async deactivate(id: UUID): Promise<void> {
+    if (!(await this.findById(id))) return
     const now = nowISO()
     await withTransaction(this.db, async () => {
       await this.db.run(
@@ -149,6 +152,7 @@ export class ServiceRepository {
       )
 
       await addToOutbox(this.db, {
+        user_id: this.userId,
         entity_type: 'services',
         entity_id: id,
         operation: 'update',

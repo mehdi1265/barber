@@ -141,4 +141,9 @@ describe('matchesSearch', () => {
   it('اعداد فارسی در جست‌وجو پشتیبانی می‌شوند', () => {
     expect(matchesSearch('09121234567', '۰۹۱۲')).toBe(true)
   })
+
+  it('اعداد فارسی داخل متن هم نرمال می‌شوند', () => {
+    expect(matchesSearch('شماره ۰۹۱۲۱۲۳۴۵۶۷', '0912')).toBe(true)
+    expect(matchesSearch('۱۲۳۴۵', '۱۲۳')).toBe(true)
+  })
 })

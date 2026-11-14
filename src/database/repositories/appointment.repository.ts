@@ -226,6 +226,7 @@ export class AppointmentRepository {
       }
 
       await addToOutbox(this.db, {
+        user_id: this.userId,
         entity_type: 'appointments',
         entity_id: appointment.id,
         operation: 'insert',
@@ -236,6 +237,7 @@ export class AppointmentRepository {
       // One outbox row per child row, so each service is synced independently.
       for (const svc of services) {
         await addToOutbox(this.db, {
+          user_id: this.userId,
           entity_type: 'appointment_services',
           entity_id: svc.id,
           operation: 'insert',
@@ -256,6 +258,7 @@ export class AppointmentRepository {
         [status, now, id, this.userId]
       )
       await addToOutbox(this.db, {
+        user_id: this.userId,
         entity_type: 'appointments',
         entity_id: id,
         operation: 'update',
@@ -326,6 +329,7 @@ export class AppointmentRepository {
       )
 
       await addToOutbox(this.db, {
+        user_id: this.userId,
         entity_type: 'appointments',
         entity_id: id,
         operation: 'update',
@@ -342,6 +346,7 @@ export class AppointmentRepository {
             this.userId,
           ])
           await addToOutbox(this.db, {
+            user_id: this.userId,
             entity_type: 'appointment_services',
             entity_id: old.id,
             operation: 'delete',
@@ -368,6 +373,7 @@ export class AppointmentRepository {
             ]
           )
           await addToOutbox(this.db, {
+            user_id: this.userId,
             entity_type: 'appointment_services',
             entity_id: svc.id,
             operation: 'insert',
@@ -382,6 +388,7 @@ export class AppointmentRepository {
   }
 
   async softDelete(id: UUID): Promise<void> {
+    if (!(await this.findById(id))) return
     const now = nowISO()
     await withTransaction(this.db, async () => {
       await this.db.run(
@@ -390,6 +397,7 @@ export class AppointmentRepository {
         [now, now, id, this.userId]
       )
       await addToOutbox(this.db, {
+        user_id: this.userId,
         entity_type: 'appointments',
         entity_id: id,
         operation: 'delete',

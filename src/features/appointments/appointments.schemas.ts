@@ -43,7 +43,10 @@ export const appointmentSchema = z.object({
     .optional()
     .nullable()
     .transform(v => (v?.trim() === '' ? null : (v?.trim() ?? null))),
-  services: z.array(serviceLineSchema).min(1, 'حداقل یک خدمت الزامی است'),
+  services: z
+    .array(serviceLineSchema)
+    .min(1, 'حداقل یک خدمت الزامی است')
+    .max(50, 'حداکثر ۵۰ خدمت مجاز است'),
 })
 
 export type AppointmentFormData = z.infer<typeof appointmentSchema>

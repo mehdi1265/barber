@@ -75,6 +75,7 @@ export class ExpenseRepository {
       )
 
       await addToOutbox(this.db, {
+        user_id: this.userId,
         entity_type: 'expenses',
         entity_id: expense.id,
         operation: 'insert',
@@ -118,6 +119,7 @@ export class ExpenseRepository {
       )
 
       await addToOutbox(this.db, {
+        user_id: this.userId,
         entity_type: 'expenses',
         entity_id: id,
         operation: 'update',
@@ -142,6 +144,7 @@ export class ExpenseRepository {
         [now, now, id, this.userId]
       )
       await addToOutbox(this.db, {
+        user_id: this.userId,
         entity_type: 'expenses',
         entity_id: id,
         operation: 'delete',

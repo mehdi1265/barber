@@ -9,6 +9,8 @@ import migration001 from '../migrations/001_initial.sql?raw'
 import migration002 from '../migrations/002_outbox_hardening.sql?raw'
 import migration003 from '../migrations/003_sync_state.sql?raw'
 import migration004 from '../migrations/004_expense_tombstones.sql?raw'
+import migration005 from '../migrations/005_outbox_user_scope.sql?raw'
+import migration006 from '../migrations/006_sync_cursor_user.sql?raw'
 
 interface Migration {
   version: number
@@ -21,6 +23,8 @@ const MIGRATIONS: Migration[] = [
   { version: 2, name: '002_outbox_hardening', sql: migration002 },
   { version: 3, name: '003_sync_state', sql: migration003 },
   { version: 4, name: '004_expense_tombstones', sql: migration004 },
+  { version: 5, name: '005_outbox_user_scope', sql: migration005 },
+  { version: 6, name: '006_sync_cursor_user', sql: migration006 },
 ]
 
 const MIGRATIONS_TABLE = `

@@ -50,6 +50,147 @@ export function projectRefFromUrl(raw: string): string | null {
   }
 }
 
+export interface StagingGuardInput {
+  baseUrl: string
+  stagingRef?: string | null
+  productionRef?: string | null
+}
+
+export interface StagingGuardResult {
+  actualRef: string
+  stagingRef: string
+  productionRef: string
+}
+
+const REF_SHAPE = /^[a-z0-9-]+$/i
+
+/**
+ * Refuses to run unless the URL resolves to the confirmed Staging project and
+ * that ref differs from the declared Production ref. Both refs are required;
+ * there is no fallback and no guessing.
+ */
+export function validateStagingGuard(input: StagingGuardInput): StagingGuardResult {
+  const stagingRef = (input.stagingRef ?? '').trim()
+  const productionRef = (input.productionRef ?? '').trim()
+  if (!stagingRef) {
+    throw new Error(
+      'missing RLS_STAGING_PROJECT_REF: set it to the Staging project ref so this runner refuses to touch Production'
+    )
+  }
+  if (!productionRef) {
+    throw new Error(
+      'missing RLS_PRODUCTION_PROJECT_REF: set it to the Production project ref so this runner can prove it is not touching Production'
+    )
+  }
+  if (!REF_SHAPE.test(stagingRef) || !REF_SHAPE.test(productionRef)) {
+    throw new Error('refusing to run: project refs must contain only letters, digits, and dashes')
+  }
+
+  const actualRef = projectRefFromUrl(input.baseUrl)
+  if (!actualRef) {
+    throw new Error(
+      'refusing to run: the configured URL is not a hosted Supabase project URL, so no project ref can be verified'
+    )
+  }
+  if (actualRef === productionRef) {
+    throw new Error(`refusing to run: ${actualRef} is marked as the Production project`)
+  }
+  if (actualRef !== stagingRef) {
+    throw new Error(
+      `refusing to run: expected Staging project "${stagingRef}", but the configured URL resolves to "${actualRef}"`
+    )
+  }
+
+  return { actualRef, stagingRef, productionRef }
+}
+
+export interface WriteConfirmationInput {
+  preflight: boolean
+  confirmRef?: string | null
+  stagingRef: string
+}
+
+export interface WriteConfirmation {
+  writes: boolean
+  confirmRef: string | null
+}
+
+/**
+ * Writing probes requires `--confirm-ref=<staging-ref>` on the same invocation.
+ * Preflight never writes and therefore never needs confirmation.
+ */
+export function resolveWriteConfirmation(input: WriteConfirmationInput): WriteConfirmation {
+  const stagingRef = input.stagingRef.trim()
+  if (!stagingRef) throw new Error('cannot confirm writes: the Staging project ref is unknown')
+  if (input.preflight) return { writes: false, confirmRef: null }
+
+  const confirmRef = (input.confirmRef ?? '').trim()
+  if (!confirmRef) {
+    throw new Error(
+      `writes are disabled: rerun with --confirm-ref=${stagingRef} to authorize probe rows on Staging`
+    )
+  }
+  if (confirmRef !== stagingRef) {
+    throw new Error('refusing to run: --confirm-ref does not match the confirmed Staging project ref')
+  }
+  return { writes: true, confirmRef }
+}
+
+/** Printed before writes so the operator sees exactly what will happen. */
+export function describeWritePlan(projectRef: string): string[] {
+  return [
+    `INFO  project ref (confirmed): ${projectRef}`,
+    'INFO  destructive plan for this run (all rows are marker-prefixed and owned by user A):',
+    'INFO    - insert one probe row into 11 public tables as user A',
+    'INFO    - attempt update/delete/insert against A as user B (expected to be denied)',
+    'INFO    - upload 1 storage probe object and 1 forbidden storage write',
+    'INFO    - delete only this run\'s probe rows, filtered by id + user_id',
+    'INFO    - delete only this run\'s 2 storage probe objects under A\'s folder',
+  ]
+}
+
+export interface ProbeRow {
+  id?: unknown
+  user_id?: unknown
+}
+
+export type CleanupDecision = 'delete' | 'already-gone' | 'refuse'
+
+/**
+ * Cleanup may only touch rows this run created, owned by the signed-in user.
+ * Anything ambiguous (unknown id, foreign owner, duplicate rows) refuses.
+ */
+export function decideProbeCleanup(input: {
+  id: string
+  row: ProbeRow | null
+  actorId: string
+  expectedIds: ReadonlySet<string>
+}): CleanupDecision {
+  if (!input.expectedIds.has(input.id)) return 'refuse'
+  if (input.row === null) return 'already-gone'
+  if (input.row.id !== input.id) return 'refuse'
+  if (input.row.user_id !== input.actorId) return 'refuse'
+  return 'delete'
+}
+
+/** PostgREST delete path that always carries both the id and the owner filter. */
+export function probeDeletePath(table: string, id: string, ownerId: string): string {
+  return `/rest/v1/${table}?id=eq.${encodeURIComponent(id)}&user_id=eq.${encodeURIComponent(ownerId)}`
+}
+
+/** Storage cleanup may only remove paths under the signed-in user's folder. */
+export function isOwnedProbePath(path: string, ownerId: string): boolean {
+  return path.startsWith(`${ownerId}/`) && path.includes('/rls-probe-') && !path.includes('..')
+}
+
+/** Presence-only view of env keys; values are never returned. */
+export function describeEnvPresence(
+  env: Record<string, string>,
+  names: readonly string[]
+): string[] {
+  return names.map((name) => `${name}=${(env[name] ?? '').trim() ? 'set' : 'unset'}`)
+}
+
 /** Keeps the report useful without storing the full address. */
 export function maskEmail(email: string): string {
   const at = email.indexOf('@')
@@ -138,9 +279,26 @@ export function isRlsViolation(status: number, body: string): boolean {
   return /row-level security|42501|insufficient privilege|permission denied/i.test(body)
 }
 
-/** Short single-line error text for logs; strips newlines and truncates. */
+const SECRET_PATTERNS: Array<[RegExp, string]> = [
+  [/sb_publishable_[A-Za-z0-9_-]+/g, 'sb_publishable_[redacted]'],
+  [/sb_secret_[A-Za-z0-9_-]+/g, 'sb_secret_[redacted]'],
+  [/eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/g, '[redacted-jwt]'],
+  [/(Bearer\s+)[A-Za-z0-9._-]+/gi, '$1[redacted]'],
+  [/((?:apikey|password|access_token)["']?\s*[:=]\s*["']?)[^&\s"',}]+/gi, '$1[redacted]'],
+]
+
+/** Removes key-shaped values from any diagnostic text. */
+export function redactSecrets(text: string): string {
+  let output = text
+  for (const [pattern, replacement] of SECRET_PATTERNS) {
+    output = output.replace(pattern, replacement)
+  }
+  return output
+}
+
+/** Short single-line error text for logs; strips newlines, secrets, and truncates. */
 export function briefError(body: string, limit = 160): string {
-  const compact = body.replace(/\s+/g, ' ').trim()
+  const compact = redactSecrets(body).replace(/\s+/g, ' ').trim()
   return compact.length > limit ? `${compact.slice(0, limit)}…` : compact
 }
 

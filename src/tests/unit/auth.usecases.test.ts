@@ -1,8 +1,9 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const state = vi.hoisted(() => {
   const getProfile = vi.fn()
   const createProfile = vi.fn()
+  const ensureLocalProfile = vi.fn()
 
   class ProfileRepository {
     getProfile(userId: string): Promise<unknown> {
@@ -11,16 +12,21 @@ const state = vi.hoisted(() => {
     createProfile(input: unknown): Promise<unknown> {
       return createProfile(input) as Promise<unknown>
     }
+    ensureLocalProfile(input: unknown): Promise<unknown> {
+      return ensureLocalProfile(input) as Promise<unknown>
+    }
   }
 
   return {
     getProfile,
     createProfile,
+    ensureLocalProfile,
     ProfileRepository,
     signInWithPassword: vi.fn(),
     signUp: vi.fn(),
     signOut: vi.fn(),
     resetPasswordForEmail: vi.fn(),
+    verifyOtp: vi.fn(),
     updateUser: vi.fn(),
     getSession: vi.fn(),
     setSession: vi.fn(),
@@ -37,6 +43,7 @@ vi.mock('@services/supabase/client', () => ({
       signUp: state.signUp,
       signOut: state.signOut,
       resetPasswordForEmail: state.resetPasswordForEmail,
+      verifyOtp: state.verifyOtp,
       updateUser: state.updateUser,
       getSession: state.getSession,
       setSession: state.setSession,
@@ -68,8 +75,10 @@ import {
   registerUseCase,
   requestPasswordResetUseCase,
   updatePasswordUseCase,
+  verifyRecoveryOtpUseCase,
 } from '@features/auth/auth.usecases'
 import { parseRecoveryLink } from '@features/auth/recovery-link'
+import { useAuthStore } from '@state/auth.store'
 
 const USER = {
   id: 'user-1',
@@ -97,20 +106,29 @@ describe('auth use cases', () => {
     state.getDatabase.mockResolvedValue({})
     state.getProfile.mockResolvedValue(null)
     state.createProfile.mockResolvedValue(PROFILE)
+    state.ensureLocalProfile.mockResolvedValue(PROFILE)
     state.getSession.mockResolvedValue({ data: { session: null } })
     state.signOut.mockResolvedValue({ error: null })
+    useAuthStore.setState({ userId: USER.id })
   })
 
-  it('logs in and creates the missing profile once', async () => {
+  afterEach(() => {
+    vi.unstubAllEnvs()
+    useAuthStore.setState({ userId: null })
+  })
+
+  it('logs in and creates the missing local profile once without queueing a push', async () => {
     state.signInWithPassword.mockResolvedValue({ data: { user: USER }, error: null })
 
     const result = await loginUseCase({ email: USER.email, password: 'secret123' })
 
     expect(result.error).toBeNull()
-    expect(state.createProfile).toHaveBeenCalledTimes(1)
-    expect(state.createProfile).toHaveBeenCalledWith(
+    expect(state.ensureLocalProfile).toHaveBeenCalledTimes(1)
+    expect(state.ensureLocalProfile).toHaveBeenCalledWith(
       expect.objectContaining({ id: USER.id, display_name: 'علی' })
     )
+    // A bootstrap placeholder must never overwrite the cloud profile.
+    expect(state.createProfile).not.toHaveBeenCalled()
   })
 
   it('keeps the existing profile instead of creating a duplicate', async () => {
@@ -119,6 +137,7 @@ describe('auth use cases', () => {
 
     await loginUseCase({ email: USER.email, password: 'secret123' })
 
+    expect(state.ensureLocalProfile).not.toHaveBeenCalled()
     expect(state.createProfile).not.toHaveBeenCalled()
   })
 
@@ -132,7 +151,7 @@ describe('auth use cases', () => {
 
     expect(result.error?.message).toBe('ایمیل یا رمز عبور اشتباه است')
     expect(result.error?.message).not.toContain('Invalid')
-    expect(state.createProfile).not.toHaveBeenCalled()
+    expect(state.ensureLocalProfile).not.toHaveBeenCalled()
   })
 
   it('never throws when the database is unavailable', async () => {
@@ -209,6 +228,68 @@ describe('auth use cases', () => {
     })
   })
 
+  it('uses the configured https redirect instead of the custom scheme', async () => {
+    vi.stubEnv('VITE_RECOVERY_REDIRECT_URL', 'https://app.example.com')
+    state.resetPasswordForEmail.mockResolvedValue({ error: null })
+
+    await requestPasswordResetUseCase('ali@example.com')
+
+    expect(state.resetPasswordForEmail).toHaveBeenCalledWith('ali@example.com', {
+      redirectTo: 'https://app.example.com/reset-password',
+    })
+  })
+
+  it('ignores an insecure or off-path redirect override', async () => {
+    vi.stubEnv('VITE_RECOVERY_REDIRECT_URL', 'http://app.example.com/reset-password')
+    state.resetPasswordForEmail.mockResolvedValue({ error: null })
+
+    await requestPasswordResetUseCase('ali@example.com')
+
+    expect(state.resetPasswordForEmail).toHaveBeenCalledWith('ali@example.com', {
+      redirectTo: `${window.location.origin}/reset-password`,
+    })
+
+    vi.stubEnv('VITE_RECOVERY_REDIRECT_URL', 'https://app.example.com/other')
+    await requestPasswordResetUseCase('ali@example.com')
+
+    expect(state.resetPasswordForEmail).toHaveBeenLastCalledWith('ali@example.com', {
+      redirectTo: `${window.location.origin}/reset-password`,
+    })
+  })
+
+  it('exchanges an emailed recovery code for a session', async () => {
+    state.verifyOtp.mockResolvedValue({ data: { session: { access_token: 'at' } }, error: null })
+
+    const result = await verifyRecoveryOtpUseCase(' ali@example.com ', ' 123456 ')
+
+    expect(result.error).toBeNull()
+    expect(state.verifyOtp).toHaveBeenCalledWith({
+      email: 'ali@example.com',
+      token: '123456',
+      type: 'recovery',
+    })
+  })
+
+  it('rejects a recovery code that yields no session', async () => {
+    state.verifyOtp.mockResolvedValue({ data: { session: null }, error: null })
+
+    const result = await verifyRecoveryOtpUseCase('ali@example.com', '123456')
+
+    expect(result.error).not.toBeNull()
+  })
+
+  it('maps an expired recovery code without leaking provider text', async () => {
+    state.verifyOtp.mockResolvedValue({
+      data: { session: null },
+      error: { message: 'Token has expired or is invalid' },
+    })
+
+    const result = await verifyRecoveryOtpUseCase('ali@example.com', '123456')
+
+    expect(result.error?.message).toContain('لینک بازیابی نامعتبر')
+    expect(result.error?.message).not.toContain('Token')
+  })
+
   it('maps a weak-password rejection', async () => {
     state.updateUser.mockResolvedValue({
       error: { message: 'Password should be at least 6 characters' },
@@ -245,6 +326,27 @@ describe('auth use cases', () => {
     expect(parseRecoveryLink('https://app.test/reset-password#error_description=expired')).toEqual({
       kind: 'error',
       message: 'expired',
+    })
+  })
+
+  it('does not treat lookalike paths or query tokens as recovery links', () => {
+    expect(
+      parseRecoveryLink(
+        'https://app.test/reset-password-evil?access_token=at&refresh_token=rt&type=recovery'
+      )
+    ).toEqual({ kind: 'none' })
+    expect(
+      parseRecoveryLink(
+        'https://app.test/reset-password?access_token=at&refresh_token=rt&type=recovery'
+      )
+    ).toEqual({ kind: 'none' })
+    expect(
+      parseRecoveryLink(
+        'https://app.test/reset-password/#access_token=at&refresh_token=rt&type=recovery'
+      )
+    ).toEqual({
+      kind: 'tokens',
+      tokens: { accessToken: 'at', refreshToken: 'rt' },
     })
   })
 

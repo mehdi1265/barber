@@ -1,27 +1,46 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
-import { Link } from 'react-router-dom'
-import { resetPasswordSchema, type ResetPasswordFormData } from './auth.schemas'
-import { applyRecoverySession, hasActiveSession, updatePasswordUseCase } from './auth.usecases'
+import { Link, useSearchParams } from 'react-router-dom'
+import {
+  recoveryOtpSchema,
+  resetPasswordSchema,
+  type RecoveryOtpFormData,
+  type ResetPasswordFormData,
+} from './auth.schemas'
+import {
+  applyRecoverySession,
+  hasActiveSession,
+  updatePasswordUseCase,
+  verifyRecoveryOtpUseCase,
+} from './auth.usecases'
 import { RECOVERY_LINK_EVENT } from './recovery-link'
 import { FormField } from '@shared/components/forms/FormField'
 import { Button } from '@shared/components/ui/Button'
 import { LoadingScreen } from '@shared/components/ui/LoadingScreen'
 import styles from './AuthPage.module.css'
 
-type Phase = 'verifying' | 'ready' | 'invalid' | 'done'
+type Phase = 'verifying' | 'ready' | 'otp' | 'done'
+
+/** Removes tokens/codes from the address bar and browser history. */
+function stripRecoveryParams() {
+  if (!window.location.hash && !window.location.search) return
+  window.history.replaceState(window.history.state, '', window.location.pathname)
+}
 
 export default function ResetPasswordPage() {
+  const [searchParams] = useSearchParams()
+  const emailFromQuery = useMemo(() => searchParams.get('email')?.trim() ?? '', [searchParams])
   const [phase, setPhase] = useState<Phase>('verifying')
   const [serverError, setServerError] = useState<string | null>(null)
 
-  const {
-    register,
-    handleSubmit,
-    formState: { errors, isSubmitting },
-  } = useForm<ResetPasswordFormData>({
+  const passwordForm = useForm<ResetPasswordFormData>({
     resolver: zodResolver(resetPasswordSchema),
+  })
+
+  const otpForm = useForm<RecoveryOtpFormData>({
+    resolver: zodResolver(recoveryOtpSchema),
+    defaultValues: { email: emailFromQuery, token: '' },
   })
 
   useEffect(() => {
@@ -33,12 +52,24 @@ export default function ResetPasswordPage() {
         return
       }
 
-      const { error } = await applyRecoverySession(window.location.hash)
+      // The link may be an implicit fragment, a PKCE code, or absent entirely
+      // (the user came here to type the emailed code).
+      const hasFragmentTokens = window.location.hash.length > 1
+      const hasCode = new URLSearchParams(window.location.search).has('code')
+
+      if (!hasFragmentTokens && !hasCode) {
+        if (!cancelled) setPhase('otp')
+        return
+      }
+
+      const link = hasCode ? window.location.href : window.location.hash
+      const { error } = await applyRecoverySession(link)
+      stripRecoveryParams()
       if (cancelled) return
 
       if (error) {
         setServerError(error.message)
-        setPhase('invalid')
+        setPhase('otp')
       } else {
         setPhase('ready')
       }
@@ -62,11 +93,18 @@ export default function ResetPasswordPage() {
     }
   }, [])
 
-  const onSubmit = async (data: ResetPasswordFormData) => {
+  const onSubmitPassword = async (data: ResetPasswordFormData) => {
     setServerError(null)
     const { error } = await updatePasswordUseCase(data.password)
     if (error) setServerError(error.message)
     else setPhase('done')
+  }
+
+  const onSubmitCode = async (data: RecoveryOtpFormData) => {
+    setServerError(null)
+    const { error } = await verifyRecoveryOtpUseCase(data.email, data.token)
+    if (error) setServerError(error.message)
+    else setPhase('ready')
   }
 
   if (phase === 'verifying') return <LoadingScreen message="در حال بررسی لینک بازیابی…" />
@@ -79,7 +117,11 @@ export default function ResetPasswordPage() {
             🔒
           </div>
           <h1 className={styles.title}>رمز عبور جدید</h1>
-          <p className={styles.subtitle}>یک رمز عبور قوی انتخاب کنید</p>
+          <p className={styles.subtitle}>
+            {phase === 'ready'
+              ? 'یک رمز عبور قوی انتخاب کنید'
+              : 'کد بازیابی ارسال‌شده به ایمیل را وارد کنید'}
+          </p>
         </div>
 
         {phase === 'done' ? (
@@ -93,11 +135,47 @@ export default function ResetPasswordPage() {
               </Link>
             </div>
           </>
-        ) : phase === 'invalid' ? (
+        ) : phase === 'otp' ? (
           <>
-            <div className={styles.serverError} role="alert">
-              {serverError ?? 'لینک بازیابی نامعتبر یا منقضی شده است'}
-            </div>
+            {serverError && (
+              <div className={styles.serverError} role="alert">
+                {serverError}
+              </div>
+            )}
+
+            <form
+              onSubmit={e => {
+                void otpForm.handleSubmit(onSubmitCode)(e)
+              }}
+              noValidate
+              className={styles.form}
+            >
+              <FormField
+                label="ایمیل"
+                type="email"
+                autoComplete="email"
+                inputMode="email"
+                required
+                {...otpForm.register('email')}
+                error={otpForm.formState.errors.email}
+              />
+
+              <FormField
+                label="کد بازیابی"
+                type="text"
+                autoComplete="one-time-code"
+                inputMode="numeric"
+                required
+                hint="کد ۶ تا ۱۰ رقمی موجود در ایمیل بازیابی"
+                {...otpForm.register('token')}
+                error={otpForm.formState.errors.token}
+              />
+
+              <Button type="submit" fullWidth loading={otpForm.formState.isSubmitting} size="lg">
+                تأیید کد
+              </Button>
+            </form>
+
             <div className={styles.footer}>
               <Link to="/forgot-password" className={styles.link}>
                 درخواست لینک جدید
@@ -107,7 +185,7 @@ export default function ResetPasswordPage() {
         ) : (
           <form
             onSubmit={e => {
-              void handleSubmit(onSubmit)(e)
+              void passwordForm.handleSubmit(onSubmitPassword)(e)
             }}
             noValidate
             className={styles.form}
@@ -118,8 +196,8 @@ export default function ResetPasswordPage() {
               autoComplete="new-password"
               required
               hint="حداقل ۸ کاراکتر، شامل حرف و عدد"
-              {...register('password')}
-              error={errors.password}
+              {...passwordForm.register('password')}
+              error={passwordForm.formState.errors.password}
             />
 
             <FormField
@@ -127,8 +205,8 @@ export default function ResetPasswordPage() {
               type="password"
               autoComplete="new-password"
               required
-              {...register('confirmPassword')}
-              error={errors.confirmPassword}
+              {...passwordForm.register('confirmPassword')}
+              error={passwordForm.formState.errors.confirmPassword}
             />
 
             {serverError && (
@@ -137,7 +215,7 @@ export default function ResetPasswordPage() {
               </div>
             )}
 
-            <Button type="submit" fullWidth loading={isSubmitting} size="lg">
+            <Button type="submit" fullWidth loading={passwordForm.formState.isSubmitting} size="lg">
               ذخیره رمز جدید
             </Button>
           </form>

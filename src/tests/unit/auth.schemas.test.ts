@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { loginSchema, registerSchema } from '@features/auth/auth.schemas'
+import { loginSchema, recoveryOtpSchema, registerSchema } from '@features/auth/auth.schemas'
 
 describe('loginSchema', () => {
   it('ایمیل و رمز معتبر قبول می‌شود', () => {
@@ -11,6 +11,7 @@ describe('loginSchema', () => {
     const result = loginSchema.safeParse({ email: 'not-an-email', password: 'pass123' })
     expect(result.success).toBe(false)
     expect(result.error?.issues[0].path[0]).toBe('email')
+    expect(result.error?.issues[0].message).toBe('ایمیل معتبر وارد کنید')
   })
 
   it('رمز کمتر از ۶ کاراکتر رد می‌شود', () => {
@@ -65,5 +66,23 @@ describe('registerSchema', () => {
     const r = registerSchema.safeParse({ ...valid, confirmPassword: 'DifferentPass1' })
     expect(r.success).toBe(false)
     expect(r.error?.issues[0].path[0]).toBe('confirmPassword')
+  })
+})
+
+describe('recoveryOtpSchema', () => {
+  it('accepts a 6-digit code and trims it', () => {
+    expect(recoveryOtpSchema.parse({ email: 'ali@example.com', token: ' 123456 ' }).token).toBe(
+      '123456'
+    )
+  })
+
+  it('rejects short, long, and non-numeric codes', () => {
+    for (const token of ['12345', '12345678901', 'abcdef']) {
+      expect(recoveryOtpSchema.safeParse({ email: 'ali@example.com', token }).success).toBe(false)
+    }
+  })
+
+  it('rejects an invalid email', () => {
+    expect(recoveryOtpSchema.safeParse({ email: 'nope', token: '123456' }).success).toBe(false)
   })
 })

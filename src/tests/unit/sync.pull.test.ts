@@ -20,8 +20,15 @@ function createFakeClient(rowsByTable: Partial<Record<SyncTable, RemoteRow[]>> =
     },
     select(table, options) {
       calls.push({ table, options })
-      const all = rowsByTable[table] ?? []
-      return Promise.resolve(all.slice(options.offset, options.offset + options.limit))
+      let rows = rowsByTable[table] ?? []
+      if (options.after) {
+        const { updatedAt, id } = options.after
+        rows = rows.filter(row => {
+          const rowUpdatedAt = String(row.updated_at)
+          return rowUpdatedAt > updatedAt || (rowUpdatedAt === updatedAt && String(row.id) > id)
+        })
+      }
+      return Promise.resolve(rows.slice(0, options.limit))
     },
   }
 
@@ -238,9 +245,12 @@ describe('pullFromCloud', () => {
 
     expect(result.pulled).toBe(3)
     expect(harness.countRows('customers')).toBe(3)
-    expect(
-      calls.filter(call => call.table === 'customers').map(call => call.options.offset)
-    ).toEqual([0, 2])
+    // Keyset pagination: page two starts strictly after the last (updated_at, id).
+    const customerCalls = calls.filter(call => call.table === 'customers')
+    expect(customerCalls.map(call => call.options.after)).toEqual([
+      undefined,
+      { updatedAt: rows[1].updated_at, id: 'cus-2' },
+    ])
   })
 
   it('تا وقتی تغییر محلی در صف است نسخه ابری را اعمال نمی‌کند', async () => {
@@ -354,7 +364,7 @@ describe('pullFromCloud', () => {
 
   it('در حالت افزایشی با پنج دقیقه هم‌پوشانی می‌خواند', async () => {
     const harness = createTestDb()
-    harness.exec(`UPDATE sync_state SET last_pull_at = '${T0}'`)
+    harness.exec(`UPDATE sync_state SET last_pull_at = '${T0}', cursor_user_id = '${USER}'`)
     // Any local row means the database is not empty, so the cursor is used.
     harness.exec(
       `INSERT INTO customers (id, user_id, name, created_at, updated_at)
@@ -372,9 +382,24 @@ describe('pullFromCloud', () => {
     expect(state.last_pull_at).toBe(T0)
   })
 
+  it('ignores a pull cursor left by another account', async () => {
+    const harness = createTestDb()
+    harness.exec(`UPDATE sync_state SET last_pull_at = '${T0}', cursor_user_id = 'other-user'`)
+    harness.exec(
+      `INSERT INTO customers (id, user_id, name, created_at, updated_at)
+       VALUES ('local-1', '${USER}', 'محلی', '${T0}', '${T0}')`
+    )
+
+    const { client, calls } = createFakeClient()
+    const result = await pullFromCloud({ db: harness.db, client, userId: USER })
+
+    expect(result.full).toBe(true)
+    expect(calls[0].options.since).toBeUndefined()
+  })
+
   it('full اجباری حتی با کرسور موجود همه تاریخچه را می‌خواند', async () => {
     const harness = createTestDb()
-    harness.exec(`UPDATE sync_state SET last_pull_at = '${T0}'`)
+    harness.exec(`UPDATE sync_state SET last_pull_at = '${T0}', cursor_user_id = '${USER}'`)
     harness.exec(
       `INSERT INTO customers (id, user_id, name, created_at, updated_at)
        VALUES ('local-1', '${USER}', 'محلی', '${T0}', '${T0}')`
@@ -388,7 +413,7 @@ describe('pullFromCloud', () => {
 
   it('اگر همه داده‌های محلی پاک شده باشند خودکار بازیابی کامل می‌کند', async () => {
     const harness = createTestDb()
-    harness.exec(`UPDATE sync_state SET last_pull_at = '${T0}'`)
+    harness.exec(`UPDATE sync_state SET last_pull_at = '${T0}', cursor_user_id = '${USER}'`)
 
     const { client, calls } = createFakeClient()
     const result = await pullFromCloud({ db: harness.db, client, userId: USER })
@@ -445,11 +470,87 @@ describe('pullFromCloud', () => {
     expect(row).not.toHaveProperty('unknown_column')
   })
 
+  it('ignores a remote row owned by another account', async () => {
+    const harness = createTestDb()
+    const { client } = createFakeClient({
+      customers: [customerRow({ user_id: 'someone-else' })],
+    })
+
+    const result = await pullFromCloud({ db: harness.db, client, userId: USER })
+
+    expect(result.pulled).toBe(0)
+    expect(harness.countRows('customers')).toBe(0)
+  })
+
+  it('never transfers an existing local row to another account on an id collision', async () => {
+    const harness = createTestDb()
+    harness.exec(
+      `INSERT INTO customers (id, user_id, name, created_at, updated_at)
+       VALUES ('cus-1', 'account-a', 'A customer', '${T0}', '${T0}')`
+    )
+
+    const { client } = createFakeClient({
+      customers: [customerRow({ id: 'cus-1', user_id: 'account-b', name: 'B customer' })],
+    })
+
+    await pullFromCloud({ db: harness.db, client, userId: 'account-b' })
+
+    const [row] = harness.rows<{ user_id: string; name: string }>('customers')
+    expect(row).toMatchObject({ user_id: 'account-a', name: 'A customer' })
+    expect(harness.countRows('customers')).toBe(1)
+  })
+
+  it('stops before merging a page fetched after an account change and keeps the cursor', async () => {
+    const harness = createTestDb()
+    const tables: SyncTable[] = []
+    let current = true
+
+    const client: SyncClient = {
+      upsert: () => Promise.resolve(),
+      deleteByIds: () => Promise.resolve(),
+      select(table) {
+        tables.push(table)
+        if (table === 'services') current = false
+        if (table === 'customers') return Promise.resolve([customerRow()])
+        if (table === 'services') {
+          return Promise.resolve([
+            {
+              id: 'svc-1',
+              user_id: USER,
+              name: 'اصلاح',
+              default_price: 250000,
+              suggested_duration_minutes: 30,
+              is_active: true,
+              created_at: T0,
+              updated_at: T0,
+            },
+          ])
+        }
+        return Promise.resolve([])
+      },
+    }
+
+    const result = await pullFromCloud({
+      db: harness.db,
+      client,
+      userId: USER,
+      isAccountCurrent: () => current,
+    })
+
+    expect(tables).toEqual(['profiles', 'customers', 'services'])
+    expect(harness.countRows('customers')).toBe(1)
+    expect(harness.countRows('services')).toBe(0)
+    const [state] = harness.rows<{ last_pull_at: string | null }>('sync_state')
+    expect(state.last_pull_at).toBeNull()
+    expect(result.cursor).toBeNull()
+  })
+
   it('ردیف‌های صف را دست نمی‌زند', async () => {
     const harness = createTestDb()
     const repo = new CustomerRepository(harness.db, USER)
     await repo.create({ name: 'علی' })
     await addToOutbox(harness.db, {
+      user_id: USER,
       entity_type: 'customers',
       entity_id: 'other',
       operation: 'update',

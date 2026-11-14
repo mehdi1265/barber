@@ -32,6 +32,11 @@ from auth.users
 where email = :'email_b'
 \gset
 
+-- The role-switched blocks cannot rely on a temp table (schema access is
+-- not guaranteed for another role). Transaction-local settings instead.
+select set_config('rls.user_a', :'user_a', true),
+       set_config('rls.user_b', :'user_b', true);
+
 -- ── Seed one row per table for each user (postgres bypasses RLS) ──
 insert into public.profiles (id, user_id, display_name)
 values (:'user_a', :'user_a', 'RLS A'),
@@ -107,19 +112,6 @@ insert into storage.objects (id, bucket_id, name)
 values (gen_random_uuid(), 'customer-photos', :'user_a' || '/rls-probe.txt'),
        (gen_random_uuid(), 'customer-photos', :'user_b' || '/rls-probe.txt');
 
--- IDs used by the write probes below.
-create temp table _rls_probe on commit drop as
-select :'user_a'::uuid as user_a,
-       :'user_b'::uuid as user_b,
-       '00000000-0000-4000-8000-000000000001'::uuid as customer_a,
-       '00000000-0000-4000-8000-000000000041'::uuid as visit_a,
-       '00000000-0000-4000-8000-000000000061'::uuid as payment_a,
-       '00000000-0000-4000-8000-000000000071'::uuid as expense_a,
-       '00000000-0000-4000-8000-000000000081'::uuid as formula_a,
-       '00000000-0000-4000-8000-0000000000a1'::uuid as photo_a;
-
-grant select on _rls_probe to authenticated;
-
 -- ── User A: sees exactly one row per table, all owned by A ──
 select set_config('request.jwt.claims',
   json_build_object('sub', :'user_a', 'role', 'authenticated')::text, true);
@@ -130,6 +122,7 @@ declare
   t text;
   visible bigint;
   foreign_rows bigint;
+  updated bigint;
 begin
   foreach t in array array[
     'profiles', 'customers', 'services', 'appointments', 'appointment_services',
@@ -153,18 +146,52 @@ begin
   if foreign_rows <> 0 then
     raise exception 'RLS check failed: user A sees % foreign storage objects', foreign_rows;
   end if;
+
+  -- A must be able to create and delete its own object (upload / remove).
+  insert into storage.objects (bucket_id, name)
+  values ('customer-photos', auth.uid()::text || '/upload.txt');
+  get diagnostics updated = row_count;
+  if updated <> 1 then
+    raise exception 'RLS check failed: user A created % own storage objects (expected 1)', updated;
+  end if;
+
+  delete from storage.objects
+   where bucket_id = 'customer-photos'
+     and name = auth.uid()::text || '/upload.txt';
+  get diagnostics updated = row_count;
+  if updated <> 1 then
+    raise exception 'RLS check failed: user A deleted % own storage objects (expected 1)', updated;
+  end if;
+
+  -- A must be able to overwrite its own object (retried upload).
+  update storage.objects
+     set owner = owner
+   where bucket_id = 'customer-photos'
+     and (storage.foldername(name))[1] = auth.uid()::text;
+  get diagnostics updated = row_count;
+  if updated <> 1 then
+    raise exception 'RLS check failed: user A updated % own storage objects (expected 1)', updated;
+  end if;
 end $$;
 
 -- ── User B: cannot see or modify A's rows ──
 reset role;
 select set_config('request.jwt.claims',
-  json_build_object('sub', (select user_b from _rls_probe), 'role', 'authenticated')::text, true);
+  json_build_object('sub', current_setting('rls.user_b'), 'role', 'authenticated')::text, true);
 set local role authenticated;
 
 do $$
 declare
   n bigint;
   t text;
+  user_a_text text := current_setting('rls.user_a');
+  customer_a uuid := '00000000-0000-4000-8000-000000000001';
+  appointment_a uuid := '00000000-0000-4000-8000-000000000021';
+  visit_a uuid := '00000000-0000-4000-8000-000000000041';
+  payment_a uuid := '00000000-0000-4000-8000-000000000061';
+  expense_a uuid := '00000000-0000-4000-8000-000000000071';
+  formula_a uuid := '00000000-0000-4000-8000-000000000081';
+  photo_a uuid := '00000000-0000-4000-8000-0000000000a1';
 begin
   foreach t in array array[
     'profiles', 'customers', 'services', 'appointments', 'appointment_services',
@@ -174,6 +201,20 @@ begin
     execute format('select count(*) from public.%I where user_id <> auth.uid()', t) into n;
     if n <> 0 then
       raise exception 'RLS check failed: user B sees % foreign rows in %', n, t;
+    end if;
+
+    -- No UPDATE may touch a foreign row in any synced table.
+    execute format('update public.%I set user_id = user_id where user_id <> auth.uid()', t);
+    get diagnostics n = row_count;
+    if n <> 0 then
+      raise exception 'RLS check failed: user B updated % foreign rows in %', n, t;
+    end if;
+
+    -- No DELETE may remove a foreign row in any synced table.
+    execute format('delete from public.%I where user_id <> auth.uid()', t);
+    get diagnostics n = row_count;
+    if n <> 0 then
+      raise exception 'RLS check failed: user B deleted % foreign rows in %', n, t;
     end if;
   end loop;
 
@@ -185,33 +226,83 @@ begin
     raise exception 'RLS check failed: user B sees % foreign storage objects', n;
   end if;
 
-  update public.customers set name = name where id = (select customer_a from _rls_probe);
+  -- B must not be able to overwrite A's object.
+  update storage.objects
+     set owner = owner
+   where bucket_id = 'customer-photos'
+     and name = user_a_text || '/rls-probe.txt';
+  get diagnostics n = row_count;
+  if n <> 0 then raise exception 'RLS check failed: user B updated A storage object'; end if;
+
+  -- B must not be able to delete A's object.
+  delete from storage.objects
+   where bucket_id = 'customer-photos'
+     and name = user_a_text || '/rls-probe.txt';
+  get diagnostics n = row_count;
+  if n <> 0 then raise exception 'RLS check failed: user B deleted A storage object'; end if;
+
+  -- Nor move an owned object into A's folder (WITH CHECK must reject it).
+  begin
+    update storage.objects
+       set name = user_a_text || '/moved.txt'
+     where bucket_id = 'customer-photos'
+       and name = current_setting('rls.user_b') || '/rls-probe.txt';
+    get diagnostics n = row_count;
+    if n <> 0 then
+      raise exception 'RLS check failed: user B moved an object into A storage folder';
+    end if;
+  exception
+    when insufficient_privilege then null;
+  end;
+
+  -- Composite ownership FKs: B may not link its rows to A's parents
+  -- even though B's user_id column itself passes the RLS check.
+  begin
+    insert into public.appointment_services
+      (user_id, appointment_id, service_name_snapshot)
+    values (current_setting('rls.user_b')::uuid,
+            appointment_a, 'RLS cross-owner');
+    raise exception 'RLS check failed: user B linked a row to A appointment';
+  exception
+    when foreign_key_violation then null;
+  end;
+
+  begin
+    insert into public.payments (user_id, visit_id, amount, paid_at)
+    values (current_setting('rls.user_b')::uuid,
+            visit_a, 1000, now());
+    raise exception 'RLS check failed: user B linked a payment to A visit';
+  exception
+    when foreign_key_violation then null;
+  end;
+
+  update public.customers set name = name where id = customer_a;
   get diagnostics n = row_count;
   if n <> 0 then raise exception 'RLS check failed: user B updated A customer'; end if;
 
-  delete from public.visits where id = (select visit_a from _rls_probe);
+  delete from public.visits where id = visit_a;
   get diagnostics n = row_count;
   if n <> 0 then raise exception 'RLS check failed: user B deleted A visit'; end if;
 
-  delete from public.payments where id = (select payment_a from _rls_probe);
+  delete from public.payments where id = payment_a;
   get diagnostics n = row_count;
   if n <> 0 then raise exception 'RLS check failed: user B deleted A payment'; end if;
 
-  update public.expenses set title = title where id = (select expense_a from _rls_probe);
+  update public.expenses set title = title where id = expense_a;
   get diagnostics n = row_count;
   if n <> 0 then raise exception 'RLS check failed: user B updated A expense'; end if;
 
-  update public.color_formulas set title = title where id = (select formula_a from _rls_probe);
+  update public.color_formulas set title = title where id = formula_a;
   get diagnostics n = row_count;
   if n <> 0 then raise exception 'RLS check failed: user B updated A formula'; end if;
 
-  update public.customer_photos set caption = caption where id = (select photo_a from _rls_probe);
+  update public.customer_photos set caption = caption where id = photo_a;
   get diagnostics n = row_count;
   if n <> 0 then raise exception 'RLS check failed: user B updated A photo'; end if;
 
   begin
     insert into public.customers (user_id, name)
-    values ((select user_a from _rls_probe), 'RLS forbidden insert');
+    values (current_setting('rls.user_a')::uuid, 'RLS forbidden insert');
     raise exception 'RLS check failed: user B inserted a customer owned by A';
   exception
     when insufficient_privilege then null;
@@ -219,7 +310,7 @@ begin
 
   begin
     insert into public.visits (user_id, visited_at)
-    values ((select user_a from _rls_probe), now());
+    values (current_setting('rls.user_a')::uuid, now());
     raise exception 'RLS check failed: user B inserted a visit owned by A';
   exception
     when insufficient_privilege then null;
@@ -227,7 +318,7 @@ begin
 
   begin
     insert into storage.objects (bucket_id, name)
-    values ('customer-photos', (select user_a::text from _rls_probe) || '/forbidden.txt');
+    values ('customer-photos', user_a_text || '/forbidden.txt');
     raise exception 'RLS check failed: user B wrote into A storage folder';
   exception
     when insufficient_privilege then null;
@@ -261,8 +352,87 @@ begin
   if visible <> 0 then
     raise exception 'RLS check failed: anonymous sees % storage objects', visible;
   end if;
+
+  update storage.objects
+     set owner = owner
+   where bucket_id = 'customer-photos';
+  get diagnostics visible = row_count;
+  if visible <> 0 then
+    raise exception 'RLS check failed: anonymous updated % storage objects', visible;
+  end if;
+
+  delete from storage.objects
+   where bucket_id = 'customer-photos';
+  get diagnostics visible = row_count;
+  if visible <> 0 then
+    raise exception 'RLS check failed: anonymous deleted % storage objects', visible;
+  end if;
+
+  begin
+    insert into public.customers (user_id, name)
+    values (current_setting('rls.user_a')::uuid, 'anon insert');
+    raise exception 'RLS check failed: anonymous inserted a customer';
+  exception
+    when insufficient_privilege then null;
+  end;
+
+  begin
+    insert into storage.objects (bucket_id, name)
+    values ('customer-photos', current_setting('rls.user_a') || '/anon.txt');
+    raise exception 'RLS check failed: anonymous wrote a storage object';
+  exception
+    when insufficient_privilege then null;
+  end;
 end $$;
 
-\echo 'RLS verification passed'
-
 rollback;
+
+-- ── Cleanup: nothing seeded above may survive the rollback ──
+reset role;
+
+do $$
+declare
+  t text;
+  n bigint;
+  probe_ids uuid[] := array[
+    '00000000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-000000000002',
+    '00000000-0000-4000-8000-000000000011', '00000000-0000-4000-8000-000000000012',
+    '00000000-0000-4000-8000-000000000021', '00000000-0000-4000-8000-000000000022',
+    '00000000-0000-4000-8000-000000000031', '00000000-0000-4000-8000-000000000032',
+    '00000000-0000-4000-8000-000000000041', '00000000-0000-4000-8000-000000000042',
+    '00000000-0000-4000-8000-000000000051', '00000000-0000-4000-8000-000000000052',
+    '00000000-0000-4000-8000-000000000061', '00000000-0000-4000-8000-000000000062',
+    '00000000-0000-4000-8000-000000000071', '00000000-0000-4000-8000-000000000072',
+    '00000000-0000-4000-8000-000000000081', '00000000-0000-4000-8000-000000000082',
+    '00000000-0000-4000-8000-000000000091', '00000000-0000-4000-8000-000000000092',
+    '00000000-0000-4000-8000-0000000000a1', '00000000-0000-4000-8000-0000000000a2'
+  ]::uuid[];
+begin
+  foreach t in array array[
+    'customers', 'services', 'appointments', 'appointment_services',
+    'visits', 'visit_services', 'payments', 'expenses', 'color_formulas',
+    'color_formula_items', 'customer_photos'
+  ] loop
+    execute format('select count(*) from public.%I where id = any($1)', t)
+      into n using probe_ids;
+    if n <> 0 then
+      raise exception 'cleanup failed: % probe rows remain in %', n, t;
+    end if;
+  end loop;
+
+  select count(*) into n
+  from storage.objects
+  where bucket_id = 'customer-photos'
+    and (name like '%/rls-probe.txt'
+      or name like '%/upload.txt'
+      or name like '%/forbidden.txt'
+      or name like '%/moved.txt'
+      or name like '%/anon.txt');
+  if n <> 0 then
+    raise exception 'cleanup failed: % probe storage objects remain', n;
+  end if;
+
+end $$;
+
+\echo 'cleanup verified: no probe rows or objects remain'
+\echo 'RLS verification passed'

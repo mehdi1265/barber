@@ -42,6 +42,9 @@ jobs:
       - name: Test
         run: npm test
 
+      - name: Coverage thresholds
+        run: npx vitest run --coverage
+
       - name: Audit production dependencies
         # Accepted exception: zod < 4.6.6 (memory exhaustion on oversized
         # collections). Fixing it requires a breaking zod 4 migration; it is
@@ -84,15 +87,31 @@ jobs:
           -f supabase/tests/postgres_bootstrap.sql
 
       - name: Apply migrations twice (idempotency)
+        # Directory-driven so a new migration cannot be omitted here.
+        # The client-side SQLite set (src/database/migrations/001-006) is
+        # applied by the migration-runner test in `npm test`, not by Postgres.
         run: |
           set -euo pipefail
+          mapfile -t migrations < <(ls -1 supabase/migrations/*.sql | sort)
+          printf 'migrations: %s\n' "${migrations[*]}"
           for pass in first second; do
-            for file in 001_initial_schema 002_sync_indexes_and_fk 003_photo_storage_policy; do
-              psql "$DATABASE_URL" -v ON_ERROR_STOP=1 \
-                -f "supabase/migrations/$file.sql" > /dev/null
+            for file in "${migrations[@]}"; do
+              psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f "$file" > /dev/null
             done
-            echo "migration pass '$pass' OK"
+            echo "migration pass '$pass' OK (${#migrations[@]} files)"
           done
+
+      - name: Legacy ownership mismatches (must be none)
+        run: |
+          set -euo pipefail
+          output=$(psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -t -A \
+            -f supabase/tests/legacy_ownership_mismatches.sql)
+          if [ -n "$output" ]; then
+            echo "$output"
+            echo "cross-tenant references found; do not VALIDATE constraints"
+            exit 1
+          fi
+          echo "no cross-tenant references"
 
       - name: Seed two test identities
         run: |

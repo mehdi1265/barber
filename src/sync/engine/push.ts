@@ -12,6 +12,7 @@ import type { SyncOutbox } from '@shared/types'
 import { setPhotoStoragePath } from '@database/repositories/customer-photo.repository'
 import {
   getRetryableOutbox,
+  MAX_OUTBOX_ATTEMPTS,
   markOutboxDone,
   markOutboxFailed,
   markOutboxPending,
@@ -22,7 +23,7 @@ import {
 import { buildPushEntity, type PushEntity } from './payload'
 import { RemoteError, type PushResult, type SyncClient } from './sync.types'
 
-export const MAX_ATTEMPTS = 5
+export const MAX_ATTEMPTS = MAX_OUTBOX_ATTEMPTS
 export const BASE_BACKOFF_MS = 30_000
 export const MAX_BACKOFF_MS = 30 * 60_000
 export const PUSH_BATCH_SIZE = 50
@@ -54,6 +55,13 @@ export interface PushOptions {
   maxAttempts?: number
   /** Injection point for deterministic backoff tests. */
   now?: () => Date
+  /**
+   * Returns false once the signed-in account no longer matches `userId`.
+   * The run then stops without touching the remaining rows: their requests
+   * would carry another account's token and be rejected (or worse, marked
+   * terminal) for work that is still valid.
+   */
+  isAccountCurrent?: () => boolean
 }
 
 export async function pushOutbox({
@@ -63,6 +71,7 @@ export async function pushOutbox({
   batchSize = PUSH_BATCH_SIZE,
   maxAttempts = MAX_ATTEMPTS,
   now = () => new Date(),
+  isAccountCurrent = () => true,
 }: PushOptions): Promise<PushResult> {
   const result: PushResult = {
     pushed: 0,
@@ -72,16 +81,19 @@ export async function pushOutbox({
   }
 
   // A crash between `processing` and the server response leaves rows that no
-  // later run would pick up.
-  await resetStaleProcessing(db)
+  // later run would pick up. Only this account's rows are reset.
+  await resetStaleProcessing(db, userId)
+
+  if (!isAccountCurrent()) return result
 
   for (;;) {
-    const batch = await getRetryableOutbox(db, batchSize, maxAttempts)
+    const batch = await getRetryableOutbox(db, userId, batchSize, maxAttempts)
     if (batch.length === 0) break
 
     let progressed = false
 
     for (const entry of batch) {
+      if (!isAccountCurrent()) return result
       if (!isDue(entry, now())) continue
       progressed = true
 
@@ -91,12 +103,12 @@ export async function pushOutbox({
       } catch (err) {
         // A malformed payload can never succeed on retry. Storing the maximum
         // attempt count removes the row from the retryable set permanently.
-        await markOutboxTerminal(db, entry.id, errorMessage(err), maxAttempts)
+        await markOutboxTerminal(db, userId, entry.id, errorMessage(err), maxAttempts)
         result.terminal += 1
         continue
       }
 
-      await markOutboxProcessing(db, entry.id)
+      await markOutboxProcessing(db, userId, entry.id)
 
       try {
         if (entity.mode === 'delete') {
@@ -117,23 +129,28 @@ export async function pushOutbox({
           }
           await client.upsert(entity.table, [entity.row])
         }
-        await markOutboxDone(db, entry.id)
+        // A request started under this account may finish after a switch.
+        // Leave the row `processing` (reset on the next run) instead of
+        // recording an outcome produced with another account's session.
+        if (!isAccountCurrent()) return result
+        await markOutboxDone(db, userId, entry.id)
         result.pushed += 1
       } catch (err) {
+        if (!isAccountCurrent()) return result
         const remote = err instanceof RemoteError ? err : new RemoteError(errorMessage(err), null)
 
         if (remote.kind === 'auth') {
-          await markOutboxPending(db, entry.id)
+          await markOutboxPending(db, userId, entry.id)
           result.stoppedForAuth = true
           return result
         }
 
         const attempts = entry.attempt_count + 1
         if (remote.kind === 'terminal' || attempts >= maxAttempts) {
-          await markOutboxTerminal(db, entry.id, remote.message, maxAttempts)
+          await markOutboxTerminal(db, userId, entry.id, remote.message, maxAttempts)
           result.terminal += 1
         } else {
-          await markOutboxFailed(db, entry.id, remote.message)
+          await markOutboxFailed(db, userId, entry.id, remote.message)
           result.retryable += 1
         }
       }

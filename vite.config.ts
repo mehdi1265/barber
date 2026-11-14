@@ -18,6 +18,8 @@ export default defineConfig({
   },
   build: {
     target: 'es2022',
-    sourcemap: true,
+    // Source maps are opt-in: shipping them inside the app bundle exposes the
+    // full source and inflates the package. Use SOURCE_MAPS=true to debug a build.
+    sourcemap: process.env.SOURCE_MAPS === 'true',
   },
 })

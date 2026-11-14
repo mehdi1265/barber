@@ -371,7 +371,7 @@ against `node:sqlite`; migration 002 was also applied/skipped correctly in a pro
 
 **Risks:** RLS/grants may reject writes (verify with a real project); profile trigger conflict; timestamp authority. No push without credentials.
 
-**Status: complete locally (2026-11-13).** `src/sync/engine/push.ts` drains ≤50 rows per run, maps payloads via `payload.ts`, upserts inserts/updates (profiles included), and deletes by id only for tables without a tombstone. 401 stops the run without counting an attempt; terminal 4xx sets `attempt_count = max`; 5xx/429/network use 30 s→30 min exponential backoff with a 5-attempt cap. `sync.manager.ts` installs the mutex, 2 s post-mutation debounce, online/visibility triggers, and drives `sync.store`; Settings has "همگام‌سازی اکنون". Tests: `sync.push.test.ts` (7), `sync.payload.test.ts` (7). Not verified: real Supabase project and device runtime.
+**Status: complete locally (2026-11-13).** `src/sync/engine/push.ts` drains ≤50 rows per run, maps payloads via `payload.ts`, upserts inserts/updates (profiles included), and deletes by id only for tables without a tombstone. 401 stops the run without counting an attempt; terminal 4xx sets `attempt_count = max`; 5xx/429/network use 30 s→30 min exponential backoff with a 5-attempt cap. `sync.manager.ts` installs the mutex, 2 s post-mutation debounce, online/visibility triggers, and drives `sync.store`; Settings has "همگام‌سازی اکنون". **Account-switch fencing (D-43, 2026-11-13):** `isAccountCurrent` is checked before and after every network call and before every outbox write, so a run started by account A cannot send, complete, or penalise rows under account B; `runSync` re-runs for a newly signed-in account instead of returning the old outcome. Tests: `sync.push.test.ts` (11), `sync.payload.test.ts` (7). Not verified: real Supabase project and device runtime.
 
 ---
 
@@ -404,7 +404,7 @@ against `node:sqlite`; migration 002 was also applied/skipped correctly in a pro
 
 **Risks:** the server `updated_at` trigger invalidates client timestamps (BUG-25); large histories need pagination; photo bytes need a separate strategy (T12).
 
-**Status: complete locally (2026-11-13).** `003_sync_state.sql` adds the single-row cursor; `pull.ts` pages 500 rows per table in FK-safe order, forces a full pull when local data is empty, uses a 5-minute overlap for increments, lets pending local rows win, applies tombstones, and normalises booleans/numbers/dates. `restoreFromCloud()` and the Settings confirm dialog provide full recovery. Expense deletes are now tombstones (`004_expense_tombstones.sql`); server `002_sync_indexes_and_fk.sql` adds sync indexes, `expenses.deleted_at`, and FK delete policies. Tests: `sync.pull.test.ts` (11). Not verified: real Supabase project, two-device convergence, device runtime.
+**Status: complete locally (2026-11-13).** `003_sync_state.sql` adds the single-row cursor; `pull.ts` pages 500 rows per table in FK-safe order, forces a full pull when local data is empty, uses a 5-minute overlap for increments, lets pending local rows win, applies tombstones, and normalises booleans/numbers/dates. `restoreFromCloud()` and the Settings confirm dialog provide full recovery. Expense deletes are now tombstones (`004_expense_tombstones.sql`); server `002_sync_indexes_and_fk.sql` adds sync indexes, `expenses.deleted_at`, and FK delete policies. **Ownership safety (D-43, 2026-11-13):** rows whose remote `user_id` differs are skipped, the conflict upsert is constrained with `WHERE user_id = excluded.user_id`, and an aborted pull keeps the previous cursor. Tests: `sync.pull.test.ts` (15). Not verified: real Supabase project, two-device convergence, device runtime. **Known limitation:** hard deletions are not reconciled server→device for tables without tombstones (see PROJECT_STATUS eighth pass).
 
 ---
 
@@ -528,6 +528,12 @@ amounts are never converted (D-36). Customer detail uses `findByCustomer` and
 financial summary. `profile-settings.test.tsx`, `customer-history.test.tsx`, and repository cases
 cover the additions.
 
+**Follow-up (2026-11-13):** Settings now exposes the confirm-gated «حذف داده‌های این دستگاه»
+wipe from `docs/11-release-runbook.md` §5.1. `features/settings/local-data.ts` refuses while the
+account has unsynced outbox rows, then deletes only that account's business rows, outbox, pull
+cursor, and `photos/<user>/` after the transaction commits. Tests: `local-data-wipe.test.ts` (4,
+real SQLite) and `settings-local-data.test.tsx` (3).
+
 **Read first:** `SettingsPage.tsx`, `ProfileRepository`, `CustomerDetailPage.tsx:94`, `docs/04-wireframes.md §6`.
 
 **Goal:** a real settings screen and complete customer profiles.
@@ -612,6 +618,34 @@ CI now includes a production audit gate, Dependabot is configured, and
 `npm run android:release-config` patches signing/versioning idempotently. 275/275 tests pass; all
 gates green. **Pending live checks:** execute the RLS script on a real project, build a signed
 AAB, and run the fresh-install smoke test on a clean device.
+
+---
+
+## T17 — Server→Device Deletion Reconciliation
+
+**Size:** L · **Priority:** P1 (before public release) · **Requirements:** R-08, R-45 · **Design:** D-46 / TD-21
+
+**Goal:** a row deleted on one device disappears everywhere instead of being resurrected by an offline device.
+
+**Scope**
+
+1. Additive idempotent migration: `deleted_at TIMESTAMPTZ` on the seven syncable tables that lack it (`services`, `appointment_services`, `visits`, `visit_services`, `payments`, `color_formulas`, `color_formula_items`) plus tombstone indexes; `expenses` already had the column.
+2. Push deletes as an upsert tombstone (`deleted_at` + forward `updated_at`) owned by the signed-in user; never send a bare `DELETE` for a data table.
+3. Two-phase pull: merge tombstones first, then delete local rows in child→parent order inside one transaction.
+4. Never delete a local row with a pending outbox operation or a newer `updated_at`; report it as a conflict instead.
+5. Replace offset pagination with keyset pagination on `(updated_at, id)` so concurrent deletes cannot skip rows.
+6. Delete photo files only after the transaction commits.
+7. Regression tests against real SQLite: tombstone propagation, pending-edit protection, child-before-parent ordering, no resurrection, aborted-run cursor safety.
+
+**Acceptance criteria**
+
+- Delete on device A, sync, then sync device B offline→online: the row is gone on B and never re-uploaded.
+- A local edit that is newer than the tombstone survives and shows as a conflict.
+- No local row is deleted while it still has pushable outbox work.
+- Migration is idempotent and the two-user RLS suite still passes.
+- Past hard deletes are documented as unreconstructible; "full restore" flags (does not delete) local rows with no server counterpart.
+
+**Status:** implemented locally (2026-11-14). Migration `005_sync_tombstones.sql` exists; push, pull (`applyDeletions`), keyset pagination, the local-tombstone resurrection guard, and photo cleanup are in place. Covered by `sync.reconcile.test.ts` plus updated `sync.pull`/`sync.push`/`sync.payload` tests against real `node:sqlite`; 363/363 tests pass locally. Remaining evidence: apply migration 005 on the target project (CI applies it automatically) and run the two-device smoke test; neither has happened yet. The eleventh-pass attempt to do this was **BLOCKED** on 2026-11-14: no staging access token/DB password, no `RLS_STAGING_PROJECT_REF`, no local docker/psql, and the configured project is unconfirmed. Static checks (idempotency, column/index coverage, RLS, trigger, CI double-apply) passed.
 
 ---
 

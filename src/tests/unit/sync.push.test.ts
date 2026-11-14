@@ -190,11 +190,58 @@ describe('pushOutbox', () => {
     expect(row.attempt_count).toBe(2)
   })
 
+  it('when the account changes mid-run, stops without marking or penalizing rows', async () => {
+    const harness = createTestDb()
+    const repo = new CustomerRepository(harness.db, USER)
+    await repo.create({ name: 'علی' })
+    await repo.create({ name: 'رضا' })
+
+    const fake = createFakeClient()
+    let current = true
+    const upsert = fake.client.upsert.bind(fake.client)
+    fake.client.upsert = async (table, rows) => {
+      await upsert(table, rows)
+      current = false
+    }
+
+    const result = await pushOutbox({
+      db: harness.db,
+      client: fake.client,
+      userId: USER,
+      isAccountCurrent: () => current,
+    })
+
+    expect(result).toMatchObject({ pushed: 0, retryable: 0, terminal: 0, stoppedForAuth: false })
+    expect(fake.calls).toHaveLength(1)
+    const rows = harness.outboxRows()
+    expect(rows.filter(row => row.status === 'processing')).toHaveLength(1)
+    expect(rows.filter(row => row.status === 'pending')).toHaveLength(1)
+    expect(rows.every(row => row.attempt_count === 0)).toBe(true)
+    expect(rows.every(row => row.last_error === null)).toBe(true)
+  })
+
+  it('does not call the cloud at all when the account already changed', async () => {
+    const harness = createTestDb()
+    await new CustomerRepository(harness.db, USER).create({ name: 'علی' })
+
+    const fake = createFakeClient()
+    const result = await pushOutbox({
+      db: harness.db,
+      client: fake.client,
+      userId: USER,
+      isAccountCurrent: () => false,
+    })
+
+    expect(result).toMatchObject({ pushed: 0, retryable: 0, terminal: 0 })
+    expect(fake.calls).toHaveLength(0)
+    expect(harness.outboxRows()[0]).toMatchObject({ status: 'pending', attempt_count: 0 })
+  })
+
   it('ردیف processing جامانده در شروع اجرا آزاد می‌شود', async () => {
     const harness = createTestDb()
     const repo = new CustomerRepository(harness.db, USER)
     await repo.create({ name: 'علی' })
-    await markOutboxProcessing(harness.db, harness.outboxRows()[0].id)
+    await markOutboxProcessing(harness.db, USER, harness.outboxRows()[0].id)
 
     const fake = createFakeClient()
     const result = await pushOutbox({ db: harness.db, client: fake.client, userId: USER })
@@ -221,6 +268,7 @@ describe('pushOutbox', () => {
     await expenses.delete(expense.id)
 
     await addToOutbox(harness.db, {
+      user_id: USER,
       entity_type: 'appointment_services',
       entity_id: 'as-hard-1',
       operation: 'delete',
@@ -240,7 +288,11 @@ describe('pushOutbox', () => {
     expect(expenseCalls.at(-1)?.rows?.[0].deleted_at).toBeTruthy()
 
     const serviceCalls = fake.calls.filter(call => call.table === 'appointment_services')
-    expect(serviceCalls.at(-1)).toMatchObject({ kind: 'delete', ids: ['as-hard-1'] })
+    // Deletes travel as tombstones too, otherwise the pull of another device
+    // never learns about them.
+    expect(serviceCalls.at(-1)?.kind).toBe('upsert')
+    expect(serviceCalls.at(-1)?.rows?.[0].deleted_at).toBeTruthy()
+    expect(fake.calls.filter(call => call.kind === 'delete')).toHaveLength(0)
   })
 })
 

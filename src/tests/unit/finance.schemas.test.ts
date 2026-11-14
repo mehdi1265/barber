@@ -17,6 +17,17 @@ describe('quickSaleSchema', () => {
     }
   })
 
+  it('روش پرداخت پیش‌فرض نقد است وقتی ارسال نشود', () => {
+    const parsed = quickSaleSchema.parse({
+      title: 'کوتاهی',
+      amount: '150000',
+      paid_amount: '',
+      customer_id: '',
+      notes: '',
+    })
+    expect(parsed.payment_method).toBe('cash')
+  })
+
   it('پرداخت خالی به معنی پرداخت کامل است (null)', () => {
     const result = quickSaleSchema.parse({
       title: 'کوتاهی',
@@ -63,6 +74,23 @@ describe('visitSchema', () => {
       date: '2026-01-15',
       time: '10:00',
       services: [],
+    })
+    expect(result.success).toBe(false)
+  })
+
+  it('بیش از ۵۰ خدمت را رد می‌کند', () => {
+    const line = {
+      service_id: '',
+      service_name_snapshot: 'کوتاهی',
+      quantity: '1',
+      unit_price: '100000',
+      discount_amount: '',
+      duration_minutes: '',
+    }
+    const result = visitSchema.safeParse({
+      date: '2026-01-15',
+      time: '10:00',
+      services: Array.from({ length: 51 }, () => line),
     })
     expect(result.success).toBe(false)
   })

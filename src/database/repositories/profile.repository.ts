@@ -51,6 +51,7 @@ export class ProfileRepository {
       )
 
       await addToOutbox(this.db, {
+        user_id: input.user_id,
         entity_type: 'profiles',
         entity_id: profile.id,
         operation: 'insert',
@@ -59,6 +60,47 @@ export class ProfileRepository {
     })
 
     return profile
+  }
+
+  /**
+   * Creates the local row for a signed-in account without queueing a push.
+   *
+   * The account already has a cloud profile (created by the signup trigger).
+   * Pushing this device's placeholder would overwrite the cloud phone and
+   * currency with defaults on a reinstall or after a wipe. The next pull
+   * replaces the placeholder with the canonical row.
+   */
+  async ensureLocalProfile(input: CreateProfileInput): Promise<Profile> {
+    const existing = await this.getProfile(input.user_id)
+    if (existing) return existing
+
+    const now = nowISO()
+    const profile: Profile = {
+      id: input.id,
+      user_id: input.user_id,
+      display_name: input.display_name,
+      phone: input.phone,
+      currency_code: input.currency_code,
+      created_at: now,
+      updated_at: now,
+    }
+
+    await this.db.run(
+      `INSERT OR IGNORE INTO profiles
+        (id, user_id, display_name, phone, currency_code, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [
+        profile.id,
+        profile.user_id,
+        profile.display_name,
+        profile.phone,
+        profile.currency_code,
+        profile.created_at,
+        profile.updated_at,
+      ]
+    )
+
+    return (await this.getProfile(input.user_id)) ?? profile
   }
 
   async updateProfile(userId: UUID, input: UpdateProfileInput): Promise<void> {
@@ -91,6 +133,7 @@ export class ProfileRepository {
       const updated = await this.getProfile(userId)
       if (updated) {
         await addToOutbox(this.db, {
+          user_id: userId,
           entity_type: 'profiles',
           entity_id: updated.id,
           operation: 'update',

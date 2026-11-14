@@ -104,7 +104,10 @@ export const visitSchema = z.object({
     .optional()
     .nullable()
     .transform(v => (v?.trim() === '' ? null : (v?.trim() ?? null))),
-  services: z.array(visitServiceLineSchema).min(1, 'حداقل یک خدمت الزامی است'),
+  services: z
+    .array(visitServiceLineSchema)
+    .min(1, 'حداقل یک خدمت الزامی است')
+    .max(50, 'حداکثر ۵۰ خدمت مجاز است'),
   payment_method: z.enum(['cash', 'card', 'other']).default('cash'),
   paid_amount: z
     .string()

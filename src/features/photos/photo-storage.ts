@@ -96,6 +96,20 @@ export async function deletePhotoFile(localPath: string): Promise<void> {
   }
 }
 
+/** Removes every locally stored photo of one account during a local-data wipe. */
+export async function deleteUserPhotoFiles(userId: string): Promise<void> {
+  if (!userId) return
+  try {
+    await Filesystem.rmdir({
+      path: `${PHOTO_ROOT}/${userId}`,
+      directory: Directory.Data,
+      recursive: true,
+    })
+  } catch {
+    // Nothing was stored, or the platform has no filesystem (browser dev).
+  }
+}
+
 export function photoContentType(localPath: string): string {
   const ext = localPath.split('.').pop()?.toLowerCase() ?? ''
   if (ext === 'png') return 'image/png'

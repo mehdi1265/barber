@@ -78,6 +78,7 @@ export class CustomerRepository {
       )
 
       await addToOutbox(this.db, {
+        user_id: this.userId,
         entity_type: 'customers',
         entity_id: customer.id,
         operation: 'insert',
@@ -110,6 +111,7 @@ export class CustomerRepository {
       )
 
       await addToOutbox(this.db, {
+        user_id: this.userId,
         entity_type: 'customers',
         entity_id: id,
         operation: 'update',
@@ -122,6 +124,8 @@ export class CustomerRepository {
 
   /** Soft delete — keeps record for sync propagation */
   async delete(id: UUID): Promise<void> {
+    // Never enqueue a deletion for a row this account does not own.
+    if (!(await this.findById(id))) return
     const now = nowISO()
     await withTransaction(this.db, async () => {
       await this.db.run(
@@ -130,6 +134,7 @@ export class CustomerRepository {
       )
 
       await addToOutbox(this.db, {
+        user_id: this.userId,
         entity_type: 'customers',
         entity_id: id,
         operation: 'delete',

@@ -18,6 +18,7 @@ import { RemoteError, type SyncOutcome, type SyncReason } from './sync.types'
 const DEBOUNCE_MS = 2_000
 
 let running: Promise<SyncOutcome> | null = null
+let runningUserId: string | null = null
 let scheduled: ReturnType<typeof setTimeout> | null = null
 let triggersInstalled = false
 
@@ -45,9 +46,11 @@ function errorMessage(err: unknown): string {
 }
 
 export async function refreshPendingCount(): Promise<number> {
+  const userId = useAuthStore.getState().userId
+  if (!userId) return useSyncStore.getState().pendingCount
   try {
     const db = await getDatabase()
-    const count = await countPendingOutbox(db)
+    const count = await countPendingOutbox(db, userId)
     useSyncStore.getState().setPending(count)
     return count
   } catch {
@@ -55,16 +58,31 @@ export async function refreshPendingCount(): Promise<number> {
   }
 }
 
+function startRun(reason: SyncReason, options: RunOptions): Promise<SyncOutcome> {
+  runningUserId = useAuthStore.getState().userId
+  running = execute(reason, options).finally(() => {
+    running = null
+    runningUserId = null
+  })
+  return running
+}
+
 export async function runSync(
   reason: SyncReason = 'manual',
   options: RunOptions = {}
 ): Promise<SyncOutcome> {
-  if (running) return running
+  const currentUserId = useAuthStore.getState().userId
 
-  running = execute(reason, options).finally(() => {
-    running = null
-  })
-  return running
+  if (running) {
+    const previousUserId = runningUserId
+    const outcome = await running
+    // A different account signed in while the previous run was finishing.
+    // Give it its own run instead of returning the previous account's outcome.
+    if (currentUserId && currentUserId !== previousUserId) return startRun(reason, options)
+    return outcome
+  }
+
+  return startRun(reason, options)
 }
 
 /** Full history pull; local rows are updated, never deleted. */
@@ -79,17 +97,30 @@ async function execute(reason: SyncReason, options: RunOptions): Promise<SyncOut
 
   if (!user) return skipped(store.pendingCount)
 
+  // The session can change at any await point. Every request beyond this
+  // point must belong to `user.id`; otherwise it would run with another
+  // account's token and could write or reject the wrong account's rows.
+  const isAccountCurrent = () => useAuthStore.getState().userId === user.id
+  const stopStale = (): SyncOutcome => {
+    useSyncStore.getState().setStatus('idle')
+    return skipped(store.pendingCount)
+  }
+
   let db
   try {
     db = await getDatabase()
   } catch (err) {
     console.error('[sync] database unavailable:', err)
+    if (!isAccountCurrent()) return stopStale()
     store.setError('پایگاه داده محلی در دسترس نیست؛ همگام‌سازی ممکن نشد.')
     return { ...skipped(store.pendingCount), ran: true, error: 'database unavailable' }
   }
 
+  if (!isAccountCurrent()) return stopStale()
+
   if (!isOnline()) {
-    const pending = await countPendingOutbox(db).catch(() => store.pendingCount)
+    const pending = await countPendingOutbox(db, user.id).catch(() => store.pendingCount)
+    if (!isAccountCurrent()) return stopStale()
     store.setOffline()
     store.setPending(pending)
     return skipped(pending)
@@ -100,11 +131,13 @@ async function execute(reason: SyncReason, options: RunOptions): Promise<SyncOut
 
   try {
     const client = await createSupabaseSyncClient()
+    if (!isAccountCurrent()) return stopStale()
 
-    const push = await pushOutbox({ db, client, userId: user.id })
+    const push = await pushOutbox({ db, client, userId: user.id, isAccountCurrent })
 
     if (push.stoppedForAuth) {
-      const pending = await countPendingOutbox(db).catch(() => store.pendingCount)
+      if (!isAccountCurrent()) return stopStale()
+      const pending = await countPendingOutbox(db, user.id).catch(() => store.pendingCount)
       store.setPending(pending)
       store.setError('نشست شما منقضی شده است. دوباره وارد شوید.')
       return {
@@ -117,14 +150,20 @@ async function execute(reason: SyncReason, options: RunOptions): Promise<SyncOut
       }
     }
 
+    if (!isAccountCurrent()) return stopStale()
+
     const pull = await pullFromCloud({
       db,
       client,
       userId: user.id,
       full: options.fullPull === true,
+      isAccountCurrent,
     })
 
-    const pending = await countPendingOutbox(db).catch(() => 0)
+    if (!isAccountCurrent()) return stopStale()
+
+    const pending = await countPendingOutbox(db, user.id).catch(() => 0)
+    if (!isAccountCurrent()) return stopStale()
     const finishedAt = new Date().toISOString()
 
     store.setPending(pending)
@@ -147,9 +186,11 @@ async function execute(reason: SyncReason, options: RunOptions): Promise<SyncOut
     }
   } catch (err) {
     console.error('[sync] run failed:', err)
+    if (!isAccountCurrent()) return stopStale()
     const message = errorMessage(err)
     useSyncStore.getState().setError(message)
-    const pending = await countPendingOutbox(db).catch(() => 0)
+    const pending = await countPendingOutbox(db, user.id).catch(() => 0)
+    if (!isAccountCurrent()) return stopStale()
     useSyncStore.getState().setPending(pending)
     return {
       ran: true,

@@ -149,6 +149,7 @@ export class ColorFormulaRepository {
     await withTransaction(this.db, async () => {
       await this.insertFormula(formula)
       await addToOutbox(this.db, {
+        user_id: this.userId,
         entity_type: 'color_formulas',
         entity_id: formula.id,
         operation: 'insert',
@@ -160,6 +161,7 @@ export class ColorFormulaRepository {
         const row = this.buildItem(formula.id, item, now)
         await this.insertItem(row)
         await addToOutbox(this.db, {
+          user_id: this.userId,
           entity_type: 'color_formula_items',
           entity_id: row.id,
           operation: 'insert',
@@ -226,6 +228,7 @@ export class ColorFormulaRepository {
       )
 
       await addToOutbox(this.db, {
+        user_id: this.userId,
         entity_type: 'color_formulas',
         entity_id: id,
         operation: 'update',
@@ -273,6 +276,7 @@ export class ColorFormulaRepository {
           this.userId,
         ])
         await addToOutbox(this.db, {
+          user_id: this.userId,
           entity_type: 'color_formula_items',
           entity_id: item.id,
           operation: 'delete',
@@ -286,6 +290,7 @@ export class ColorFormulaRepository {
         this.userId,
       ])
       await addToOutbox(this.db, {
+        user_id: this.userId,
         entity_type: 'color_formulas',
         entity_id: id,
         operation: 'delete',
@@ -370,6 +375,7 @@ export class ColorFormulaRepository {
         this.userId,
       ])
       await addToOutbox(this.db, {
+        user_id: this.userId,
         entity_type: 'color_formula_items',
         entity_id: old.id,
         operation: 'delete',
@@ -404,6 +410,7 @@ export class ColorFormulaRepository {
           ]
         )
         await addToOutbox(this.db, {
+          user_id: this.userId,
           entity_type: 'color_formula_items',
           entity_id: updated.id,
           operation: 'update',
@@ -414,6 +421,7 @@ export class ColorFormulaRepository {
         const row = this.buildItem(formulaId, input, now)
         await this.insertItem(row)
         await addToOutbox(this.db, {
+          user_id: this.userId,
           entity_type: 'color_formula_items',
           entity_id: row.id,
           operation: 'insert',

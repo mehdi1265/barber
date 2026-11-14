@@ -3,6 +3,7 @@
  * All authenticated pages render inside this layout.
  */
 
+import { useState } from 'react'
 import { Outlet, NavLink, useLocation, useNavigate } from 'react-router-dom'
 import { useSyncStore } from '@state/sync.store'
 import { useAuthStore } from '@state/auth.store'
@@ -28,9 +29,17 @@ export function AppShell() {
   const navigate = useNavigate()
   const user = useAuthStore(state => state.user)
   const clearAuth = useAuthStore(state => state.clearAuth)
+  const [logoutError, setLogoutError] = useState<string | null>(null)
 
   const handleLogout = async () => {
-    await logoutUseCase()
+    const { error } = await logoutUseCase()
+    if (error) {
+      // The stored session could not be cleared; stay signed in instead of
+      // showing a logout that would be undone on the next launch.
+      setLogoutError(error.message)
+      return
+    }
+    setLogoutError(null)
     clearAuth()
     void navigate('/login', { replace: true })
   }
@@ -73,6 +82,12 @@ export function AppShell() {
           >
             تلاش دوباره
           </button>
+        </div>
+      )}
+
+      {logoutError && (
+        <div className={styles.errorBanner} role="alert">
+          <span>{logoutError}</span>
         </div>
       )}
 

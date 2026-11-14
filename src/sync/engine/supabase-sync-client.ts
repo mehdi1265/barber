@@ -27,6 +27,7 @@ interface SupabaseQuery extends PromiseLike<SupabaseResult> {
   delete(): SupabaseQuery
   in(column: string, values: readonly string[]): SupabaseQuery
   gt(column: string, value: string): SupabaseQuery
+  or(filters: string): SupabaseQuery
   order(column: string, options: { ascending: boolean }): SupabaseQuery
   range(from: number, to: number): SupabaseQuery
 }
@@ -42,8 +43,6 @@ function statusFromCode(code: string | null | undefined): number | null {
       return 403
     case '23505':
       return 409 // unique violation
-    case '23503':
-      return 409 // foreign key violation
     case '23502':
       return 400 // not-null violation
     case '22P02':
@@ -54,6 +53,10 @@ function statusFromCode(code: string | null | undefined): number | null {
 }
 
 function toRemoteError(error: PostgrestErrorLike): RemoteError {
+  // The composite ownership FKs require the parent row to reach the server
+  // before its children. A 23503 is therefore an ordering problem, not a
+  // permanent conflict, and must stay retryable so the row is not dropped.
+  if (error.code === '23503') return new RemoteError(error.message, 503)
   const status =
     typeof error.status === 'number' && error.status > 0 ? error.status : statusFromCode(error.code)
   return new RemoteError(error.message, status)
@@ -103,9 +106,17 @@ export async function createSupabaseSyncClient(): Promise<SyncClient> {
     async select(table, options: SelectOptions) {
       let builder = query(table).select('*')
       if (options.since) builder = builder.gt('updated_at', options.since)
+      if (options.after) {
+        // Keyset pagination: (updated_at, id) > (last.updated_at, last.id).
+        // A delete that shifts offsets cannot make this scan skip a row.
+        builder = builder.or(
+          `updated_at.gt.${options.after.updatedAt},and(updated_at.eq.${options.after.updatedAt},id.gt.${options.after.id})`
+        )
+      }
       builder = builder
         .order('updated_at', { ascending: true })
-        .range(options.offset, options.offset + options.limit - 1)
+        .order('id', { ascending: true })
+        .range(0, options.limit - 1)
 
       const { data } = await run(builder)
       return Array.isArray(data) ? (data as RemoteRow[]) : []

@@ -268,6 +268,7 @@ export class VisitRepository {
       }
 
       await addToOutbox(this.db, {
+        user_id: this.userId,
         entity_type: 'visits',
         entity_id: visit.id,
         operation: 'insert',
@@ -277,6 +278,7 @@ export class VisitRepository {
 
       for (const svc of services) {
         await addToOutbox(this.db, {
+          user_id: this.userId,
           entity_type: 'visit_services',
           entity_id: svc.id,
           operation: 'insert',
@@ -304,6 +306,7 @@ export class VisitRepository {
         )
 
         await addToOutbox(this.db, {
+          user_id: this.userId,
           entity_type: 'payments',
           entity_id: initialPayment.id,
           operation: 'insert',
@@ -372,6 +375,7 @@ export class VisitRepository {
       )
 
       await addToOutbox(this.db, {
+        user_id: this.userId,
         entity_type: 'payments',
         entity_id: payment.id,
         operation: 'insert',

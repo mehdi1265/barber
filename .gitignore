@@ -31,9 +31,9 @@ npm-debug.log*
 .DS_Store
 Thumbs.db
 
-# Capacitor
-android/
-ios/
+# Capacitor native projects are tracked so another machine can build the app.
+# Generated/build outputs inside them are excluded by android/.gitignore and
+# ios/.gitignore (build/, .gradle/, app/src/main/assets/public, Pods/, ...).
 .cache/
 
 # Coverage

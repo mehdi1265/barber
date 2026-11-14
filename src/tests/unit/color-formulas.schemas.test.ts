@@ -48,17 +48,31 @@ describe('colorFormulaSchema', () => {
       items: [{ ...base.items[0], amount: '0' }],
     })
     expect(zero.success).toBe(false)
+    if (!zero.success) {
+      expect(zero.error.issues[0].message).toBe('مقدار باید بزرگ‌تر از صفر باشد')
+    }
 
     const tooLarge = colorFormulaSchema.safeParse({
       ...base,
       items: [{ ...base.items[0], amount: '1000' }],
     })
     expect(tooLarge.success).toBe(false)
+    if (!tooLarge.success) {
+      expect(tooLarge.error.issues[0].message).toBe('مقدار حداکثر می‌تواند 999.99 باشد')
+    }
   })
 
   it('فرمول بدون قلم یا با درصد نامعتبر را رد می‌کند', () => {
     expect(colorFormulaSchema.safeParse({ ...base, items: [] }).success).toBe(false)
     expect(colorFormulaSchema.safeParse({ ...base, oxidant_percent: '120' }).success).toBe(false)
     expect(colorFormulaSchema.safeParse({ ...base, title: '   ' }).success).toBe(false)
+  })
+
+  it('بیش از ۵۰ قلم مواد را رد می‌کند', () => {
+    const result = colorFormulaSchema.safeParse({
+      ...base,
+      items: Array.from({ length: 51 }, () => base.items[0]),
+    })
+    expect(result.success).toBe(false)
   })
 })

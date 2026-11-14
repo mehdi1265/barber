@@ -64,6 +64,7 @@ describe('buildPushEntity', () => {
       .run('svc-1', USER, 'اصلاح سر', 250000, 30, now, now)
 
     await addToOutbox(db, {
+      user_id: USER,
       entity_type: 'services',
       entity_id: 'svc-1',
       operation: 'update',
@@ -98,6 +99,7 @@ describe('buildPushEntity', () => {
       .run('cus-1', USER, 'علی', created, deleted, deleted)
 
     await addToOutbox(db, {
+      user_id: USER,
       entity_type: 'customers',
       entity_id: 'cus-1',
       operation: 'delete',
@@ -114,9 +116,10 @@ describe('buildPushEntity', () => {
     expect(push.row.name).toBe('علی')
   })
 
-  it('حذف سخت فقط شناسه را برمی‌گرداند', async () => {
+  it('حذف حتی بدون ردیف محلی به tombstone تبدیل می‌شود', async () => {
     const { db } = createTestDb()
     await addToOutbox(db, {
+      user_id: USER,
       entity_type: 'appointment_services',
       entity_id: 'as-1',
       operation: 'delete',
@@ -125,7 +128,14 @@ describe('buildPushEntity', () => {
     const entry = await firstOutboxEntry(db)
 
     const push = await buildPushEntity(db, entry, USER)
-    expect(push).toEqual({ table: 'appointment_services', mode: 'delete', id: 'as-1' })
+    expect(push.mode).toBe('upsert')
+    if (push.mode !== 'upsert') return
+    expect(push.table).toBe('appointment_services')
+    expect(push.row.id).toBe('as-1')
+    expect(push.row.user_id).toBe(USER)
+    expect(push.row.deleted_at).toBeTruthy()
+    // Incremental pulls only see the delete if updated_at moves with it.
+    expect(push.row.updated_at).toBe(push.row.deleted_at)
   })
 
   it('برای عکس دارای فایل محلی، مسیر آپلود را جدا می‌کند', async () => {
@@ -147,6 +157,7 @@ describe('buildPushEntity', () => {
       .run('ph-1', USER, 'cus-1', 'photos/user-1/ph-1.jpg', now, now)
 
     await addToOutbox(db, {
+      user_id: USER,
       entity_type: 'customer_photos',
       entity_id: 'ph-1',
       operation: 'insert',

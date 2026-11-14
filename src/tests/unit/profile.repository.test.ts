@@ -59,4 +59,48 @@ describe('ProfileRepository', () => {
       currency_code: 'USD',
     })
   })
+
+  it('bootstrap placeholder is not queued for push', async () => {
+    const { db, outboxRows } = createTestDb()
+    const repo = new ProfileRepository(db)
+
+    const profile = await repo.ensureLocalProfile({
+      id: USER_ID,
+      user_id: USER_ID,
+      display_name: 'علی',
+      phone: null,
+      currency_code: 'IRR',
+    })
+
+    expect(profile.display_name).toBe('علی')
+    expect(await repo.getProfile(USER_ID)).toMatchObject({ phone: null, currency_code: 'IRR' })
+    // Pushing this placeholder would overwrite the cloud phone/currency.
+    expect(outboxRows()).toHaveLength(0)
+  })
+
+  it('bootstrap placeholder never replaces an existing cloud row', async () => {
+    const { db } = createTestDb()
+    const repo = new ProfileRepository(db)
+    await repo.createProfile({
+      id: USER_ID,
+      user_id: USER_ID,
+      display_name: 'آرایشگاه علی',
+      phone: '09120000000',
+      currency_code: 'USD',
+    })
+
+    const profile = await repo.ensureLocalProfile({
+      id: USER_ID,
+      user_id: USER_ID,
+      display_name: 'علی',
+      phone: null,
+      currency_code: 'IRR',
+    })
+
+    expect(profile).toMatchObject({
+      display_name: 'آرایشگاه علی',
+      phone: '09120000000',
+      currency_code: 'USD',
+    })
+  })
 })

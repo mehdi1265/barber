@@ -13,7 +13,8 @@
 > 2.8.0 bundles sql.js 1.11.0; the build copied 1.15.2). Startup now renders before bootstrap and
 > DB init has a 15 s timeout with a Persian error banner + retry. `PRAGMA foreign_keys` is applied
 > per connection; native encryption sets the secret before `open`. `android/` and `ios/` projects
-> are generated and `cap sync` passes (git-ignored; no device build or iOS toolchain here). Native
+> are generated and `cap sync` passes (they were git-ignored at that time; the 2026-11-14 closure
+> pass made native sources traceable). No device build or iOS toolchain here. Native
 > checks and the first remote CI run remain unverified. **Next action: T03 when assigned.**
 
 > **T03 update (2026-11-13):** Transactions, outbox correctness, child-row enqueue, and idempotency
@@ -129,6 +130,95 @@
 > **Next action: apply migrations `001`–`003` in the Supabase SQL editor (or via an access token),
 > create two test accounts, then run `npm run rls:check -- --out supabase/tests/rls-verification.log`;
 > Android signing still needs a locally generated keystore.**
+> **Device-handoff update (2026-11-13, seventh pass):** the runbook §5.1 local-data wipe is
+> implemented. Settings → «حذف داده‌های این دستگاه» refuses while the signed-in account has
+> unsynced outbox rows, then transactionally deletes that account's business rows, outbox, and
+> pull cursor, and removes `photos/<user>/` after the commit. Other accounts, `profiles`,
+> `sync_state`, and `schema_migrations` are untouched. Covered by `local-data-wipe.test.ts`
+> (real SQLite) and `settings-local-data.test.tsx`; 343/343 tests across 50 files, all gates
+> green. Browser/device execution of the file cleanup remains unverified. Docker/WSL2 are not
+> installed; the only Docker-dependent task is executing the PostgreSQL RLS suite locally, and
+> it is still blocked on a pending Windows restart plus interactive elevation.
+> **Security & sync verification update (2026-11-13, eighth pass):** sync runs are now fenced to
+> the account that started them. `pushOutbox`/`pullFromCloud` take `isAccountCurrent`; a switch
+> mid-run stops before sending, marking `done`, or burning attempts, and `runSync` starts a fresh
+> run for the new account. Pull skips remote rows owned by another account and upserts with
+> `WHERE user_id = excluded.user_id`, so an id collision cannot transfer a local row; an aborted
+> pull keeps its cursor. The bootstrap profile placeholder is inserted with `INSERT OR IGNORE`
+> and no outbox row, so reinstall/wipe can no longer push defaults over the cloud phone/currency.
+> The wipe guard ignores terminal (`failed` at attempt cap) outbox rows while still refusing on
+> retryable work. 9 new tests; 352/352 tests across 50 files and all gates green. RLS was re-read
+> statically (12 owner-scoped `FOR ALL` policies, per-command storage policies, same-user
+> composite FKs) but the PostgreSQL suite was **not executed**, so RLS is still not runtime-verified.
+> No commit, push, or remote access was performed.
+> **Zod remediation & Android read-back (2026-11-13, ninth pass):** `GHSA-mrhx-c7xc-m3w5`
+> (zod array memory exhaustion) is resolved by moving to `zod 4.6.7`, `@hookform/resolvers`
+> 7.0.6, and `react-hook-form` 7.92.0 (D-45). Only `CustomerForm`/`ProfileSettings` needed
+> `useForm<z.input<…>, unknown, z.output<…>>`; `ZodIssueCode`, `NEVER`, string messages and
+> `.email()` still work. `npm audit --omit=dev` → 0 vulnerabilities; full audit 13 dev-only.
+> 2 new tests → **354/354 across 50 files**, type-check/lint/format/build green.
+> Android toolchain was re-verified: JDK 21 (Android Studio JBR 21.0.9), SDK 36,
+> build-tools 36.1.0, Gradle 8.14, adb 36.0.2, no AVD/device. `assembleDebug --offline`
+> still fails because Google Maven returns 404 for AGP artifacts; no mirror or TLS bypass
+> was used, so the build must run on a Google-Maven-reachable machine. A debug keystore
+> already exists locally (not created in this pass); no release keystore exists.
+> New open items: **TD-21/D-46** deletion reconciliation (design only) and **TD-22**
+> SQLCipher 4.5.3 without 16 KB page support (plugin 7.0.3 upgrade pending a native build).
+> RLS still not runtime-verified. No commit, push, or remote access was performed.
+> **Deletion reconciliation & Vitest 5 (2026-11-14, tenth pass):** TD-21/D-46 is now implemented.
+> `supabase/migrations/005_sync_tombstones.sql` adds `deleted_at` + `user_deleted` indexes to the
+> seven data tables that lacked them. `SOFT_DELETE_TABLES` covers all 11 data tables, push sends
+> tombstones with a forward `updated_at`, and pull deletes child-first in one transaction while
+> protecting pending/newer local edits and blocking stale-server resurrection. Pagination is now
+> keyset `(updated_at, id)` (PostgREST `.or(...)`) instead of offset, and photo files are removed
+> after commit. New `sync.reconcile.test.ts` (7 cases) plus updated pull/push/payload tests run on
+> real `node:sqlite`: **363/363 across 51 files**; type-check/lint/format/build green; production
+> audit 0. `vitest`/`@vitest/coverage-v8` moved to 5.1.0, closing both critical dev advisories;
+> 7 moderate dev-only `typescript-eslint → minimatch` advisories remain (no fixed upstream).
+> Remaining T17 evidence: apply migration 005 to the target project and run the two-device delete
+> test. No commit, push, hosted migration, or remote access was performed.
+> **T17 operational validation (2026-11-14, eleventh pass): BLOCKED.** Phase 1 static checks passed
+> (idempotent SQL, all seven tables + indexes covered, owner-only RLS on every synced table, server
+> `updated_at` trigger, CI double-apply). Phase 2 (apply migration on Test) and Phase 3 (10
+> two-device scenarios) were not executed: `SUPABASE_ACCESS_TOKEN`, `SUPABASE_DB_PASSWORD`, and
+> `RLS_STAGING_PROJECT_REF` are unset; docker/psql/Supabase CLI/pg are absent; the `.env.local`
+> project is not confirmed as test/staging. No hosted DB was contacted. Regression gates identical
+> to the tenth pass: 363/363 tests, build green, prod audit 0, 7 moderate dev-only remain.
+> **Staging guard hardening (2026-11-14, thirteenth pass):** the RLS runner now requires both refs,
+> rejects unknown/malformed refs and Staging=Production, and refuses any probe write without
+> `--confirm-ref=<staging-ref>`; cleanup verifies `id` + `user_id`, aborts on ambiguous ownership,
+> and diagnostics redact key-shaped text. 20 offline guard tests; 383/383 across 52 files; gates
+> green. **Release-candidate prep (2026-11-14, fourteenth pass):** source maps disabled for
+> production builds (dist 8.0 MB → 2.2 MB); added `docs/13-release-owner-approval.md` (blank
+> sign-off), `docs/14-release-artifacts.md`, `docs/15-operational-test-plan.md`, and
+> `supabase/tests/verify_release_schema.sql`. All operational rows remain `NOT RUN`; staging
+> approval is still the blocking prerequisite. No commit, push, hosted migration, or network
+> access was performed.
+>
+> **Android release blockers (2026-11-14, fifteenth pass): BUILD SUCCEEDED, DEVICE VERIFICATION
+> PENDING.** TD-22 fixed: plugin 7.0.3 + `sqlcipher-android:4.10.0`, all four `.so` at
+> `p_align = 0x4000` (4.5.3 was `0x1000`). Built debug APK, unsigned release APK, and a 13.8 MB
+> AAB with JDK 21; `zipalign -c -P 16` and bundletool-generated APKs pass; 0 source maps. Google
+> Maven is regionally blocked (404 on `master-index.xml`), so this build is **verification-grade**
+> via a session-scoped mirror outside the repo, not uploadable. No release keystore exists.
+> BUG-40 (bare Gradle packaged stale `android/app/src/main/assets/public`) was fixed by
+> `npx cap copy android` before rebuilding — always run `npm run cap:build` first. Device/emulator
+> and the eight SQLCipher migration scenarios are **NOT RUN** (no device; every system-image dir is
+> empty). See `docs/16-android-sqlcipher-migration.md`. Gates: type-check/lint/format/build green,
+> 383/383 tests, prod audit 0, 7 moderate dev-only. No commit, push, or merge.
+>
+> **Android verification attempt (2026-11-14, sixteenth pass): BLOCKED (status D).** Re-verified
+> statically and stopped at every runtime gate. The packaged `libsqlcipher.so` (all four ABIs) is
+> byte-identical to the `sqlcipher-android:4.10.0` AAR, `p_align = 0x4000`, the dex has zero
+> `net/sqlcipher` classes, intermediates resolve 4.10.0 with no old coordinate, and
+> `UtilsSecret`/`GlobalSQLite` are unchanged. The eight `docs/16` scenarios remain **BLOCKED**: no
+> device, no database created by 7.0.0 anywhere, and a substitute database is forbidden. 16 KB
+> runtime is BLOCKED: 0 `system.img`, no AVD, `android-36/google_apis_ps16k` not installed, and the
+> SDK repository returns 404. Official build is BLOCKED: Google Maven 404 for AGP/AndroidX/
+> `master-index.xml`; no new build was run, existing artifacts are verification-grade. Signing only
+> inspected (no keystore, none created). Supabase untouched. Gates: type-check/lint/format/build
+> green, **383/383 tests / 52 files**, `npm audit --omit=dev` 0, 7 moderate dev-only. TD-22 and
+> TD-24 stay open. No commit, push, merge, reset, clean, or upload.
 
 
 ---
@@ -642,6 +732,60 @@ T01 is complete. Stop here; do not continue into T02 without a new instruction.
 | Q10 | Distribution channel? | Direct APK / Play internal testing |
 
 Answering Q1/Q2/Q5 before T09 and Q3 before T07 avoids rework. Record answers in `docs/10-decisions-log.md`.
+
+---
+
+## Final execution pass (2026-11-14)
+
+Baseline: `HEAD = 28da1dd`, branch `develop`, 68 modified + 20 untracked + 0 staged.
+
+Changed in this pass:
+- `src/tests/unit/customer.repository.test.ts` and `src/tests/unit/service.repository.test.ts`
+  now run against real in-memory SQLite via `src/tests/helpers/sqlite-harness.ts` (TD-05 closed).
+- `src/shared/utils/helpers.ts` — `matchesSearch` normalises both sides (BUG-31 closed);
+  `src/tests/unit/helpers.test.ts` gained a Persian-digit-in-text regression test.
+- `vitest.config.ts` — coverage thresholds 70/60/60/70 (baseline 73.58/66.11/67.68/75.47);
+  `.github/workflows/ci.yml` gained a "Coverage thresholds" step. TD-06 closed.
+- `ios/App/Podfile` — added `CapacitorCamera`, `CapacitorFilesystem`,
+  `AparajitaCapacitorSecureStorage` (they were installed but not linked).
+- Register/doc updates: BUG-22 resolved, TD-13/20 confirmed resolved, TD-18/19 partial,
+  TD-11 partial (dead files retained because this pass may not delete pre-existing files),
+  plus status sections in PROJECT_STATUS, BUGS, release docs, NEXT_STEPS.
+
+Verified: type-check, lint, format:check, build (0 maps, 2.2 MB), **403/403 tests / 52 files**,
+coverage thresholds pass, `npm audit --omit=dev` 0. Android artifact hashes unchanged
+(`c6b28d3a…`, `a25f032f…`, `90a1878d…`); APK has no `debuggable`, `allowBackup=false`, no
+`sb_secret_*`. iOS build, device runs, hosted migrations, and 16 KB runtime remain **NOT RUN**.
+
+Do not commit, push, merge, reset, clean, write to Supabase, or replace a real database.
+
+---
+
+## Final closure pass (2026-11-14)
+
+Repo state: `develop` @ `28da1dd`; 71 modified + 22 untracked entries in porcelain
+(89 files with `-uall`), 0 staged. No commit/push/merge/reset/clean.
+
+Done:
+- Deleted `src/App.tsx`, `src/App.css`, `src/database/repositories/base.repository.ts` after
+  proving zero importers (owner authorized in this pass). BUG-30 and TD-11 closed.
+- `.gitignore`: `android/` and `ios/` no longer wholesale-ignored, so the 69 hand-maintained
+  native files (manifest, backup rules, Gradle config, Podfile, Info.plist, Xcode project,
+  assets) are traceable. Nested `android/.gitignore` / `ios/.gitignore` still exclude
+  `build/`, `.gradle/`, `local.properties`, `Pods/`, `public/`, generated configs; secrets
+  stay ignored. **The files are untracked — owner must review and commit.**
+- TD-24 closed for this release with evidence: the only `UtilsEncryption` callers are the
+  plugin's `exportToJson`/`importFromJson` bridge, and `rg` finds no app call. Fixed salt/IV
+  remains a documented precondition for any backup feature.
+- New docs: `docs/FINAL_PROJECT_HANDOVER.md` (architecture, native inventory, Android/iOS
+  release paths) and `docs/FINAL_OWNER_ACTION_CHECKLIST.md`.
+
+Verified: type-check, lint, format:check, build green; **403/403 tests / 52 files**; 0 source
+maps; `dist` 2.2 MB; `npm audit --omit=dev` 0; release APK `zipalign -c -P 16` passes;
+`llvm-readelf` shows `p_align = 0x4000`; Google Maven still 404.
+
+Not run: Android device/16 KB runtime, official rebuild, iOS build/archive, hosted migrations.
+TD-22 stays open. See the owner checklist for the remaining external steps.
 
 ---
 

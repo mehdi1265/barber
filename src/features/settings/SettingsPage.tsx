@@ -7,6 +7,7 @@
 
 import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
+import { useQueryClient } from '@tanstack/react-query'
 import { Capacitor } from '@capacitor/core'
 import { PageHeader } from '@shared/components/ui/PageHeader'
 import { Button } from '@shared/components/ui/Button'
@@ -24,6 +25,7 @@ import {
 } from '@services/notifications/local-notifications'
 import { formatJalaliDate, formatTime } from '@shared/utils/jalali'
 import { useProfile, useUpdateProfile } from './settings.hooks'
+import { deleteLocalAccountData, PendingOutboxError } from './local-data'
 import { ProfileSettings } from './ProfileSettings'
 import type { ProfileFormData } from './settings.schemas'
 import styles from './SettingsPage.module.css'
@@ -75,6 +77,12 @@ export default function SettingsPage() {
   const [profileError, setProfileError] = useState<string | null>(null)
   const [logoutOpen, setLogoutOpen] = useState(false)
   const [logoutBusy, setLogoutBusy] = useState(false)
+  const [logoutError, setLogoutError] = useState<string | null>(null)
+  const [wipeOpen, setWipeOpen] = useState(false)
+  const [wipeBusy, setWipeBusy] = useState(false)
+  const [wipeError, setWipeError] = useState<string | null>(null)
+  const [wipeDone, setWipeDone] = useState(false)
+  const queryClient = useQueryClient()
 
   const native = Capacitor.isNativePlatform()
 
@@ -96,8 +104,15 @@ export default function SettingsPage() {
 
   const handleLogout = async () => {
     setLogoutBusy(true)
+    setLogoutError(null)
     try {
-      await logoutUseCase()
+      const { error } = await logoutUseCase()
+      if (error) {
+        // Keep the signed-in UI: clearing it while the stored session survives
+        // would present a false logout and restore the session on next launch.
+        setLogoutError(error.message)
+        return
+      }
       clearAuth()
       void navigate('/login', { replace: true })
     } finally {
@@ -165,6 +180,27 @@ export default function SettingsPage() {
     }
   }
 
+  const confirmWipe = async () => {
+    setWipeBusy(true)
+    setWipeError(null)
+    setWipeDone(false)
+    try {
+      if (!userId) throw new Error('missing user')
+      await deleteLocalAccountData(userId)
+      setWipeDone(true)
+      await queryClient.invalidateQueries()
+    } catch (error) {
+      setWipeError(
+        error instanceof PendingOutboxError
+          ? 'تغییرات ارسال‌نشده دارید؛ ابتدا همگام‌سازی کنید و سپس دوباره تلاش کنید.'
+          : 'حذف داده‌های محلی ناموفق بود. دوباره تلاش کنید.'
+      )
+    } finally {
+      setWipeBusy(false)
+      setWipeOpen(false)
+    }
+  }
+
   return (
     <div className={styles.page} dir="rtl">
       <PageHeader title="تنظیمات" />
@@ -205,6 +241,11 @@ export default function SettingsPage() {
             خروج از حساب
           </Button>
         </div>
+        {logoutError && (
+          <p className={styles.error} role="alert">
+            {logoutError}
+          </p>
+        )}
       </section>
 
       <section className={styles.section} aria-labelledby="sync-heading">
@@ -269,6 +310,40 @@ export default function SettingsPage() {
           همه اطلاعات ابتدا روی این دستگاه ذخیره می‌شود. همگام‌سازی در پس‌زمینه و پس از اتصال
           اینترنت انجام می‌شود. تغییرات ارسال‌نشده در بازیابی حفظ می‌شوند.
         </p>
+      </section>
+
+      <section className={styles.section} aria-labelledby="local-data-heading">
+        <h2 id="local-data-heading" className={styles.sectionTitle}>
+          داده‌های این دستگاه
+        </h2>
+        <p className={styles.note}>
+          حذف داده‌های محلی فقط نسخه روی این دستگاه را پاک می‌کند؛ داده‌های همگام‌شده در ابر
+          می‌مانند و با «بازیابی کامل از ابر» برمی‌گردند. اگر تغییری ارسال‌نشده وجود داشته باشد این
+          کار انجام نمی‌شود.
+        </p>
+        <div className={styles.actions}>
+          <Button
+            variant="danger"
+            disabled={wipeBusy || status === 'syncing'}
+            onClick={() => {
+              setWipeDone(false)
+              setWipeError(null)
+              setWipeOpen(true)
+            }}
+          >
+            حذف داده‌های این دستگاه
+          </Button>
+        </div>
+        {wipeDone && (
+          <p className={styles.note} role="status">
+            داده‌های محلی حذف شد.
+          </p>
+        )}
+        {wipeError && (
+          <p className={styles.error} role="alert">
+            {wipeError}
+          </p>
+        )}
       </section>
 
       <section className={styles.section} aria-labelledby="reminders-heading">
@@ -382,6 +457,19 @@ export default function SettingsPage() {
           void confirmRestore()
         }}
         onCancel={() => setRestoreOpen(false)}
+      />
+
+      <ConfirmDialog
+        isOpen={wipeOpen}
+        title="حذف داده‌های این دستگاه"
+        message="همه مشتریان، نوبت‌ها، داده‌های مالی، فرمول‌ها و عکس‌های ذخیره‌شده روی این دستگاه پاک می‌شوند. تا وقتی تغییر ارسال‌نشده وجود دارد این کار انجام نمی‌شود. این عمل قابل بازگشت نیست، اما داده‌های همگام‌شده با «بازیابی کامل از ابر» برمی‌گردند. ادامه می‌دهید؟"
+        confirmLabel="حذف کن"
+        cancelLabel="انصراف"
+        danger
+        onConfirm={() => {
+          if (!wipeBusy) void confirmWipe()
+        }}
+        onCancel={() => setWipeOpen(false)}
       />
 
       <ConfirmDialog

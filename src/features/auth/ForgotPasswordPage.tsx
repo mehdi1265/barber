@@ -10,7 +10,7 @@ import styles from './AuthPage.module.css'
 
 export default function ForgotPasswordPage() {
   const [serverError, setServerError] = useState<string | null>(null)
-  const [sent, setSent] = useState(false)
+  const [sentEmail, setSentEmail] = useState<string | null>(null)
 
   const {
     register,
@@ -24,7 +24,7 @@ export default function ForgotPasswordPage() {
     setServerError(null)
     const { error } = await requestPasswordResetUseCase(data.email)
     if (error) setServerError(error.message)
-    else setSent(true)
+    else setSentEmail(data.email)
   }
 
   return (
@@ -38,11 +38,21 @@ export default function ForgotPasswordPage() {
           <p className={styles.subtitle}>ایمیل حساب خود را وارد کنید</p>
         </div>
 
-        {sent ? (
-          <div className={styles.success} role="status">
-            اگر این ایمیل در سیستم ثبت شده باشد، لینک بازیابی برای شما ارسال شد. صندوق ورودی و پوشه
-            هرزنامه را بررسی کنید.
-          </div>
+        {sentEmail ? (
+          <>
+            <div className={styles.success} role="status">
+              اگر این ایمیل در سیستم ثبت شده باشد، کد بازیابی و لینک آن برای شما ارسال شد. صندوق
+              ورودی و پوشه هرزنامه را بررسی کنید.
+            </div>
+            <div className={styles.footer}>
+              <Link
+                to={`/reset-password?email=${encodeURIComponent(sentEmail)}`}
+                className={styles.link}
+              >
+                وارد کردن کد بازیابی
+              </Link>
+            </div>
+          </>
         ) : (
           <form
             onSubmit={e => {

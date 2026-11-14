@@ -28,11 +28,23 @@ export const ENTITY_TABLES = {
 
 export type EntityType = keyof typeof ENTITY_TABLES
 
-/** Tables whose server schema has `deleted_at`; deletes are tombstones. */
+/**
+ * Tables whose server schema has `deleted_at`; deletes are tombstones.
+ * Every synced data table is soft-deleted on the server (migration 005), so a
+ * delete is discoverable by other devices and cannot be resurrected by an
+ * offline queue that never saw it. `profiles` is never deleted.
+ */
 export const SOFT_DELETE_TABLES: ReadonlySet<SyncTable> = new Set<SyncTable>([
   'customers',
+  'services',
   'appointments',
+  'appointment_services',
+  'visits',
+  'visit_services',
+  'payments',
   'expenses',
+  'color_formulas',
+  'color_formula_items',
   'customer_photos',
 ])
 
@@ -165,8 +177,8 @@ async function findLocalRow(
  * change, `{ id, deleted_at }` for a soft delete). For inserts/updates the
  * current local row is merged underneath the payload so the server receives a
  * complete row, which also makes the upsert safe if the original insert never
- * reached the server. Tombstones keep the local `updated_at` so other devices
- * can see the delete in an incremental pull.
+ * reached the server. A delete becomes a tombstone whose `updated_at` is
+ * pushed forward, so incremental pulls on other devices can see it.
  */
 export async function buildPushEntity(
   db: SQLiteDBConnection,
@@ -200,10 +212,21 @@ export async function buildPushEntity(
   merged.user_id = merged.user_id ?? userId
 
   if (entry.operation === 'delete') {
-    // A tombstone without a timestamp is never discoverable by an incremental
-    // pull on another device.
-    merged.deleted_at = merged.deleted_at ?? merged.updated_at ?? new Date().toISOString()
-    merged.updated_at = merged.updated_at ?? merged.deleted_at
+    // A tombstone without a fresh timestamp is never discoverable by an
+    // incremental pull: another device whose cursor is already past the row's
+    // last edit would never see the delete and could resurrect the row.
+    const deletedAt =
+      typeof merged.deleted_at === 'string' && merged.deleted_at
+        ? merged.deleted_at
+        : new Date().toISOString()
+    merged.deleted_at = deletedAt
+    const current = typeof merged.updated_at === 'string' ? merged.updated_at : null
+    // Keep a newer local edit (resurrection by an offline device) intact, but
+    // never let the tombstone fall behind its own deletion time.
+    merged.updated_at =
+      current && !Number.isNaN(Date.parse(current)) && Date.parse(current) > Date.parse(deletedAt)
+        ? current
+        : deletedAt
   }
 
   let photo: PhotoUpload | undefined

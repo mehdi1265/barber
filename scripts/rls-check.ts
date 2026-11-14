@@ -10,23 +10,24 @@
  * Requirements (never commit these):
  *   VITE_SUPABASE_URL / SUPABASE_URL                 (Staging project URL)
  *   VITE_SUPABASE_ANON_KEY / SUPABASE_ANON_KEY       (Staging publishable key)
- *   RLS_STAGING_PROJECT_REF                          (guard: must match the URL)
- *   RLS_PRODUCTION_PROJECT_REF                       (optional guard: hard refuse)
+ *   RLS_STAGING_PROJECT_REF                          (required guard: must match the URL)
+ *   RLS_PRODUCTION_PROJECT_REF                       (required guard: hard refuse)
  *   RLS_USER_A_EMAIL, RLS_USER_A_PASSWORD
  *   RLS_USER_B_EMAIL, RLS_USER_B_PASSWORD
  *
- * The staging guard aborts unless the configured project ref equals
- * RLS_STAGING_PROJECT_REF, so a stray Production URL in the shell cannot run
- * the destructive probes against the live project.
+ * Both refs are mandatory and there is no fallback: the run aborts before any
+ * request unless the URL resolves to RLS_STAGING_PROJECT_REF and that ref
+ * differs from RLS_PRODUCTION_PROJECT_REF. Probe rows are only written when
+ * `--confirm-ref=<staging-ref>` matches the confirmed ref on that invocation.
  *
  * Usage:
- *   npm run rls:check -- --preflight                 (validate the setup only)
- *   npm run rls:check
- *   npm run rls:check -- --out supabase/tests/rls-verification.log
+ *   npm run rls:check -- --preflight                        (validate the setup only)
+ *   npm run rls:check -- --confirm-ref=<staging-ref>        (write probes, then clean up)
+ *   npm run rls:check -- --confirm-ref=<staging-ref> --out supabase/tests/rls-verification.log
  *
  * Both accounts must already exist and be email-confirmed. A successful run
- * prints "RLS verification passed" and exits 0. `--preflight` checks the key,
- * the schema, and both sign-ins without writing any probe rows.
+ * prints "RLS verification passed" and exits 0. `--preflight` checks the
+ * guards, the key, the schema, and both sign-ins without writing any probe rows.
  */
 
 import { randomUUID } from 'node:crypto'
@@ -38,7 +39,11 @@ import {
   PHOTO_BUCKET,
   SYNCED_TABLES,
   briefError,
+  decideProbeCleanup,
+  describeEnvPresence,
+  describeWritePlan,
   inspectAnonKey,
+  isOwnedProbePath,
   isRlsViolation,
   jwtSubject,
   keyFingerprint,
@@ -46,8 +51,10 @@ import {
   normalizeBaseUrl,
   normalizeKey,
   parseEnvFile,
-  projectRefFromUrl,
+  probeDeletePath,
+  resolveWriteConfirmation,
   storageProbePath,
+  validateStagingGuard,
 } from './rls-check-utils.ts'
 
 interface Session {
@@ -460,13 +467,22 @@ async function removeForbiddenRow(
   table: string,
   body: string
 ): Promise<void> {
-  const rows = rowsOf(body) as { id?: unknown }[]
-  const id = typeof rows[0]?.id === 'string' ? rows[0].id : null
+  const rows = rowsOf(body) as { id?: unknown; user_id?: unknown }[]
+  const row = rows[0]
+  const id = typeof row?.id === 'string' ? row.id : null
   if (!id) {
     fail(result, `cannot clean up the forbidden ${table} insert: response had no id`)
     return
   }
-  const remove = await request(baseUrl, key, a.token, `/rest/v1/${table}?id=eq.${id}`, {
+  if (row?.user_id !== a.userId) {
+    fail(
+      result,
+      `cannot clean up the forbidden ${table} insert: row ownership could not be verified, ` +
+        'so nothing was deleted'
+    )
+    return
+  }
+  const remove = await request(baseUrl, key, a.token, probeDeletePath(table, id, a.userId), {
     method: 'DELETE',
   })
   if (remove.status >= 400) {
@@ -562,14 +578,56 @@ async function cleanup(
     color_formula_items: seeds.formulaItem,
     customer_photos: seeds.photo,
   }
+  const expectedIds = new Set(Object.values(ids))
+  let aborted = false
 
   for (const table of CLEANUP_ORDER) {
-    const response = await request(baseUrl, key, a.token, `/rest/v1/${table}?id=eq.${ids[table]}`, {
+    const id = ids[table]
+    const read = await request(
+      baseUrl,
+      key,
+      a.token,
+      `/rest/v1/${table}?select=id,user_id&id=eq.${id}`
+    )
+    if (read.status !== 200) {
+      fail(result, `cleanup aborted before ${table}: ownership read returned ${read.status}`)
+      aborted = true
+      break
+    }
+    const rows = rowsOf(read.body) as { id?: unknown; user_id?: unknown }[]
+    if (rows.length > 1) {
+      fail(result, `cleanup aborted before ${table}: ${rows.length} rows matched probe id ${id}`)
+      aborted = true
+      break
+    }
+    const decision = decideProbeCleanup({
+      id,
+      row: rows[0] ?? null,
+      actorId: a.userId,
+      expectedIds,
+    })
+    if (decision === 'refuse') {
+      fail(
+        result,
+        `cleanup aborted before ${table}: probe id ${id} is not owned by the signed-in user ` +
+          'or was not created by this run'
+      )
+      aborted = true
+      break
+    }
+    if (decision === 'already-gone') continue
+
+    const response = await request(baseUrl, key, a.token, probeDeletePath(table, id, a.userId), {
       method: 'DELETE',
     })
     if (response.status >= 400) {
       fail(result, `cleanup of ${table} returned ${response.status}: ${briefError(response.body)}`)
     }
+  }
+
+  if (aborted) {
+    log('INFO  cleanup stopped early; no further probe rows were deleted')
+    return
   }
 
   let remaining = 0
@@ -614,6 +672,10 @@ async function cleanupStorage(
   paths: string[]
 ): Promise<void> {
   for (const path of paths) {
+    if (!isOwnedProbePath(path, a.userId)) {
+      fail(result, `storage cleanup refused: ${path} is outside the signed-in user's probe paths`)
+      continue
+    }
     await request(baseUrl, key, a.token, `/storage/v1/object/${PHOTO_BUCKET}/${path}`, {
       method: 'DELETE',
     })
@@ -632,9 +694,14 @@ async function cleanupStorage(
   log('INFO  storage cleanup verified: no probe objects remain')
 }
 
-function parseArgs(argv: string[]): { out: string | null; preflight: boolean } {
+function parseArgs(argv: string[]): {
+  out: string | null
+  preflight: boolean
+  confirmRef: string | null
+} {
   let out: string | null = null
   let preflight = false
+  let confirmRef: string | null = null
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index]
     if (arg === '--out') {
@@ -644,11 +711,22 @@ function parseArgs(argv: string[]): { out: string | null; preflight: boolean } {
       index += 1
     } else if (arg === '--preflight') {
       preflight = true
+    } else if (arg.startsWith('--confirm-ref=')) {
+      const value = arg.slice('--confirm-ref='.length).trim()
+      if (!value) throw new Error('--confirm-ref needs the exact Staging project ref')
+      confirmRef = value
+    } else if (arg === '--confirm-ref') {
+      const value = argv[index + 1]
+      if (!value || value.startsWith('--')) {
+        throw new Error('--confirm-ref needs the exact Staging project ref')
+      }
+      confirmRef = value.trim()
+      index += 1
     } else {
       throw new Error(`Unknown argument: ${arg}`)
     }
   }
-  return { out, preflight }
+  return { out, preflight, confirmRef }
 }
 
 async function writeReport(out: string): Promise<void> {
@@ -676,7 +754,7 @@ async function preflightProfiles(baseUrl: string, key: string, sessions: Session
 }
 
 async function main(): Promise<void> {
-  const { out, preflight } = parseArgs(process.argv.slice(2))
+  const { out, preflight, confirmRef } = parseArgs(process.argv.slice(2))
   const env = await loadEnv()
 
   const baseUrl = normalizeBaseUrl(firstEnv(env, ['VITE_SUPABASE_URL', 'SUPABASE_URL']))
@@ -692,25 +770,33 @@ async function main(): Promise<void> {
     )
   }
 
-  const expectedRef = env.RLS_STAGING_PROJECT_REF?.trim()
-  if (!expectedRef) {
-    throw new Error(
-      'missing RLS_STAGING_PROJECT_REF: set it to the Staging project ref in .env.rls.local ' +
-        'so this runner refuses to touch Production'
-    )
+  const guard = validateStagingGuard({
+    baseUrl,
+    stagingRef: env.RLS_STAGING_PROJECT_REF,
+    productionRef: env.RLS_PRODUCTION_PROJECT_REF,
+  })
+  log(`INFO  staging guard OK: project ref ${guard.actualRef} matches RLS_STAGING_PROJECT_REF`)
+  log('INFO  production guard OK: the declared Production ref is set and differs from Staging')
+  for (const line of describeEnvPresence(env, [
+    'RLS_USER_A_EMAIL',
+    'RLS_USER_A_PASSWORD',
+    'RLS_USER_B_EMAIL',
+    'RLS_USER_B_PASSWORD',
+  ])) {
+    log(`INFO  ${line}`)
   }
-  const actualRef = projectRefFromUrl(baseUrl)
-  const productionRef = env.RLS_PRODUCTION_PROJECT_REF?.trim()
-  if (actualRef && productionRef && actualRef === productionRef) {
-    throw new Error(`refusing to run: ${actualRef} is marked as the Production project`)
+
+  const confirmation = resolveWriteConfirmation({
+    preflight,
+    confirmRef,
+    stagingRef: guard.stagingRef,
+  })
+  for (const line of describeWritePlan(guard.actualRef)) log(line)
+  if (confirmation.writes) {
+    log(`INFO  write confirmation accepted for ${guard.actualRef} (this run only)`)
+  } else {
+    log('INFO  preflight mode: probe writes stay disabled')
   }
-  if (actualRef !== expectedRef) {
-    throw new Error(
-      `refusing to run: expected Staging project "${expectedRef}", but the configured URL ` +
-        `resolves to "${actualRef ?? 'an unknown host'}"`
-    )
-  }
-  log(`INFO  staging guard OK: project ref ${actualRef} matches RLS_STAGING_PROJECT_REF`)
 
   const health = await request(baseUrl, key, null, '/auth/v1/health')
   if (health.status !== 200) {
@@ -752,7 +838,8 @@ async function main(): Promise<void> {
 
   if (preflight) {
     await preflightProfiles(baseUrl, key, [a, b])
-    log('preflight OK: key, schema, and both accounts authenticate')
+    log('preflight OK: guard, key, schema, and both accounts authenticate')
+    log('no writes were performed; add --confirm-ref=<staging-ref> to run the probes')
     log('RLS verification was NOT run (drop --preflight for the full two-user check)')
     if (out) await writeReport(out)
     return
