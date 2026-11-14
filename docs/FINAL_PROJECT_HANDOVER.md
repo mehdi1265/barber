@@ -45,13 +45,13 @@ npm audit --omit=dev
 
 ## ۳. Git — چه چیزی باید در مخزن باشد
 
-- شاخهٔ جاری تحویل: `develop` روی `28da1dd` (هیچ commit جدیدی در این پاس ساخته نشد).
+- شاخهٔ تحویل: `develop`. نسخهٔ نهایی در commit `ce31e30` («chore(release): consolidate final project version»، ۲۰۲۶-۱۱-۱۴) ثبت شد: ۱۶۴ فایل (۷۰ modified، ۹۱ added، ۳ deleted). هیچ push/merge/deploy انجام نشد.
 - **تغییر مهم این پاس:** `android/` و `ios/` دیگر به‌صورت کامل ignore نمی‌شوند. علت ignore قبلی
   این بود که Capacitor این پوشه‌ها را تولید می‌کند و در T02 بدون تصمیم صریح نادیده گرفته شدند.
   نتیجه: هیچ‌کس نمی‌توانست از مخزن بیلد بگیرد، چون manifest سخت‌شده، Info.plist فارسی، Podfile و
   تنظیمات امضا فقط روی این دستگاه بودند.
-- اکنون ۶۹ فایل دست‌نویس native قابل‌ردیابی شده‌اند (`git status --porcelain -uall | grep '^?? \(android\|ios\)/'`).
-  هنوز **stage/commit نشده‌اند** — مالک باید بازبینی و commit کند.
+- ۶۹ فایل دست‌نویس native (اندروید ۵۴، iOS ۱۵) اکنون در مخزن قابل‌ردیابی و در همان commit نهایی ثبت شده‌اند
+  (`git ls-files android ios | wc -l` = 69).
 
 ### فایل‌های ضروری Android (باید در مخزن باشند)
 
@@ -87,24 +87,21 @@ npm audit --omit=dev
 
 ### ۳.۱ آیا یک کلون تمیز از مخزن Build می‌شود؟
 
-**نه، تا زمانی که تغییرات فعلی commit نشوند.** `HEAD = 28da1dd` قدیمی است و یک clone تازه
-این موارد را ندارد:
+**بله از نظر سورس.** همهٔ ۱۶۴ تغییر در commit `ce31e30` روی `develop` ثبت شده و working tree
+تمیز است. یک clone تازه شامل کد اپ و تست‌ها، migrationهای محلی `005`/`006`، migrationهای
+Supabase `004`/`005`، اسکریپت‌های RLS، تست‌های جدید، مستندات `docs/12`–`docs/16` و
+`docs/FINAL_*`، `NEXT_STEPS.md`، و کل `android/` و `ios/` (۶۹ فایل) است.
 
-- **۷۰ فایل modified** (کد اپ، تست‌ها، migrationها، CI، مستندات) — هستهٔ نسخهٔ فعلی.
-- **فایل‌های untracked ضروری:**
-  - `src/database/migrations/005_outbox_user_scope.sql` و `006_sync_cursor_user.sql`
-  - `src/features/settings/local-data.ts`
-  - `supabase/migrations/004_same_user_ownership.sql` و `005_sync_tombstones.sql`
-  - `supabase/tests/legacy_ownership_mismatches.sql` و `verify_release_schema.sql`
-  - تست‌های `account-isolation.integration`, `appointments.schemas`, `local-data-wipe`,
-    `rls-check-guard`, `settings-local-data`, `sqlite-migrations`, `sync.reconcile`
-  - مستندات `docs/12`–`docs/16`، `docs/FINAL_*`، `NEXT_STEPS.md`
-  - کل `android/` و `ios/` (۶۹ فایل دست‌نویس)
-- روی clone بدون این‌ها: تست migration-runner شکست می‌خورد، `local-data` تست ندارد،
-  امضای/تنظیمات native وجود ندارد و build فروشگاه ممکن نیست.
+چیزهایی که طبق طراحی در clone نیستند و باید محلی فراهم شوند:
 
-پس از commit، یک ماشین دیگر با `npm ci` + `.env` + (برای Android) keystore + دسترسی
-Google Maven، و (برای iOS) macOS/Xcode/CocoaPods می‌تواند build کند.
+- `node_modules/` با `npm ci`؛ `dist/` با `npm run build`.
+- `.env` از روی `.env.example` (مقادیر واقعی هرگز در Git نیست).
+- Android: `android/local.properties`، release keystore/`keystore.properties`، و دسترسی به
+  Google Maven (در این پاس 404 بود؛ بنابراین build فروشگاه روی این دستگاه تأیید نشده است).
+- iOS: macOS + Xcode + `pod install` (`ios/App/Pods` و `public` عمداً خارج از Git هستند).
+
+توجه: build شدن سورس به‌معنای تأیید اجرا نیست؛ تست دستگاه Android و build iOS در این پروژه
+اجرا نشده‌اند.
 
 ---
 

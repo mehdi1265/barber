@@ -16,12 +16,11 @@
 
 ## ۲. مخزن (Git)
 
-- [ ] بازبینی و commit پروژه‌های native که اکنون قابل‌ردیابی شده‌اند:
-      `git status --porcelain -uall | grep '^?? \(android\|ios\)/'` (۶۹ فایل).
-      هیچ commit/push در این پاس انجام نشد.
-- [ ] تأیید اینکه `android/local.properties`، `*.jks`، `keystore.properties` و `.env*` همچنان
-      خارج از مخزن هستند.
-- [ ] تصمیم دربارهٔ شاخهٔ تحویل (`develop` روی `28da1dd`).
+- [x] پروژه‌های native همراه نسخهٔ نهایی commit شدند: `ce31e30` روی `develop`
+      (۱۶۴ فایل؛ ۶۹ فایل native). هیچ push در این پاس انجام نشد.
+- [x] تأیید شد که `android/local.properties`، `*.jks`، `keystore.properties`، `.env*`،
+      `Pods` و خروجی‌های build خارج از مخزن هستند.
+- [ ] تصمیم مالک دربارهٔ push شاخهٔ `develop` به مخزن راه‌دور (در این پاس انجام نشد).
 
 ## ۳. Android — انتشار
 
