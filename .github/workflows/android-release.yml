@@ -524,7 +524,7 @@ jobs:
           grep -q "versionCode='$VERSION_CODE'" "$RUNNER_TEMP/badging.txt"
           grep -q "versionName='$VERSION_NAME'" "$RUNNER_TEMP/badging.txt"
           grep -q "package: name='com.barberapp.app'" "$RUNNER_TEMP/badging.txt"
-          grep -q "sdkVersion:'23'" "$RUNNER_TEMP/badging.txt"
+          grep -q "minSdkVersion:'23'" "$RUNNER_TEMP/badging.txt"
           grep -q "targetSdkVersion:'36'" "$RUNNER_TEMP/badging.txt"
 
           actual_cert=""
@@ -645,6 +645,7 @@ jobs:
           cat "$(dirname "$APK")/SHA256SUMS"
 
       - name: Upload build artifact
+        if: always() && inputs.buildMode == 'verification'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: android-${{ inputs.buildMode }}-${{ inputs.versionCode }}
