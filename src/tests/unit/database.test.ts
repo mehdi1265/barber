@@ -87,7 +87,7 @@ describe('database bootstrap', () => {
       false
     )
     expect(state.db.open).toHaveBeenCalledTimes(1)
-    expect(state.db.execute).toHaveBeenCalledWith(PRAGMA)
+    expect(state.db.execute).toHaveBeenCalledWith(PRAGMA, false)
   })
 
   it('creates the native secret before opening an encrypted connection', async () => {
@@ -107,7 +107,7 @@ describe('database bootstrap', () => {
       1,
       false
     )
-    expect(state.db.execute).toHaveBeenCalledWith(PRAGMA)
+    expect(state.db.execute).toHaveBeenCalledWith(PRAGMA, false)
 
     const secretOrder = state.connection.setEncryptionSecret.mock.invocationCallOrder[0]
     const openOrder = state.db.open.mock.invocationCallOrder[0]
@@ -141,7 +141,7 @@ describe('database bootstrap', () => {
     expect(state.connection.retrieveConnection).toHaveBeenCalledWith('barber_app', false)
     expect(state.connection.createConnection).not.toHaveBeenCalled()
     expect(state.db.execute).toHaveBeenCalledTimes(1)
-    expect(state.db.execute).toHaveBeenCalledWith(PRAGMA)
+    expect(state.db.execute).toHaveBeenCalledWith(PRAGMA, false)
   })
 
   it('opens a retrieved connection that was left closed', async () => {
@@ -154,7 +154,7 @@ describe('database bootstrap', () => {
 
     expect(state.connection.retrieveConnection).toHaveBeenCalledWith('barber_app', false)
     expect(state.db.open).toHaveBeenCalledTimes(1)
-    expect(state.db.execute).toHaveBeenCalledWith(PRAGMA)
+    expect(state.db.execute).toHaveBeenCalledWith(PRAGMA, false)
   })
 
   it('reuses the singleton and applies the pragma once', async () => {

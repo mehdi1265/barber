@@ -79,8 +79,8 @@ export class CustomerPhotoRepository {
       deleted_at: null,
     }
 
-    await withTransaction(this.db, async () => {
-      await this.db.run(
+    await withTransaction(this.db, async tx => {
+      await tx.run(
         `INSERT INTO customer_photos
           (id, user_id, customer_id, visit_id, storage_path, local_path,
            photo_type, caption, consent_given, created_at, updated_at, deleted_at)
@@ -101,7 +101,7 @@ export class CustomerPhotoRepository {
         ]
       )
 
-      await addToOutbox(this.db, {
+      await addToOutbox(tx, {
         user_id: this.userId,
         entity_type: 'customer_photos',
         entity_id: photo.id,
@@ -122,13 +122,13 @@ export class CustomerPhotoRepository {
     const now = nowISO()
     const tombstone: CustomerPhoto = { ...existing, deleted_at: now, updated_at: now }
 
-    await withTransaction(this.db, async () => {
-      await this.db.run(
+    await withTransaction(this.db, async tx => {
+      await tx.run(
         `UPDATE customer_photos SET deleted_at = ?, updated_at = ?
          WHERE id = ? AND user_id = ?`,
         [now, now, id, this.userId]
       )
-      await addToOutbox(this.db, {
+      await addToOutbox(tx, {
         user_id: this.userId,
         entity_type: 'customer_photos',
         entity_id: id,

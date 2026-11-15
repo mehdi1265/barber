@@ -62,8 +62,8 @@ export class CustomerRepository {
       deleted_at: null,
     }
 
-    await withTransaction(this.db, async () => {
-      await this.db.run(
+    await withTransaction(this.db, async tx => {
+      await tx.run(
         `INSERT INTO customers (id, user_id, name, phone, notes, created_at, updated_at, deleted_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, NULL)`,
         [
@@ -77,7 +77,7 @@ export class CustomerRepository {
         ]
       )
 
-      await addToOutbox(this.db, {
+      await addToOutbox(tx, {
         user_id: this.userId,
         entity_type: 'customers',
         entity_id: customer.id,
@@ -102,15 +102,15 @@ export class CustomerRepository {
       updated_at: now,
     }
 
-    await withTransaction(this.db, async () => {
-      await this.db.run(
+    await withTransaction(this.db, async tx => {
+      await tx.run(
         `UPDATE customers
          SET name = ?, phone = ?, notes = ?, updated_at = ?
          WHERE id = ? AND user_id = ?`,
         [updated.name, updated.phone, updated.notes, updated.updated_at, id, this.userId]
       )
 
-      await addToOutbox(this.db, {
+      await addToOutbox(tx, {
         user_id: this.userId,
         entity_type: 'customers',
         entity_id: id,
@@ -127,13 +127,13 @@ export class CustomerRepository {
     // Never enqueue a deletion for a row this account does not own.
     if (!(await this.findById(id))) return
     const now = nowISO()
-    await withTransaction(this.db, async () => {
-      await this.db.run(
+    await withTransaction(this.db, async tx => {
+      await tx.run(
         `UPDATE customers SET deleted_at = ?, updated_at = ? WHERE id = ? AND user_id = ?`,
         [now, now, id, this.userId]
       )
 
-      await addToOutbox(this.db, {
+      await addToOutbox(tx, {
         user_id: this.userId,
         entity_type: 'customers',
         entity_id: id,

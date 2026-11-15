@@ -179,7 +179,7 @@ export class AppointmentRepository {
       updated_at: now,
     }))
 
-    await withTransaction(this.db, async () => {
+    await withTransaction(this.db, async tx => {
       // Check and insert inside the same transaction so two concurrent
       // bookings cannot both pass the check.
       const conflict = await this.checkConflict(appointment.start_at, appointment.end_at)
@@ -187,7 +187,7 @@ export class AppointmentRepository {
         throw new AppointmentConflictError(conflict.conflictingAppointment?.title ?? '')
       }
 
-      await this.db.run(
+      await tx.run(
         `INSERT INTO appointments
           (id, user_id, customer_id, title, start_at, duration_minutes, end_at, status, notes, created_at, updated_at, deleted_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)`,
@@ -207,7 +207,7 @@ export class AppointmentRepository {
       )
 
       for (const svc of services) {
-        await this.db.run(
+        await tx.run(
           `INSERT INTO appointment_services
             (id, user_id, appointment_id, service_id, service_name_snapshot, price, duration_minutes, created_at, updated_at)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -225,7 +225,7 @@ export class AppointmentRepository {
         )
       }
 
-      await addToOutbox(this.db, {
+      await addToOutbox(tx, {
         user_id: this.userId,
         entity_type: 'appointments',
         entity_id: appointment.id,
@@ -236,7 +236,7 @@ export class AppointmentRepository {
 
       // One outbox row per child row, so each service is synced independently.
       for (const svc of services) {
-        await addToOutbox(this.db, {
+        await addToOutbox(tx, {
           user_id: this.userId,
           entity_type: 'appointment_services',
           entity_id: svc.id,
@@ -252,12 +252,12 @@ export class AppointmentRepository {
 
   async updateStatus(id: UUID, status: AppointmentStatus): Promise<void> {
     const now = nowISO()
-    await withTransaction(this.db, async () => {
-      await this.db.run(
+    await withTransaction(this.db, async tx => {
+      await tx.run(
         `UPDATE appointments SET status = ?, updated_at = ? WHERE id = ? AND user_id = ? AND deleted_at IS NULL`,
         [status, now, id, this.userId]
       )
-      await addToOutbox(this.db, {
+      await addToOutbox(tx, {
         user_id: this.userId,
         entity_type: 'appointments',
         entity_id: id,
@@ -302,14 +302,14 @@ export class AppointmentRepository {
         updated_at: now,
       })) ?? null
 
-    await withTransaction(this.db, async () => {
+    await withTransaction(this.db, async tx => {
       // Re-check inside the transaction; the row is excluded from the query.
       const conflict = await this.checkConflict(updated.start_at, updated.end_at, id)
       if (conflict.hasConflict) {
         throw new AppointmentConflictError(conflict.conflictingAppointment?.title ?? '')
       }
 
-      await this.db.run(
+      await tx.run(
         `UPDATE appointments
          SET customer_id = ?, title = ?, start_at = ?, duration_minutes = ?, end_at = ?,
              status = ?, notes = ?, updated_at = ?
@@ -328,7 +328,7 @@ export class AppointmentRepository {
         ]
       )
 
-      await addToOutbox(this.db, {
+      await addToOutbox(tx, {
         user_id: this.userId,
         entity_type: 'appointments',
         entity_id: id,
@@ -341,11 +341,11 @@ export class AppointmentRepository {
         const previous = await this.findServicesForAppointment(id)
 
         for (const old of previous) {
-          await this.db.run(`DELETE FROM appointment_services WHERE id = ? AND user_id = ?`, [
+          await tx.run(`DELETE FROM appointment_services WHERE id = ? AND user_id = ?`, [
             old.id,
             this.userId,
           ])
-          await addToOutbox(this.db, {
+          await addToOutbox(tx, {
             user_id: this.userId,
             entity_type: 'appointment_services',
             entity_id: old.id,
@@ -356,7 +356,7 @@ export class AppointmentRepository {
         }
 
         for (const svc of newServices) {
-          await this.db.run(
+          await tx.run(
             `INSERT INTO appointment_services
               (id, user_id, appointment_id, service_id, service_name_snapshot, price, duration_minutes, created_at, updated_at)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -372,7 +372,7 @@ export class AppointmentRepository {
               svc.updated_at,
             ]
           )
-          await addToOutbox(this.db, {
+          await addToOutbox(tx, {
             user_id: this.userId,
             entity_type: 'appointment_services',
             entity_id: svc.id,
@@ -390,13 +390,13 @@ export class AppointmentRepository {
   async softDelete(id: UUID): Promise<void> {
     if (!(await this.findById(id))) return
     const now = nowISO()
-    await withTransaction(this.db, async () => {
-      await this.db.run(
+    await withTransaction(this.db, async tx => {
+      await tx.run(
         `UPDATE appointments SET deleted_at = ?, updated_at = ?, status = 'cancelled'
          WHERE id = ? AND user_id = ?`,
         [now, now, id, this.userId]
       )
-      await addToOutbox(this.db, {
+      await addToOutbox(tx, {
         user_id: this.userId,
         entity_type: 'appointments',
         entity_id: id,

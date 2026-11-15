@@ -3,6 +3,12 @@
  *
  * Uses Node's built-in `node:sqlite` (Node 22.5+) so repository and outbox
  * tests exercise the actual schema and SQL instead of hand-written mocks.
+ *
+ * The `run`/`execute`/`beginTransaction` methods reproduce the native plugin's
+ * transaction rules: each statement defaults to opening its own transaction and
+ * refuses to do so while one is already open ("Already in transaction"). A
+ * repository that forgets to use the scoped connection inside `withTransaction`
+ * therefore fails here exactly as it would on a device.
  */
 
 import { DatabaseSync } from 'node:sqlite'
@@ -48,6 +54,8 @@ export interface TestDb {
   exec: (sql: string) => void
 }
 
+const ALREADY_IN_TRANSACTION = 'Failed in beginTransactionAlready in transaction'
+
 export function createTestDb(options: TestDbOptions = {}): TestDb {
   const raw = new DatabaseSync(':memory:')
   raw.exec('PRAGMA foreign_keys = ON;')
@@ -63,12 +71,47 @@ export function createTestDb(options: TestDbOptions = {}): TestDb {
   }
 
   let runs = 0
+  let inTransaction = false
+
+  const begin = () => {
+    if (inTransaction) throw new Error(ALREADY_IN_TRANSACTION)
+    raw.exec('BEGIN')
+    inTransaction = true
+  }
+  const commit = () => {
+    if (!inTransaction) throw new Error('Failed in commitTransactionNo transaction active')
+    raw.exec('COMMIT')
+    inTransaction = false
+  }
+  const rollback = () => {
+    if (inTransaction) raw.exec('ROLLBACK')
+    inTransaction = false
+  }
+
+  /** Runs `fn` the way the plugin does for `transaction: true`. */
+  const withImplicitTransaction = <T>(transaction: boolean, fn: () => T): T => {
+    if (!transaction) return fn()
+    begin()
+    try {
+      const value = fn()
+      commit()
+      return value
+    } catch (error) {
+      rollback()
+      throw error
+    }
+  }
 
   const db = {
-    execute: (sql: string) => {
-      raw.exec(sql)
-      return Promise.resolve()
-    },
+    execute: (sql: string, transaction = true) =>
+      new Promise<void>((resolve, reject) => {
+        try {
+          withImplicitTransaction(transaction, () => raw.exec(sql))
+          resolve()
+        } catch (error) {
+          reject(error instanceof Error ? error : new Error(String(error)))
+        }
+      }),
     query: (sql: string, params: unknown[] = []) =>
       Promise.resolve({
         values: raw
@@ -76,27 +119,35 @@ export function createTestDb(options: TestDbOptions = {}): TestDb {
           .all(...(params as never[]))
           .map(row => ({ ...row })),
       }),
-    run: (sql: string, params: unknown[] = []) => {
+    run: (sql: string, params: unknown[] = [], transaction = true) => {
       runs += 1
       if (options.failOnRun !== undefined && runs === options.failOnRun) {
         return Promise.reject(new Error(`injected failure on statement ${runs}`))
       }
-      const result = raw.prepare(sql).run(...(params as never[]))
-      return Promise.resolve({
-        changes: Number(result.changes),
-        lastId: Number(result.lastInsertRowid),
-      })
+      try {
+        return Promise.resolve(
+          withImplicitTransaction(transaction, () => {
+            const result = raw.prepare(sql).run(...(params as never[]))
+            return {
+              changes: Number(result.changes),
+              lastId: Number(result.lastInsertRowid),
+            }
+          })
+        )
+      } catch (error) {
+        return Promise.reject(error instanceof Error ? error : new Error(String(error)))
+      }
     },
     beginTransaction: () => {
-      raw.exec('BEGIN')
+      begin()
       return Promise.resolve()
     },
     commitTransaction: () => {
-      raw.exec('COMMIT')
+      commit()
       return Promise.resolve()
     },
     rollbackTransaction: () => {
-      raw.exec('ROLLBACK')
+      rollback()
       return Promise.resolve()
     },
   }

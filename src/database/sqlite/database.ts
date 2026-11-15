@@ -53,7 +53,9 @@ async function ensureNativeEncryption(): Promise<void> {
 }
 
 async function applyConnectionPragmas(db: SQLiteDBConnection): Promise<void> {
-  await db.execute(FOREIGN_KEYS_PRAGMA)
+  // The plugin wraps execute() in a transaction by default, and SQLite ignores
+  // `PRAGMA foreign_keys` while one is open. Pass false or FKs stay off.
+  await db.execute(FOREIGN_KEYS_PRAGMA, false)
 }
 
 /**

@@ -63,8 +63,8 @@ export class ServiceRepository {
       updated_at: now,
     }
 
-    await withTransaction(this.db, async () => {
-      await this.db.run(
+    await withTransaction(this.db, async tx => {
+      await tx.run(
         `INSERT INTO services
           (id, user_id, name, default_price, suggested_duration_minutes, is_active, created_at, updated_at)
          VALUES (?, ?, ?, ?, ?, 1, ?, ?)`,
@@ -79,7 +79,7 @@ export class ServiceRepository {
         ]
       )
 
-      await addToOutbox(this.db, {
+      await addToOutbox(tx, {
         user_id: this.userId,
         entity_type: 'services',
         entity_id: service.id,
@@ -113,8 +113,8 @@ export class ServiceRepository {
       updated_at: now,
     }
 
-    await withTransaction(this.db, async () => {
-      await this.db.run(
+    await withTransaction(this.db, async tx => {
+      await tx.run(
         `UPDATE services
          SET name = ?, default_price = ?, suggested_duration_minutes = ?, is_active = ?, updated_at = ?
          WHERE id = ? AND user_id = ?`,
@@ -129,7 +129,7 @@ export class ServiceRepository {
         ]
       )
 
-      await addToOutbox(this.db, {
+      await addToOutbox(tx, {
         user_id: this.userId,
         entity_type: 'services',
         entity_id: id,
@@ -145,13 +145,13 @@ export class ServiceRepository {
   async deactivate(id: UUID): Promise<void> {
     if (!(await this.findById(id))) return
     const now = nowISO()
-    await withTransaction(this.db, async () => {
-      await this.db.run(
+    await withTransaction(this.db, async tx => {
+      await tx.run(
         `UPDATE services SET is_active = 0, updated_at = ? WHERE id = ? AND user_id = ?`,
         [now, id, this.userId]
       )
 
-      await addToOutbox(this.db, {
+      await addToOutbox(tx, {
         user_id: this.userId,
         entity_type: 'services',
         entity_id: id,

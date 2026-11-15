@@ -2,7 +2,7 @@ import type { SQLiteDBConnection } from '@capacitor-community/sqlite'
 import type { ColorFormula, ColorFormulaItem, UUID } from '@shared/types'
 import { generateUUID, nowISO } from '@shared/utils/helpers'
 import { addToOutbox } from '@sync/outbox/outbox.repository'
-import { withTransaction } from '@database/sqlite/transaction'
+import { withTransaction, type TxConnection } from '@database/sqlite/transaction'
 
 export interface ColorFormulaItemInput {
   /** Present when an existing line is kept during an edit */
@@ -146,9 +146,9 @@ export class ColorFormulaRepository {
       updated_at: now,
     }
 
-    await withTransaction(this.db, async () => {
-      await this.insertFormula(formula)
-      await addToOutbox(this.db, {
+    await withTransaction(this.db, async tx => {
+      await this.insertFormula(tx, formula)
+      await addToOutbox(tx, {
         user_id: this.userId,
         entity_type: 'color_formulas',
         entity_id: formula.id,
@@ -159,8 +159,8 @@ export class ColorFormulaRepository {
 
       for (const item of input.items) {
         const row = this.buildItem(formula.id, item, now)
-        await this.insertItem(row)
-        await addToOutbox(this.db, {
+        await this.insertItem(tx, row)
+        await addToOutbox(tx, {
           user_id: this.userId,
           entity_type: 'color_formula_items',
           entity_id: row.id,
@@ -203,8 +203,8 @@ export class ColorFormulaRepository {
       updated_at: now,
     }
 
-    await withTransaction(this.db, async () => {
-      await this.db.run(
+    await withTransaction(this.db, async tx => {
+      await tx.run(
         `UPDATE color_formulas
          SET title = ?, brand = ?, color_code = ?, oxidant_type = ?, oxidant_percent = ?,
              mix_ratio = ?, processing_minutes = ?, notes = ?, customer_id = ?, visit_id = ?,
@@ -227,7 +227,7 @@ export class ColorFormulaRepository {
         ]
       )
 
-      await addToOutbox(this.db, {
+      await addToOutbox(tx, {
         user_id: this.userId,
         entity_type: 'color_formulas',
         entity_id: id,
@@ -237,7 +237,7 @@ export class ColorFormulaRepository {
       })
 
       if (input.items) {
-        await this.replaceItems(id, input.items, actionId, now)
+        await this.replaceItems(tx, id, input.items, actionId, now)
       }
     })
 
@@ -269,13 +269,13 @@ export class ColorFormulaRepository {
     const items = await this.getItems(id)
     const actionId = generateUUID()
 
-    await withTransaction(this.db, async () => {
+    await withTransaction(this.db, async tx => {
       for (const item of items) {
-        await this.db.run(`DELETE FROM color_formula_items WHERE id = ? AND user_id = ?`, [
+        await tx.run(`DELETE FROM color_formula_items WHERE id = ? AND user_id = ?`, [
           item.id,
           this.userId,
         ])
-        await addToOutbox(this.db, {
+        await addToOutbox(tx, {
           user_id: this.userId,
           entity_type: 'color_formula_items',
           entity_id: item.id,
@@ -285,11 +285,8 @@ export class ColorFormulaRepository {
         })
       }
 
-      await this.db.run(`DELETE FROM color_formulas WHERE id = ? AND user_id = ?`, [
-        id,
-        this.userId,
-      ])
-      await addToOutbox(this.db, {
+      await tx.run(`DELETE FROM color_formulas WHERE id = ? AND user_id = ?`, [id, this.userId])
+      await addToOutbox(tx, {
         user_id: this.userId,
         entity_type: 'color_formulas',
         entity_id: id,
@@ -314,8 +311,8 @@ export class ColorFormulaRepository {
     }
   }
 
-  private async insertFormula(formula: ColorFormula): Promise<void> {
-    await this.db.run(
+  private async insertFormula(tx: TxConnection, formula: ColorFormula): Promise<void> {
+    await tx.run(
       `INSERT INTO color_formulas
         (id, user_id, title, brand, color_code, oxidant_type, oxidant_percent, mix_ratio,
          processing_minutes, notes, customer_id, visit_id, created_at, updated_at)
@@ -339,8 +336,8 @@ export class ColorFormulaRepository {
     )
   }
 
-  private async insertItem(item: ColorFormulaItem): Promise<void> {
-    await this.db.run(
+  private async insertItem(tx: TxConnection, item: ColorFormulaItem): Promise<void> {
+    await tx.run(
       `INSERT INTO color_formula_items
         (id, user_id, formula_id, product_name, color_code, amount, unit, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -359,6 +356,7 @@ export class ColorFormulaRepository {
   }
 
   private async replaceItems(
+    tx: TxConnection,
     formulaId: UUID,
     inputs: ColorFormulaItemInput[],
     actionId: string,
@@ -370,11 +368,11 @@ export class ColorFormulaRepository {
 
     for (const old of previous) {
       if (keepIds.has(old.id)) continue
-      await this.db.run(`DELETE FROM color_formula_items WHERE id = ? AND user_id = ?`, [
+      await tx.run(`DELETE FROM color_formula_items WHERE id = ? AND user_id = ?`, [
         old.id,
         this.userId,
       ])
-      await addToOutbox(this.db, {
+      await addToOutbox(tx, {
         user_id: this.userId,
         entity_type: 'color_formula_items',
         entity_id: old.id,
@@ -395,7 +393,7 @@ export class ColorFormulaRepository {
           unit: input.unit?.trim() || 'g',
           updated_at: now,
         }
-        await this.db.run(
+        await tx.run(
           `UPDATE color_formula_items
            SET product_name = ?, color_code = ?, amount = ?, unit = ?, updated_at = ?
            WHERE id = ? AND user_id = ?`,
@@ -409,7 +407,7 @@ export class ColorFormulaRepository {
             this.userId,
           ]
         )
-        await addToOutbox(this.db, {
+        await addToOutbox(tx, {
           user_id: this.userId,
           entity_type: 'color_formula_items',
           entity_id: updated.id,
@@ -419,8 +417,8 @@ export class ColorFormulaRepository {
         })
       } else {
         const row = this.buildItem(formulaId, input, now)
-        await this.insertItem(row)
-        await addToOutbox(this.db, {
+        await this.insertItem(tx, row)
+        await addToOutbox(tx, {
           user_id: this.userId,
           entity_type: 'color_formula_items',
           entity_id: row.id,

@@ -27,7 +27,10 @@ type AddOutboxInput = {
  * `client_op_id` is unique; re-enqueueing the same key is a no-op so a
  * retried user action cannot create duplicate operations.
  */
-export async function addToOutbox(db: SQLiteDBConnection, input: AddOutboxInput): Promise<void> {
+export async function addToOutbox(
+  db: Pick<SQLiteDBConnection, 'run'>,
+  input: AddOutboxInput
+): Promise<void> {
   if (!input.user_id) throw new Error('addToOutbox requires user_id')
   const id = generateUUID()
   const now = nowISO()
@@ -98,7 +101,10 @@ export async function countPendingOutbox(db: SQLiteDBConnection, userId: UUID): 
  * five failed retries) and will never be picked up again. Counting it as
  * unsynced would block a local-data wipe forever, so it is excluded here.
  */
-export async function countUnsyncedOutbox(db: SQLiteDBConnection, userId: UUID): Promise<number> {
+export async function countUnsyncedOutbox(
+  db: Pick<SQLiteDBConnection, 'query'>,
+  userId: UUID
+): Promise<number> {
   const result = await db.query(
     `SELECT COUNT(*) as cnt FROM sync_outbox
      WHERE user_id = ?

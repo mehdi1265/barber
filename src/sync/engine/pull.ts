@@ -202,7 +202,7 @@ async function applyDeletions(
   let conflicts = 0
   if (deletions.length === 0) return { deleted, conflicts }
 
-  await withTransaction(db, async () => {
+  await withTransaction(db, async tx => {
     for (const table of DELETE_ORDER) {
       for (const item of deletions) {
         if (item.table !== table) continue
@@ -213,7 +213,7 @@ async function applyDeletions(
         }
 
         try {
-          const result = await db.run(
+          const result = await tx.run(
             `DELETE FROM ${table}
              WHERE id = ? AND user_id = ? AND (updated_at IS NULL OR updated_at <= ?)`,
             [item.id, userId, item.updatedAt]

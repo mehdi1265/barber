@@ -34,8 +34,8 @@ export class ProfileRepository {
       updated_at: now,
     }
 
-    await withTransaction(this.db, async () => {
-      await this.db.run(
+    await withTransaction(this.db, async tx => {
+      await tx.run(
         `INSERT OR REPLACE INTO profiles
           (id, user_id, display_name, phone, currency_code, created_at, updated_at)
          VALUES (?, ?, ?, ?, ?, ?, ?)`,
@@ -50,7 +50,7 @@ export class ProfileRepository {
         ]
       )
 
-      await addToOutbox(this.db, {
+      await addToOutbox(tx, {
         user_id: input.user_id,
         entity_type: 'profiles',
         entity_id: profile.id,
@@ -127,12 +127,12 @@ export class ProfileRepository {
     values.push(now)
     values.push(userId)
 
-    await withTransaction(this.db, async () => {
-      await this.db.run(`UPDATE profiles SET ${fields.join(', ')} WHERE user_id = ?`, values)
+    await withTransaction(this.db, async tx => {
+      await tx.run(`UPDATE profiles SET ${fields.join(', ')} WHERE user_id = ?`, values)
 
       const updated = await this.getProfile(userId)
       if (updated) {
-        await addToOutbox(this.db, {
+        await addToOutbox(tx, {
           user_id: userId,
           entity_type: 'profiles',
           entity_id: updated.id,

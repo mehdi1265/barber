@@ -47,7 +47,10 @@ const WIPE_ORDER = [
  * Deletes one account's local business rows. Callers should wrap it in
  * `withTransaction`; `deleteLocalAccountData` does.
  */
-export async function wipeAccountRows(db: SQLiteDBConnection, userId: string): Promise<void> {
+export async function wipeAccountRows(
+  db: Pick<SQLiteDBConnection, 'run' | 'query'>,
+  userId: string
+): Promise<void> {
   if (!userId) throw new Error('wipeAccountRows requires user_id')
 
   const unsynced = await countUnsyncedOutbox(db, userId)
@@ -75,6 +78,6 @@ export async function deleteLocalAccountData(
   if (!userId) throw new Error('deleteLocalAccountData requires user_id')
 
   const db = deps.db ?? (await getDatabase())
-  await withTransaction(db, () => wipeAccountRows(db, userId))
+  await withTransaction(db, tx => wipeAccountRows(tx, userId))
   await (deps.deletePhotoFiles ?? deleteUserPhotoFiles)(userId)
 }

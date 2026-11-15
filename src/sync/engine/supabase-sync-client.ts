@@ -8,11 +8,14 @@
  */
 
 import type { RemoteRow, SelectOptions, SyncClient, SyncTable } from './sync.types'
+import { errorDetails, logger } from '@shared/utils/logger'
 import { RemoteError } from './sync.types'
 
 interface PostgrestErrorLike {
   message: string
   code?: string | null
+  details?: string | null
+  hint?: string | null
   status?: number | null
 }
 
@@ -52,14 +55,27 @@ function statusFromCode(code: string | null | undefined): number | null {
   }
 }
 
+/**
+ * Keeps the fields that explain a rejection. A code of 42501 means the row was
+ * rejected by a row-level-security policy; `details`/`hint` often name the
+ * exact table and column. The text is stored in the outbox `last_error`.
+ */
+function describeError(error: PostgrestErrorLike): string {
+  const parts = [error.message]
+  if (error.code) parts.push(`code=${error.code}`)
+  if (error.details) parts.push(`details=${error.details}`)
+  if (error.hint) parts.push(`hint=${error.hint}`)
+  return parts.join(' | ')
+}
+
 function toRemoteError(error: PostgrestErrorLike): RemoteError {
   // The composite ownership FKs require the parent row to reach the server
   // before its children. A 23503 is therefore an ordering problem, not a
   // permanent conflict, and must stay retryable so the row is not dropped.
-  if (error.code === '23503') return new RemoteError(error.message, 503)
+  if (error.code === '23503') return new RemoteError(describeError(error), 503)
   const status =
     typeof error.status === 'number' && error.status > 0 ? error.status : statusFromCode(error.code)
-  return new RemoteError(error.message, status)
+  return new RemoteError(describeError(error), status)
 }
 
 /** Storage errors carry a string status code; 404/403 are terminal. */
@@ -81,26 +97,38 @@ export async function createSupabaseSyncClient(): Promise<SyncClient> {
   const query = (table: SyncTable): SupabaseQuery =>
     supabase.from(table as never) as unknown as SupabaseQuery
 
-  const run = async (builder: SupabaseQuery): Promise<SupabaseResult> => {
+  const run = async (table: SyncTable, builder: SupabaseQuery): Promise<SupabaseResult> => {
     try {
       const result = await builder
-      if (result.error) throw toRemoteError(result.error)
+      if (result.error) {
+        // A policy rejection (42501) is only fixable with the code and hint.
+        logger.warn('Supabase rejected a sync request', {
+          table,
+          code: result.error.code ?? null,
+          message: result.error.message,
+          details: result.error.details ?? null,
+          hint: result.error.hint ?? null,
+          status: result.error.status ?? null,
+        })
+        throw toRemoteError(result.error)
+      }
       return result
     } catch (err) {
       if (err instanceof RemoteError) throw err
       // fetch failed / network error: no status, retryable
+      logger.warn('Supabase sync request failed', { table, error: errorDetails(err) })
       throw new RemoteError(err instanceof Error ? err.message : String(err), null)
     }
   }
 
   return {
     async upsert(table, rows) {
-      await run(query(table).upsert(rows, { onConflict: 'id' }))
+      await run(table, query(table).upsert(rows, { onConflict: 'id' }))
     },
 
     async deleteByIds(table, ids) {
       if (ids.length === 0) return
-      await run(query(table).delete().in('id', ids))
+      await run(table, query(table).delete().in('id', ids))
     },
 
     async select(table, options: SelectOptions) {
@@ -118,7 +146,7 @@ export async function createSupabaseSyncClient(): Promise<SyncClient> {
         .order('id', { ascending: true })
         .range(0, options.limit - 1)
 
-      const { data } = await run(builder)
+      const { data } = await run(table, builder)
       return Array.isArray(data) ? (data as RemoteRow[]) : []
     },
 

@@ -56,8 +56,8 @@ export class ExpenseRepository {
       updated_at: now,
     }
 
-    await withTransaction(this.db, async () => {
-      await this.db.run(
+    await withTransaction(this.db, async tx => {
+      await tx.run(
         `INSERT INTO expenses
           (id, user_id, title, category, amount, spent_at, note, created_at, updated_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -74,7 +74,7 @@ export class ExpenseRepository {
         ]
       )
 
-      await addToOutbox(this.db, {
+      await addToOutbox(tx, {
         user_id: this.userId,
         entity_type: 'expenses',
         entity_id: expense.id,
@@ -101,8 +101,8 @@ export class ExpenseRepository {
       updated_at: now,
     }
 
-    await withTransaction(this.db, async () => {
-      await this.db.run(
+    await withTransaction(this.db, async tx => {
+      await tx.run(
         `UPDATE expenses
          SET title = ?, category = ?, amount = ?, spent_at = ?, note = ?, updated_at = ?
          WHERE id = ? AND user_id = ?`,
@@ -118,7 +118,7 @@ export class ExpenseRepository {
         ]
       )
 
-      await addToOutbox(this.db, {
+      await addToOutbox(tx, {
         user_id: this.userId,
         entity_type: 'expenses',
         entity_id: id,
@@ -138,12 +138,12 @@ export class ExpenseRepository {
     const now = nowISO()
     const tombstone = { ...existing, deleted_at: now, updated_at: now }
 
-    await withTransaction(this.db, async () => {
-      await this.db.run(
+    await withTransaction(this.db, async tx => {
+      await tx.run(
         `UPDATE expenses SET deleted_at = ?, updated_at = ? WHERE id = ? AND user_id = ?`,
         [now, now, id, this.userId]
       )
-      await addToOutbox(this.db, {
+      await addToOutbox(tx, {
         user_id: this.userId,
         entity_type: 'expenses',
         entity_id: id,

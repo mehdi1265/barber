@@ -1,12 +1,13 @@
 import { describe, it, expect } from 'vitest'
 import { addToOutbox } from '@sync/outbox/outbox.repository'
 import { buildPushEntity, normalizeRemoteRow, tableFor, toRemoteRow } from '@sync/engine/payload'
+import type { SQLiteDBConnection } from '@capacitor-community/sqlite'
 import type { SyncOutbox } from '@shared/types'
 import { createTestDb } from '../helpers/sqlite-harness'
 
 const USER = 'user-1'
 
-async function firstOutboxEntry(db: Parameters<typeof addToOutbox>[0]): Promise<SyncOutbox> {
+async function firstOutboxEntry(db: SQLiteDBConnection): Promise<SyncOutbox> {
   const result = await db.query('SELECT * FROM sync_outbox LIMIT 1')
   return result.values?.[0] as SyncOutbox
 }

@@ -225,8 +225,8 @@ export class VisitRepository {
       throw new OverpaymentError(serviceTotal)
     }
 
-    await withTransaction(this.db, async () => {
-      await this.db.run(
+    await withTransaction(this.db, async tx => {
+      await tx.run(
         `INSERT INTO visits
           (id, user_id, customer_id, appointment_id, is_quick_sale, visited_at, notes, created_at, updated_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -244,7 +244,7 @@ export class VisitRepository {
       )
 
       for (const svc of services) {
-        await this.db.run(
+        await tx.run(
           `INSERT INTO visit_services
             (id, user_id, visit_id, service_id, service_name_snapshot,
              quantity, unit_price, discount_amount, line_total, duration_minutes,
@@ -267,7 +267,7 @@ export class VisitRepository {
         )
       }
 
-      await addToOutbox(this.db, {
+      await addToOutbox(tx, {
         user_id: this.userId,
         entity_type: 'visits',
         entity_id: visit.id,
@@ -277,7 +277,7 @@ export class VisitRepository {
       })
 
       for (const svc of services) {
-        await addToOutbox(this.db, {
+        await addToOutbox(tx, {
           user_id: this.userId,
           entity_type: 'visit_services',
           entity_id: svc.id,
@@ -288,7 +288,7 @@ export class VisitRepository {
       }
 
       if (initialPayment) {
-        await this.db.run(
+        await tx.run(
           `INSERT INTO payments
             (id, user_id, visit_id, amount, method, paid_at, note, created_at, updated_at)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -305,7 +305,7 @@ export class VisitRepository {
           ]
         )
 
-        await addToOutbox(this.db, {
+        await addToOutbox(tx, {
           user_id: this.userId,
           entity_type: 'payments',
           entity_id: initialPayment.id,
@@ -333,7 +333,7 @@ export class VisitRepository {
       updated_at: now,
     }
 
-    await withTransaction(this.db, async () => {
+    await withTransaction(this.db, async tx => {
       const visitResult = await this.db.query(
         `SELECT id FROM visits WHERE id = ? AND user_id = ? LIMIT 1`,
         [payment.visit_id, this.userId]
@@ -357,7 +357,7 @@ export class VisitRepository {
         throw new OverpaymentError(remaining)
       }
 
-      await this.db.run(
+      await tx.run(
         `INSERT INTO payments
           (id, user_id, visit_id, amount, method, paid_at, note, created_at, updated_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -374,7 +374,7 @@ export class VisitRepository {
         ]
       )
 
-      await addToOutbox(this.db, {
+      await addToOutbox(tx, {
         user_id: this.userId,
         entity_type: 'payments',
         entity_id: payment.id,
