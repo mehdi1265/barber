@@ -264,8 +264,34 @@ jobs:
       - name: Test
         run: npm test
 
+      # Vite inlines VITE_* values at build time. If they are absent the Supabase
+      # client throws during module evaluation, React never mounts, and the
+      # installed APK shows a blank white screen. Refuse to build such a bundle.
       - name: Build web assets
-        run: npm run build
+        env:
+          VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ vars.VITE_SUPABASE_ANON_KEY }}
+        run: |
+          set -euo pipefail
+
+          for name in VITE_SUPABASE_URL VITE_SUPABASE_ANON_KEY; do
+            if [[ -z "${!name:-}" ]]; then
+              echo "::error::Repository variable $name is not set."
+              echo "::error::Without it the bundle ships without Supabase config and the app opens to a blank white screen."
+              exit 1
+            fi
+          done
+
+          npm run build
+
+          # Prove the values reached the bundle instead of trusting Vite silently.
+          for name in VITE_SUPABASE_URL VITE_SUPABASE_ANON_KEY; do
+            if ! grep -rqF -- "${!name}" dist/assets; then
+              echo "::error::$name is absent from dist/assets after the build; Vite did not inline it."
+              exit 1
+            fi
+          done
+          echo "Supabase configuration is embedded in the web bundle"
 
       - name: Sync Capacitor Android
         run: npx cap sync android
@@ -645,7 +671,11 @@ jobs:
           cat "$(dirname "$APK")/SHA256SUMS"
 
       - name: Upload build artifact
-        if: always() && inputs.buildMode == 'verification'
+        # The publish job downloads android-release-<versionCode>, so release
+        # builds must upload too, and a failed gate must not destroy the APK.
+        # Release mode is already gated on a private source repository, so this
+        # artifact is never public.
+        if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: android-${{ inputs.buildMode }}-${{ inputs.versionCode }}
