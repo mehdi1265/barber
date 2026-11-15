@@ -18,6 +18,7 @@ import { Capacitor } from '@capacitor/core'
 import { CapacitorSQLite, SQLiteConnection, SQLiteDBConnection } from '@capacitor-community/sqlite'
 import { ensureWebSqlite } from './web-store'
 import { withTimeout } from '@shared/utils/timeout'
+import { logger } from '@shared/utils/logger'
 
 const DB_NAME = 'barber_app'
 const DB_VERSION = 1
@@ -56,6 +57,14 @@ async function applyConnectionPragmas(db: SQLiteDBConnection): Promise<void> {
   // The plugin wraps execute() in a transaction by default, and SQLite ignores
   // `PRAGMA foreign_keys` while one is open. Pass false or FKs stay off.
   await db.execute(FOREIGN_KEYS_PRAGMA, false)
+
+  // Read it back: a silently ignored pragma turns every child insert into a
+  // missing-parent bug that only shows up as "FOREIGN KEY constraint failed".
+  const result = await db.query('PRAGMA foreign_keys')
+  const enabled = (result.values?.[0] as { foreign_keys?: number } | undefined)?.foreign_keys
+  if (enabled !== 1) {
+    logger.warn('SQLite foreign_keys pragma did not take effect', { foreign_keys: enabled ?? null })
+  }
 }
 
 /**

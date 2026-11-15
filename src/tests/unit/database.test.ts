@@ -69,7 +69,7 @@ describe('database bootstrap', () => {
     state.db.isDBOpen.mockResolvedValue({ result: true })
     state.db.execute.mockResolvedValue(undefined)
     state.db.run.mockResolvedValue(undefined)
-    state.db.query.mockResolvedValue({ values: [] })
+    state.db.query.mockResolvedValue({ values: [{ foreign_keys: 1 }] })
   })
 
   it('initialises the web store without encryption and applies foreign keys', async () => {
@@ -88,6 +88,19 @@ describe('database bootstrap', () => {
     )
     expect(state.db.open).toHaveBeenCalledTimes(1)
     expect(state.db.execute).toHaveBeenCalledWith(PRAGMA, false)
+    expect(state.db.query).toHaveBeenCalledWith('PRAGMA foreign_keys')
+  })
+
+  it('warns when the foreign_keys pragma did not take effect', async () => {
+    state.db.query.mockResolvedValue({ values: [{ foreign_keys: 0 }] })
+    const { getDatabase } = await import('@database/sqlite/database')
+    const { getLogEntries } = await import('@shared/utils/logger')
+
+    await getDatabase()
+
+    expect(getLogEntries().map(entry => entry.message)).toContain(
+      'SQLite foreign_keys pragma did not take effect'
+    )
   })
 
   it('creates the native secret before opening an encrypted connection', async () => {

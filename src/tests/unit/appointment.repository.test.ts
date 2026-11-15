@@ -6,6 +6,7 @@ import {
 import { CustomerRepository } from '@database/repositories/customer.repository'
 import { withTransaction } from '@database/sqlite/transaction'
 import { localDateISO } from '@shared/utils/datetime'
+import { getLogEntries } from '@shared/utils/logger'
 import { createTestDb, type TestDb } from '../helpers/sqlite-harness'
 
 const USER_ID = 'user-appt-001'
@@ -117,6 +118,76 @@ describe('AppointmentRepository', () => {
         expect(failing.countRows('appointment_services')).toBe(0)
         expect(failing.countRows('sync_outbox')).toBe(0)
       }
+    })
+
+    it('customer_id و service_id خالی به NULL تبدیل می‌شوند', async () => {
+      const appt = await repo.create(
+        makeInput({
+          customer_id: '',
+          services: [{ service_id: '', service_name_snapshot: 'کوتاهی', price: 150000 }],
+        })
+      )
+
+      expect(appt.customer_id).toBeNull()
+      const rows = harness.rows<{ service_id: string | null }>('appointment_services')
+      expect(rows[0]?.service_id).toBeNull()
+      expect(harness.countRows('appointments')).toBe(1)
+    })
+
+    it('نوبت برای مشتری موجود ثبت می‌شود', async () => {
+      const customers = new CustomerRepository(harness.db, USER_ID)
+      const customer = await customers.create({ name: 'علی رضایی' })
+
+      const appt = await repo.create(makeInput({ customer_id: customer.id }))
+
+      expect(appt.customer_id).toBe(customer.id)
+    })
+
+    it('مشتری گمشده را با جدول، ستون و مقدار گزارش می‌کند', async () => {
+      await expect(repo.create(makeInput({ customer_id: 'missing-customer' }))).rejects.toThrow(
+        'FOREIGN KEY constraint failed: appointments.customer_id=missing-customer'
+      )
+
+      expect(harness.countRows('appointments')).toBe(0)
+      expect(harness.countRows('sync_outbox')).toBe(0)
+      const logged = getLogEntries().find(
+        entry => entry.message === 'Appointment references a missing customer'
+      )
+      expect(logged?.context).toMatchObject({
+        table: 'appointments',
+        column: 'customer_id',
+        value: 'missing-customer',
+      })
+    })
+
+    it('سرویس گمشده را با جدول، ستون و مقدار گزارش می‌کند', async () => {
+      await expect(
+        repo.create(
+          makeInput({
+            services: [
+              { service_id: 'missing-service', service_name_snapshot: 'کوتاهی', price: 150000 },
+            ],
+          })
+        )
+      ).rejects.toThrow(
+        'FOREIGN KEY constraint failed: appointment_services.service_id=missing-service'
+      )
+
+      expect(harness.countRows('appointments')).toBe(0)
+      expect(harness.countRows('appointment_services')).toBe(0)
+    })
+
+    it('هنس تست واقعاً کلید خارجی را اعمال می‌کند', async () => {
+      await expect(
+        withTransaction(harness.db, tx =>
+          tx.run(
+            `INSERT INTO appointments
+              (id, user_id, customer_id, title, start_at, duration_minutes, end_at, status, created_at, updated_at, deleted_at)
+             VALUES ('a1', ?, 'nobody', 'تست', '2026-01-15T09:00:00.000Z', 60, '2026-01-15T10:00:00.000Z', 'reserved', '2026-01-15T08:00:00.000Z', '2026-01-15T08:00:00.000Z', NULL)`,
+            [USER_ID]
+          )
+        )
+      ).rejects.toThrow('FOREIGN KEY constraint failed')
     })
   })
 

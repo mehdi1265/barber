@@ -8,8 +8,17 @@ import {
   tomanToStorage,
 } from '@shared/utils/helpers'
 import { addToOutbox } from '@sync/outbox/outbox.repository'
-import { withTransaction } from '@database/sqlite/transaction'
+import { withTransaction, type TxConnection } from '@database/sqlite/transaction'
 import { localDayRange, localWeekRange } from '@shared/utils/datetime'
+import { logger } from '@shared/utils/logger'
+
+const FOREIGN_KEY_FAILURE = 'FOREIGN KEY constraint failed'
+
+/** A <select> submits '' for "none"; SQLite must receive NULL, not an id. */
+function nullableId(value: string | null | undefined): string | null {
+  const trimmed = value?.trim()
+  return trimmed ? trimmed : null
+}
 
 // ── Input types ───────────────────────────────────────────────────────────────
 
@@ -147,6 +156,42 @@ export class AppointmentRepository {
 
   // ── Write ─────────────────────────────────────────────────────────────────
 
+  /**
+   * SQLite only reports "FOREIGN KEY constraint failed". Look the parents up
+   * first so the log names the table, column and value that is missing
+   * (for example a customer that was never pulled to this device).
+   */
+  private async assertParentsExist(
+    tx: TxConnection,
+    customerId: string | null,
+    serviceIds: Array<string | null>
+  ): Promise<void> {
+    if (customerId) {
+      const parent = await tx.query('SELECT 1 FROM customers WHERE id = ? LIMIT 1', [customerId])
+      if (!parent.values?.length) {
+        logger.warn('Appointment references a missing customer', {
+          table: 'appointments',
+          column: 'customer_id',
+          value: customerId,
+        })
+        throw new Error(`${FOREIGN_KEY_FAILURE}: appointments.customer_id=${customerId}`)
+      }
+    }
+
+    for (const serviceId of new Set(serviceIds)) {
+      if (!serviceId) continue
+      const parent = await tx.query('SELECT 1 FROM services WHERE id = ? LIMIT 1', [serviceId])
+      if (!parent.values?.length) {
+        logger.warn('Appointment line references a missing service', {
+          table: 'appointment_services',
+          column: 'service_id',
+          value: serviceId,
+        })
+        throw new Error(`${FOREIGN_KEY_FAILURE}: appointment_services.service_id=${serviceId}`)
+      }
+    }
+  }
+
   async create(input: CreateAppointmentInput): Promise<Appointment> {
     const now = nowISO()
     const endAt = calcEndAt(input.start_at, input.duration_minutes)
@@ -155,7 +200,7 @@ export class AppointmentRepository {
     const appointment: Appointment = {
       id: generateUUID(),
       user_id: this.userId,
-      customer_id: input.customer_id ?? null,
+      customer_id: nullableId(input.customer_id),
       title: input.title.trim(),
       start_at: input.start_at,
       duration_minutes: input.duration_minutes,
@@ -171,7 +216,7 @@ export class AppointmentRepository {
       id: generateUUID(),
       user_id: this.userId,
       appointment_id: appointment.id,
-      service_id: svc.service_id ?? null,
+      service_id: nullableId(svc.service_id),
       service_name_snapshot: svc.service_name_snapshot,
       price: tomanToStorage(svc.price),
       duration_minutes: svc.duration_minutes ?? null,
@@ -186,6 +231,12 @@ export class AppointmentRepository {
       if (conflict.hasConflict) {
         throw new AppointmentConflictError(conflict.conflictingAppointment?.title ?? '')
       }
+
+      await this.assertParentsExist(
+        tx,
+        appointment.customer_id,
+        services.map(svc => svc.service_id)
+      )
 
       await tx.run(
         `INSERT INTO appointments
@@ -279,7 +330,8 @@ export class AppointmentRepository {
 
     const updated: Appointment = {
       ...existing,
-      customer_id: input.customer_id !== undefined ? input.customer_id : existing.customer_id,
+      customer_id:
+        input.customer_id !== undefined ? nullableId(input.customer_id) : existing.customer_id,
       title: input.title?.trim() ?? existing.title,
       start_at: newStartAt,
       duration_minutes: newDuration,
@@ -294,7 +346,7 @@ export class AppointmentRepository {
         id: generateUUID(),
         user_id: this.userId,
         appointment_id: id,
-        service_id: svc.service_id ?? null,
+        service_id: nullableId(svc.service_id),
         service_name_snapshot: svc.service_name_snapshot,
         price: tomanToStorage(svc.price),
         duration_minutes: svc.duration_minutes ?? null,
@@ -308,6 +360,12 @@ export class AppointmentRepository {
       if (conflict.hasConflict) {
         throw new AppointmentConflictError(conflict.conflictingAppointment?.title ?? '')
       }
+
+      await this.assertParentsExist(
+        tx,
+        updated.customer_id,
+        newServices?.map(svc => svc.service_id) ?? []
+      )
 
       await tx.run(
         `UPDATE appointments
