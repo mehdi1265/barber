@@ -5,8 +5,10 @@ import {
   type CreateAppointmentInput,
   type UpdateAppointmentInput,
 } from '@database/repositories/appointment.repository'
+import { VisitRepository } from '@database/repositories/visit.repository'
 import { useAuthStore } from '@state/auth.store'
 import { getDatabase } from '@database/sqlite/database'
+import { completeAppointment } from './complete-appointment'
 import {
   scheduleAppointmentReminder,
   cancelAppointmentReminder,
@@ -27,6 +29,11 @@ export const appointmentKeys = {
 async function getRepo(userId: string) {
   const db = await getDatabase()
   return new AppointmentRepository(db, userId)
+}
+
+async function getVisitRepo(userId: string) {
+  const db = await getDatabase()
+  return new VisitRepository(db, userId)
 }
 
 function rethrowConflict(err: unknown): never {
@@ -148,15 +155,24 @@ export function useUpdateAppointmentStatus() {
   return useMutation({
     mutationFn: async ({ id, status }: { id: string; status: AppointmentStatus }) => {
       const repo = await getRepo(userId)
-      await repo.updateStatus(id, status)
+      if (status === 'completed') {
+        const visits = await getVisitRepo(userId)
+        await completeAppointment({ appointments: repo, visits }, id)
+      } else {
+        await repo.updateStatus(id, status)
+      }
       if (status !== 'reserved' && status !== 'confirmed') {
         await cancelAppointmentReminder(id)
       }
       return { id, status }
     },
-    onSuccess: ({ id }) => {
+    onSuccess: ({ id, status }) => {
       void qc.invalidateQueries({ queryKey: appointmentKeys.detail(userId, id) })
       void qc.invalidateQueries({ queryKey: ['appointments', userId] })
+      if (status === 'completed') {
+        void qc.invalidateQueries({ queryKey: ['finance', userId] })
+        void qc.invalidateQueries({ queryKey: ['visits', userId] })
+      }
     },
   })
 }

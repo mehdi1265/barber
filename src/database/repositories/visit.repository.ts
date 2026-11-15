@@ -82,6 +82,15 @@ export class VisitRepository {
     return (result.values as Visit[]) ?? []
   }
 
+  /** The visit created when an appointment was completed, if any. */
+  async findByAppointment(appointmentId: UUID): Promise<Visit | null> {
+    const result = await this.db.query(
+      `SELECT * FROM visits WHERE user_id = ? AND appointment_id = ? LIMIT 1`,
+      [this.userId, appointmentId]
+    )
+    return (result.values?.[0] as Visit) ?? null
+  }
+
   /** Customer visits with service and paid totals for history screens. */
   async findSummariesByCustomer(customerId: UUID): Promise<VisitSummary[]> {
     const result = await this.db.query(
