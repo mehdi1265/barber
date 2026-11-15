@@ -1,10 +1,10 @@
 import { useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
-import { Link, Navigate, useSearchParams } from 'react-router-dom'
+import { Link, Navigate, useNavigate, useSearchParams } from 'react-router-dom'
 import { forgotPasswordSchema, type ForgotPasswordFormData } from './auth.schemas'
-import { resendConfirmationUseCase } from './auth.usecases'
-import { CONFIRM_MESSAGES, parseConfirmOutcome } from './email-confirmation'
+import { applyPastedConfirmation, resendConfirmationUseCase } from './auth.usecases'
+import { CONFIRM_MESSAGES, parseConfirmOutcome, type ConfirmOutcome } from './email-confirmation'
 import { FormField } from '@shared/components/forms/FormField'
 import { Button } from '@shared/components/ui/Button'
 import styles from './AuthPage.module.css'
@@ -17,10 +17,14 @@ import styles from './AuthPage.module.css'
  * A confirmed account continues to the login form with a success banner.
  */
 export default function ConfirmEmailPage() {
+  const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const outcome = parseConfirmOutcome(searchParams.get('result'))
   const [resendError, setResendError] = useState<string | null>(null)
   const [resent, setResent] = useState(false)
+  const [pasteText, setPasteText] = useState('')
+  const [pasteResult, setPasteResult] = useState<ConfirmOutcome | null>(null)
+  const [applying, setApplying] = useState(false)
 
   const form = useForm<ForgotPasswordFormData>({ resolver: zodResolver(forgotPasswordSchema) })
 
@@ -36,6 +40,21 @@ export default function ConfirmEmailPage() {
     const { error } = await resendConfirmationUseCase(data.email)
     if (error) setResendError(error.message)
     else setResent(true)
+  }
+
+  const onApplyPasted = async () => {
+    setPasteResult(null)
+    setApplying(true)
+    try {
+      const { outcome: result } = await applyPastedConfirmation(pasteText)
+      if (result === 'confirmed') {
+        void navigate('/login?confirmed=1', { replace: true })
+        return
+      }
+      setPasteResult(result)
+    } finally {
+      setApplying(false)
+    }
   }
 
   return (
@@ -87,6 +106,38 @@ export default function ConfirmEmailPage() {
             </Button>
           </form>
         )}
+
+        <div className={styles.pasteBlock}>
+          <h2 className={styles.pasteTitle}>لینک باز نشد؟</h2>
+          <p className={styles.pasteHint}>
+            لینک تأیید را از ایمیل کپی کنید و در کادر زیر بچسبانید تا همین‌جا بررسی شود.
+          </p>
+          <textarea
+            className={styles.textarea}
+            value={pasteText}
+            onChange={e => setPasteText(e.target.value)}
+            rows={3}
+            dir="ltr"
+            spellCheck={false}
+            placeholder="barberapp://confirm-email#..."
+            aria-label="لینک تأیید ایمیل"
+          />
+          {pasteResult && (
+            <div className={styles.serverError} role="alert">
+              {CONFIRM_MESSAGES[pasteResult]}
+            </div>
+          )}
+          <Button
+            fullWidth
+            loading={applying}
+            disabled={!pasteText.trim()}
+            onClick={() => {
+              void onApplyPasted()
+            }}
+          >
+            بررسی لینک
+          </Button>
+        </div>
 
         <div className={styles.footer}>
           <Link to="/login" className={styles.link}>

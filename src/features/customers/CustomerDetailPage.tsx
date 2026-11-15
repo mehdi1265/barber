@@ -16,6 +16,7 @@ import { Modal } from '@shared/components/ui/Modal'
 import { ConfirmDialog } from '@shared/components/ui/ConfirmDialog'
 import { LoadingScreen } from '@shared/components/ui/LoadingScreen'
 import { formatJalaliDate } from '@shared/utils/jalali'
+import { userMessageFor } from '@shared/utils/user-message'
 import type { CustomerFormData } from './customers.schemas'
 import styles from './CustomerDetailPage.module.css'
 
@@ -25,6 +26,7 @@ export default function CustomerDetailPage() {
   const [showEditModal, setShowEditModal] = useState(false)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [showAddPhoto, setShowAddPhoto] = useState(false)
+  const [actionError, setActionError] = useState<string | null>(null)
 
   const { data: customer, isLoading } = useCustomer(id!)
   const { data: appointments = [] } = useAppointmentsByCustomer(id ?? '')
@@ -38,18 +40,34 @@ export default function CustomerDetailPage() {
   const deletePhotoMutation = useDeletePhoto(id ?? '')
 
   const handleUpdate = async (data: CustomerFormData) => {
-    await updateMutation.mutateAsync({ id: id!, input: data })
-    setShowEditModal(false)
+    setActionError(null)
+    try {
+      await updateMutation.mutateAsync({ id: id!, input: data })
+      setShowEditModal(false)
+    } catch (err) {
+      setActionError(userMessageFor(err, 'ذخیره تغییرات انجام نشد. دوباره تلاش کنید.'))
+    }
   }
 
   const handleAddPhoto = async (value: PhotoFormValue) => {
-    await addPhotoMutation.mutateAsync({ customerId: id!, ...value })
-    setShowAddPhoto(false)
+    setActionError(null)
+    try {
+      await addPhotoMutation.mutateAsync({ customerId: id!, ...value })
+      setShowAddPhoto(false)
+    } catch (err) {
+      setActionError(userMessageFor(err, 'ذخیره عکس انجام نشد. دوباره تلاش کنید.'))
+    }
   }
 
   const handleDelete = async () => {
-    await deleteMutation.mutateAsync(id!)
-    void navigate('/customers', { replace: true })
+    setActionError(null)
+    try {
+      await deleteMutation.mutateAsync(id!)
+      void navigate('/customers', { replace: true })
+    } catch (err) {
+      setShowDeleteConfirm(false)
+      setActionError(userMessageFor(err, 'حذف مشتری انجام نشد. دوباره تلاش کنید.'))
+    }
   }
 
   if (isLoading) return <LoadingScreen message="در حال بارگذاری پرونده…" />
@@ -79,13 +97,22 @@ export default function CustomerDetailPage() {
           <Button
             variant="ghost"
             size="sm"
-            onClick={() => setShowEditModal(true)}
+            onClick={() => {
+              setActionError(null)
+              setShowEditModal(true)
+            }}
             aria-label="ویرایش مشتری"
           >
             ✏️ ویرایش
           </Button>
         }
       />
+
+      {actionError && (
+        <div className={styles.serverError} role="alert">
+          {actionError}
+        </div>
+      )}
 
       <div className={styles.content}>
         {/* Profile card */}
@@ -166,7 +193,10 @@ export default function CustomerDetailPage() {
             <button
               type="button"
               className={styles.sectionAction}
-              onClick={() => setShowAddPhoto(true)}
+              onClick={() => {
+                setActionError(null)
+                setShowAddPhoto(true)
+              }}
             >
               + عکس جدید
             </button>
@@ -174,7 +204,12 @@ export default function CustomerDetailPage() {
           <PhotoGallery
             photos={photos}
             onDelete={async photoId => {
-              await deletePhotoMutation.mutateAsync(photoId)
+              setActionError(null)
+              try {
+                await deletePhotoMutation.mutateAsync(photoId)
+              } catch (err) {
+                setActionError(userMessageFor(err, 'حذف عکس انجام نشد. دوباره تلاش کنید.'))
+              }
             }}
           />
         </section>
@@ -194,6 +229,7 @@ export default function CustomerDetailPage() {
           onSubmit={handleUpdate}
           onCancel={() => setShowEditModal(false)}
           submitLabel="ذخیره تغییرات"
+          error={actionError}
         />
       </Modal>
 

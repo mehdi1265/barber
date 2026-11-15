@@ -14,6 +14,7 @@ import { Button } from '@shared/components/ui/Button'
 import { Modal } from '@shared/components/ui/Modal'
 import { LoadingScreen } from '@shared/components/ui/LoadingScreen'
 import { formatToman } from '@shared/utils/helpers'
+import { userMessageFor } from '@shared/utils/user-message'
 import { todayISO, formatJalaliDateFull, formatTime, applyTimeToDate } from '@shared/utils/jalali'
 import styles from './DashboardPage.module.css'
 
@@ -49,7 +50,7 @@ export default function DashboardPage() {
       })
       setShowAddModal(false)
     } catch (err) {
-      setFormError(err instanceof Error ? err.message : 'خطایی رخ داد')
+      setFormError(userMessageFor(err, 'ثبت نوبت انجام نشد. دوباره تلاش کنید.'))
     }
   }
 

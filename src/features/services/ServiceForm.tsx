@@ -19,6 +19,8 @@ interface ServiceFormProps {
   onSubmit: (data: ServiceFormData) => Promise<void>
   onCancel: () => void
   submitLabel?: string
+  /** Failure from the caller's save attempt; rendered above the actions. */
+  error?: string | null
 }
 
 export function ServiceForm({
@@ -26,6 +28,7 @@ export function ServiceForm({
   onSubmit,
   onCancel,
   submitLabel = 'ذخیره',
+  error,
 }: ServiceFormProps) {
   const {
     register,
@@ -83,6 +86,12 @@ export function ServiceForm({
         {...register('suggested_duration_minutes')}
         error={errors.suggested_duration_minutes}
       />
+
+      {error && (
+        <div className={styles.serverError} role="alert">
+          {error}
+        </div>
+      )}
 
       <div className={styles.actions}>
         <Button type="button" variant="ghost" onClick={onCancel} fullWidth>

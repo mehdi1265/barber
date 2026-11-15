@@ -14,6 +14,7 @@ import { ConfirmDialog } from '@shared/components/ui/ConfirmDialog'
 import { LoadingScreen } from '@shared/components/ui/LoadingScreen'
 import { formatJalaliDateFull, formatTimeRange, applyTimeToDate } from '@shared/utils/jalali'
 import { formatToman } from '@shared/utils/helpers'
+import { userMessageFor } from '@shared/utils/user-message'
 import { STATUS_LABELS, STATUS_COLORS, type AppointmentFormData } from './appointments.schemas'
 import type { AppointmentStatus } from '@shared/types'
 import styles from './AppointmentDetailPage.module.css'
@@ -42,6 +43,7 @@ export default function AppointmentDetailPage() {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [isEditing, setIsEditing] = useState(false)
   const [editError, setEditError] = useState<string | null>(null)
+  const [actionError, setActionError] = useState<string | null>(null)
 
   const { data: appointment, isLoading } = useAppointment(id!)
   const { data: services = [], isLoading: servicesLoading } = useAppointmentServices(id!)
@@ -50,22 +52,33 @@ export default function AppointmentDetailPage() {
   const deleteMutation = useDeleteAppointment()
 
   const handleStatusChange = async (status: AppointmentStatus) => {
-    await updateStatusMutation.mutateAsync({ id: id!, status })
+    setActionError(null)
+    try {
+      await updateStatusMutation.mutateAsync({ id: id!, status })
+      return true
+    } catch (err) {
+      setActionError(userMessageFor(err, 'تغییر وضعیت نوبت انجام نشد. دوباره تلاش کنید.'))
+      return false
+    }
   }
 
   const handleCancel = async () => {
-    await handleStatusChange('cancelled')
-    setShowCancelConfirm(false)
+    if (await handleStatusChange('cancelled')) setShowCancelConfirm(false)
   }
 
   const handleNoShow = async () => {
-    await handleStatusChange('no_show')
-    setShowNoShowConfirm(false)
+    if (await handleStatusChange('no_show')) setShowNoShowConfirm(false)
   }
 
   const handleDelete = async () => {
-    await deleteMutation.mutateAsync(id!)
-    void navigate('/appointments', { replace: true })
+    setActionError(null)
+    try {
+      await deleteMutation.mutateAsync(id!)
+      void navigate('/appointments', { replace: true })
+    } catch (err) {
+      setShowDeleteConfirm(false)
+      setActionError(userMessageFor(err, 'حذف نوبت انجام نشد. دوباره تلاش کنید.'))
+    }
   }
 
   const handleUpdate = async (data: AppointmentFormData) => {
@@ -166,6 +179,12 @@ export default function AppointmentDetailPage() {
       />
 
       <div className={styles.content}>
+        {actionError && (
+          <div className={styles.serverError} role="alert">
+            {actionError}
+          </div>
+        )}
+
         {/* Status banner */}
         <div
           className={styles.statusBanner}

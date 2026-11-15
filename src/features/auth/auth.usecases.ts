@@ -20,6 +20,7 @@ import {
   NATIVE_CONFIRM_URL,
   outcomeFromAuthError,
   parseConfirmLink,
+  parsePastedConfirmation,
   type ConfirmOutcome,
 } from './email-confirmation'
 
@@ -394,19 +395,61 @@ export async function applyConfirmEmailLink(url: string): Promise<ConfirmResult>
       return { outcome, message: CONFIRM_MESSAGES[outcome] }
     }
 
-    if (data.user) await ensureProfile(data.user)
-
-    if (!hadSession) {
-      const { error: signOutError } = await supabase.auth.signOut({ scope: 'local' })
-      if (signOutError) {
-        console.warn('[auth] could not clear the confirmation session:', signOutError.message)
-      }
-    }
-
-    return { outcome: 'confirmed', message: CONFIRM_MESSAGES.confirmed }
+    return settleConfirmation(data.user, hadSession)
   } catch (err) {
     const message = err instanceof Error ? err.message : 'network'
     console.error('[auth] email confirmation failed:', message)
+    const outcome = outcomeFromAuthError(message)
+    return { outcome, message: CONFIRM_MESSAGES[outcome] }
+  }
+}
+
+/** Shared tail of both confirmation paths: profile row, then no silent sign-in. */
+async function settleConfirmation(user: User | null, hadSession: boolean): Promise<ConfirmResult> {
+  if (user) await ensureProfile(user)
+
+  if (!hadSession) {
+    const { error } = await supabase.auth.signOut({ scope: 'local' })
+    if (error) {
+      console.warn('[auth] could not clear the confirmation session:', error.message)
+    }
+  }
+
+  return { outcome: 'confirmed', message: CONFIRM_MESSAGES.confirmed }
+}
+
+/**
+ * Confirms the account from a link the user copied out of the email.
+ *
+ * Some mail clients open links in a webview that cannot hand a custom scheme to
+ * Android, so the deep link looks dead. The same link pasted into the app works:
+ * the `barberapp://confirm-email#…` redirect carries the implicit tokens, and the
+ * provider's original `/auth/v1/verify?token=…&type=signup` link carries the
+ * token hash that `verifyOtp` accepts.
+ */
+export async function applyPastedConfirmation(text: string): Promise<ConfirmResult> {
+  const pasted = parsePastedConfirmation(text)
+
+  if (pasted.kind === 'url') return applyConfirmEmailLink(pasted.url)
+  if (pasted.kind === 'none') return { outcome: 'invalid', message: CONFIRM_MESSAGES.invalid }
+
+  const hadSession = await hasActiveSession()
+
+  try {
+    const { data, error } = await supabase.auth.verifyOtp({
+      type: pasted.type,
+      token_hash: pasted.tokenHash,
+    })
+
+    if (error) {
+      const outcome = outcomeFromAuthError(error.message)
+      return { outcome, message: CONFIRM_MESSAGES[outcome] }
+    }
+
+    return settleConfirmation(data.user, hadSession)
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'network'
+    console.error('[auth] pasted confirmation failed:', message)
     const outcome = outcomeFromAuthError(message)
     return { outcome, message: CONFIRM_MESSAGES[outcome] }
   }

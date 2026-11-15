@@ -103,6 +103,10 @@ export default function LoginPage() {
             رمز عبور را فراموش کرده‌اید؟
           </Link>
           <br />
+          <Link to="/confirm-email" className={styles.link}>
+            ایمیل را تأیید نکرده‌اید؟
+          </Link>
+          <br />
           <Link to="/register" className={styles.link}>
             حساب ندارم — ثبت‌نام
           </Link>

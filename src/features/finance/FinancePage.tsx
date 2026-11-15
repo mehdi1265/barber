@@ -15,6 +15,7 @@ import {
 } from './finance.hooks'
 import type { VisitSummary } from '@database/repositories/visit.repository'
 import type { Expense } from '@shared/types'
+import { userMessageFor } from '@shared/utils/user-message'
 import { VisitForm } from './VisitForm'
 import { PaymentForm } from './PaymentForm'
 import { ExpenseForm, type ExpenseFormInitial } from './ExpenseForm'
@@ -86,7 +87,7 @@ function VisitDetail({ visitId, onClose }: { visitId: string; onClose: () => voi
       })
       setShowPayment(false)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'خطایی در ثبت پرداخت رخ داد')
+      setError(userMessageFor(err, 'ثبت پرداخت انجام نشد. دوباره تلاش کنید.'))
     }
   }
 
@@ -231,7 +232,7 @@ export default function FinancePage() {
       })
       setShowVisitModal(false)
     } catch (err) {
-      setFormError(err instanceof Error ? err.message : 'خطایی در ثبت ویزیت رخ داد')
+      setFormError(userMessageFor(err, 'ثبت ویزیت انجام نشد. دوباره تلاش کنید.'))
     }
   }
 
@@ -247,7 +248,7 @@ export default function FinancePage() {
       })
       setShowExpenseModal(false)
     } catch (err) {
-      setFormError(err instanceof Error ? err.message : 'خطایی در ثبت هزینه رخ داد')
+      setFormError(userMessageFor(err, 'ثبت هزینه انجام نشد. دوباره تلاش کنید.'))
     }
   }
 
@@ -267,14 +268,17 @@ export default function FinancePage() {
       })
       setEditingExpense(null)
     } catch (err) {
-      setFormError(err instanceof Error ? err.message : 'خطایی در ویرایش هزینه رخ داد')
+      setFormError(userMessageFor(err, 'ویرایش هزینه انجام نشد. دوباره تلاش کنید.'))
     }
   }
 
   const handleDeleteExpense = async () => {
     if (!deletingExpenseId) return
+    setFormError(null)
     try {
       await deleteExpense.mutateAsync(deletingExpenseId)
+    } catch (err) {
+      setFormError(userMessageFor(err, 'حذف هزینه انجام نشد. دوباره تلاش کنید.'))
     } finally {
       setDeletingExpenseId(null)
     }

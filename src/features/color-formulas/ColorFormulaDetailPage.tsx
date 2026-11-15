@@ -51,8 +51,15 @@ export default function ColorFormulaDetailPage() {
   }
 
   const handleDelete = async () => {
-    await deleteMutation.mutateAsync(id!)
-    void navigate('/color-formulas', { replace: true })
+    setError(null)
+    try {
+      await deleteMutation.mutateAsync(id!)
+      void navigate('/color-formulas', { replace: true })
+    } catch (err) {
+      console.error('[color-formulas] delete failed:', err)
+      setShowDelete(false)
+      setError('حذف فرمول انجام نشد. دوباره تلاش کنید.')
+    }
   }
 
   if (isLoading) return <LoadingScreen message="در حال بارگذاری فرمول…" />

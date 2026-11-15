@@ -70,8 +70,9 @@ https://<domain>/reset-password
 
 - قالب باید شامل `{{ .ConfirmationURL }}` باشد (پیش‌فرض Supabase).
 - اگر قالب به سبک `{{ .TokenHash }}` بازنویسی شده باشد (لینک
-  `?token_hash=…&type=email`)، این نسخه از برنامه آن را پردازش **نمی‌کند**؛
-  باید به قالب پیش‌فرض برگردید یا مسیر verifyOtp جداگانه اضافه شود.
+  `?token_hash=…&type=email`)، دکمهٔ ایمیل دیگر برنامه را باز نمی‌کند؛ ولی
+  کاربر می‌تواند همان لینک را در صفحهٔ «تأیید ایمیل» برنامه بچسباند و برنامه
+  خودش با `verifyOtp({ type, token_hash })` آن را تأیید می‌کند.
 - `{{ .ConfirmationURL }}` را حذف نکنید و لینک را دستی به localhost تغییر
   ندهید.
 
@@ -92,6 +93,24 @@ https://<domain>/reset-password
 | ایمیل قبلاً تأیید شده | پیام «قبلاً تأیید شده است» و لینک ورود |
 | خطای شبکه | پیام خطای اتصال، قابل تلاش دوباره |
 | کاربر از قبل وارد شده | نشست فعلی دست‌نخورده می‌ماند و تأیید ثبت می‌شود |
+| لینک کپی‌شده از ایمیل، چسبانده‌شده در برنامه | همان نتیجهٔ توکن معتبر (بدون نیاز به باز شدن خودکار لینک) |
+
+### ۵-۱. لینک باز نشد؟ (مسیر جایگزین بدون دامنه)
+
+بسیاری از کلاینت‌های ایمیل روی اندروید لینک را در یک WebView باز می‌کنند و
+WebView نمی‌تواند `barberapp://` را به سیستم تحویل دهد؛ در نتیجه دکمهٔ ایمیل
+«بی‌اثر» به نظر می‌رسد. برای همین صفحهٔ `/confirm-email` دو ورودی دارد:
+
+1. لینک `barberapp://confirm-email#…` را از ایمیل کپی و در کادر بچسبانید، یا
+2. لینک اصلی Supabase
+   (`https://<project>.supabase.co/auth/v1/verify?token=…&type=signup`) را
+   بچسبانید.
+
+برنامه متن را با `parsePastedConfirmation` اعتبارسنجی می‌کند (فقط لینک
+تأیید؛ نوع `recovery` و لینک `http` رد می‌شوند) و سپس
+`applyPastedConfirmation` توکن را اعمال می‌کند. مسیر صفحه:
+`/login` → «ایمیل را تأیید نکرده‌اید؟» و صفحهٔ بعد از ثبت‌نام → «لینک را باز
+نکردید؟ همین‌جا تأیید کنید».
 
 هیچ توکنی در صفحه نمایش داده نمی‌شود و هیچ توکن/کدی در log چاپ نمی‌شود؛
 فقط کد نتیجه (`confirmed|expired|invalid|already|network|error`) در URL
@@ -104,6 +123,8 @@ https://<domain>/reset-password
 3. با ایمیل و رمز عبور وارد شوید.
 4. لینک را دوباره باز کنید: باید پیام «منقضی یا قبلاً استفاده شده» بیاید.
 5. لینک بازیابی رمز را هم امتحان کنید؛ باید مثل قبل به فرم رمز جدید برسد.
+6. اگر دکمهٔ ایمیل در گوشی باز نشد: لینک را کپی کنید، در برنامه به
+   «تأیید ایمیل» بروید و در کادر بچسبانید؛ باید همان پیام موفقیت را ببینید.
 
 ## ۷. محدودیت امنیتی
 
@@ -112,3 +133,41 @@ https://<domain>/reset-password
 `docs/11-release-runbook.md` است: HTTPS App Links با `assetlinks.json` و
 تنظیم `VITE_CONFIRM_EMAIL_REDIRECT_URL`/`VITE_RECOVERY_REDIRECT_URL` روی
 دامنهٔ تأییدشده.
+
+### وضعیت فعلی App Links: مسدود (بدون دامنه)
+
+در `AndroidManifest.xml` امروز **فقط** intent-filter با
+`android:scheme="barberapp"` وجود دارد؛ هیچ `https`، هیچ `android:host` دامنه
+و هیچ `android:autoVerify="true"` ثبت نشده و فایل
+`public/.well-known/assetlinks.json` هم در مخزن نیست. علت، نبودِ دامنه‌ای است
+که مالک پروژه کنترل کند؛ بدون دامنه، App Links واقعی (تأییدشده توسط سیستم)
+قابل فعال‌سازی نیست و پیست لینک (بخش ۵-۱) مسیر جایگزین است.
+
+وقتی دامنه در اختیار بود، این سه کار با هم لازم است:
+
+1. `assetlinks.json` روی `https://<domain>/.well-known/assetlinks.json` با
+   `package_name = com.barberapp.app` و
+   `sha256_cert_fingerprints =
+   ["EA:96:AD:74:C9:29:92:07:DC:05:D1:AF:65:21:55:6C:BD:0B:BF:42:F0:50:82:B3:77:CF:12:97:94:F9:3F:2D"]`
+   (اثر انگشت کلید انتشار Barber، نه کلید debug).
+2. بلوک intent-filter دوم در manifest (کنار بلوک فعلی
+   `<!-- deep-link:begin/end -->`):
+
+```xml
+<intent-filter android:autoVerify="true">
+  <action android:name="android.intent.action.VIEW" />
+  <category android:name="android.intent.category.DEFAULT" />
+  <category android:name="android.intent.category.BROWSABLE" />
+  <data android:scheme="https" android:host="<domain>" android:pathPrefix="/confirm-email" />
+  <data android:scheme="https" android:host="<domain>" android:pathPrefix="/reset-password" />
+</intent-filter>
+```
+
+3. `VITE_CONFIRM_EMAIL_REDIRECT_URL=https://<domain>/confirm-email` و
+   `VITE_RECOVERY_REDIRECT_URL=https://<domain>/reset-password` در بیلد، و همان
+   دو مقدار در Supabase → Redirect URLs.
+
+نکته: هیچ redirect سمت سرور (http→https یا `www`↔بدون `www`) نباید روی مسیر
+`/.well-known/assetlinks.json` باشد؛ سیستم Android آن را بدون redirect
+می‌خواند و redirect باعث شکست تأیید می‌شود. همچنین هاست لینک تأیید و هاست
+manifest باید یکی باشد.

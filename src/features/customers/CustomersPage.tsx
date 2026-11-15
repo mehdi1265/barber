@@ -8,19 +8,26 @@ import { Button } from '@shared/components/ui/Button'
 import { Modal } from '@shared/components/ui/Modal'
 import { LoadingScreen } from '@shared/components/ui/LoadingScreen'
 import type { CustomerFormData } from './customers.schemas'
+import { userMessageFor } from '@shared/utils/user-message'
 import styles from './CustomersPage.module.css'
 
 export default function CustomersPage() {
   const navigate = useNavigate()
   const [query, setQuery] = useState('')
   const [showAddModal, setShowAddModal] = useState(false)
+  const [formError, setFormError] = useState<string | null>(null)
 
   const { data: customers, isLoading, error } = useCustomerSearch(query)
   const createMutation = useCreateCustomer()
 
   const handleCreate = async (data: CustomerFormData) => {
-    await createMutation.mutateAsync(data)
-    setShowAddModal(false)
+    setFormError(null)
+    try {
+      await createMutation.mutateAsync(data)
+      setShowAddModal(false)
+    } catch (err) {
+      setFormError(userMessageFor(err, 'ثبت مشتری انجام نشد. دوباره تلاش کنید.'))
+    }
   }
 
   if (isLoading) return <LoadingScreen message="در حال بارگذاری مشتریان…" />
@@ -39,7 +46,14 @@ export default function CustomersPage() {
       {/* Header */}
       <header className={styles.header}>
         <h1 className={styles.title}>مشتریان</h1>
-        <Button size="sm" onClick={() => setShowAddModal(true)} aria-label="افزودن مشتری جدید">
+        <Button
+          size="sm"
+          onClick={() => {
+            setFormError(null)
+            setShowAddModal(true)
+          }}
+          aria-label="افزودن مشتری جدید"
+        >
           + مشتری
         </Button>
       </header>
@@ -59,7 +73,16 @@ export default function CustomersPage() {
           title={query ? 'نتیجه‌ای پیدا نشد' : 'هنوز مشتری ندارید'}
           description={query ? 'با عبارت دیگری جست‌وجو کنید' : 'اولین مشتری خود را اضافه کنید'}
           action={
-            !query ? <Button onClick={() => setShowAddModal(true)}>+ مشتری جدید</Button> : undefined
+            !query ? (
+              <Button
+                onClick={() => {
+                  setFormError(null)
+                  setShowAddModal(true)
+                }}
+              >
+                + مشتری جدید
+              </Button>
+            ) : undefined
           }
         />
       ) : (
@@ -103,6 +126,7 @@ export default function CustomersPage() {
           onSubmit={handleCreate}
           onCancel={() => setShowAddModal(false)}
           submitLabel="افزودن مشتری"
+          error={formError}
         />
       </Modal>
     </div>

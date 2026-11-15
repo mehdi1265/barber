@@ -7,6 +7,7 @@ import {
   outcomeFromProviderError,
   parseConfirmLink,
   parseConfirmOutcome,
+  parsePastedConfirmation,
 } from '@features/auth/email-confirmation'
 
 const TOKENS = '#access_token=at&refresh_token=rt&type=signup'
@@ -82,6 +83,42 @@ describe('confirmation link parsing', () => {
 
   it('returns none for a bare target', () => {
     expect(parseConfirmLink(NATIVE_CONFIRM_URL)).toEqual({ kind: 'none' })
+  })
+})
+
+describe('pasted confirmation text', () => {
+  it('finds the deep link inside copied text', () => {
+    expect(parsePastedConfirmation(`لینک: barberapp://confirm-email${TOKENS} پایان`)).toEqual({
+      kind: 'url',
+      url: `barberapp://confirm-email${TOKENS}`,
+    })
+  })
+
+  it('reads the provider verify link as a token hash', () => {
+    expect(
+      parsePastedConfirmation(
+        'https://abc.supabase.co/auth/v1/verify?token=hash123&type=signup&redirect_to=barberapp%3A%2F%2Fconfirm-email'
+      )
+    ).toEqual({ kind: 'token_hash', tokenHash: 'hash123', type: 'signup' })
+  })
+
+  it('decodes HTML-escaped separators from a copied email', () => {
+    expect(
+      parsePastedConfirmation('https://abc.supabase.co/auth/v1/verify?token=h2&amp;type=email')
+    ).toEqual({ kind: 'token_hash', tokenHash: 'h2', type: 'email' })
+  })
+
+  it('ignores recovery, insecure and unrelated pasted links', () => {
+    expect(
+      parsePastedConfirmation('https://abc.supabase.co/auth/v1/verify?token=h&type=recovery')
+    ).toEqual({ kind: 'none' })
+    expect(
+      parsePastedConfirmation('http://abc.supabase.co/auth/v1/verify?token=h&type=signup')
+    ).toEqual({ kind: 'none' })
+    expect(parsePastedConfirmation('https://abc.supabase.co/auth/v1/verify?type=signup')).toEqual({
+      kind: 'none',
+    })
+    expect(parsePastedConfirmation('سلام، لطفاً ایمیل را تأیید کنید')).toEqual({ kind: 'none' })
   })
 })
 

@@ -179,4 +179,45 @@ describe('database bootstrap', () => {
     expect(db).toBe(state.db)
     expect(state.connection.createConnection).toHaveBeenCalledTimes(2)
   })
+
+  it('rejects a plugin open that never settles instead of hanging forever', async () => {
+    vi.useFakeTimers()
+    try {
+      state.db.open.mockReturnValue(new Promise<void>(() => {}))
+      const { getDatabase } = await import('@database/sqlite/database')
+
+      const pending = getDatabase()
+      const assertion = expect(pending).rejects.toThrow('timed out')
+      await vi.advanceTimersByTimeAsync(15_000)
+      await assertion
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('succeeds on the next call once a slow open finally completes', async () => {
+    vi.useFakeTimers()
+    try {
+      let finishOpen: (() => void) | null = null
+      state.db.open.mockReturnValue(
+        new Promise<void>(resolve => {
+          finishOpen = resolve
+        })
+      )
+      const { getDatabase } = await import('@database/sqlite/database')
+
+      const first = getDatabase()
+      const assertion = expect(first).rejects.toThrow('timed out')
+      await vi.advanceTimersByTimeAsync(15_000)
+      await assertion
+
+      finishOpen!()
+      await vi.advanceTimersByTimeAsync(0)
+
+      await expect(getDatabase()).resolves.toBe(state.db)
+      expect(state.connection.createConnection).toHaveBeenCalledTimes(1)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
 })

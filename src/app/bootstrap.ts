@@ -15,37 +15,19 @@ import { getDatabase } from '@database/sqlite/database'
 import { runMigrations } from '@database/sqlite/migrations'
 import { ensureProfile } from '@features/auth/auth.usecases'
 import { errorDetails, logger } from '@shared/utils/logger'
+import { withTimeout } from '@shared/utils/timeout'
 
-const DATABASE_INIT_TIMEOUT_MS = 15_000
-
-// A plugin call that never resolves must not keep the login screen hidden.
-function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
-  return new Promise<T>((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error(message)), ms)
-    promise.then(
-      value => {
-        clearTimeout(timer)
-        resolve(value)
-      },
-      err => {
-        clearTimeout(timer)
-        reject(err instanceof Error ? err : new Error(String(err)))
-      }
-    )
-  })
-}
+const MIGRATIONS_TIMEOUT_MS = 20_000
 
 export async function initializeDatabase(): Promise<void> {
   const { setStatus } = useDatabaseStore.getState()
   setStatus('initializing')
 
   try {
-    const db = await withTimeout(
-      getDatabase(),
-      DATABASE_INIT_TIMEOUT_MS,
-      'Database initialisation timed out'
-    )
-    await runMigrations(db)
+    const db = await getDatabase()
+    // getDatabase() only bounds the connection; a migration that never finishes
+    // would leave every later write waiting, so bound it too.
+    await withTimeout(runMigrations(db), MIGRATIONS_TIMEOUT_MS, 'Database migrations timed out')
     setStatus('ready')
     logger.info('Database ready')
   } catch (err) {

@@ -73,6 +73,7 @@ vi.mock('@capacitor/core', () => ({
 
 import {
   applyConfirmEmailLink,
+  applyPastedConfirmation,
   applyRecoveryLink,
   applyRecoverySession,
   confirmEmailRedirectUrl,
@@ -507,6 +508,53 @@ describe('auth use cases', () => {
     expect(result.outcome).toBe('invalid')
     expect(state.setSession).not.toHaveBeenCalled()
     expect(state.exchangeCodeForSession).not.toHaveBeenCalled()
+  })
+
+  it('confirms a deep link pasted into the app', async () => {
+    state.setSession.mockResolvedValue({ data: { user: USER, session: {} }, error: null })
+
+    const result = await applyPastedConfirmation(`لینک تأیید من: ${CONFIRM_URL} `)
+
+    expect(result.outcome).toBe('confirmed')
+    expect(state.setSession).toHaveBeenCalledWith({ access_token: 'at', refresh_token: 'rt' })
+    expect(state.signOut).toHaveBeenCalledWith({ scope: 'local' })
+  })
+
+  it('verifies the provider link pasted from the email with its token hash', async () => {
+    state.verifyOtp.mockResolvedValue({ data: { user: USER, session: {} }, error: null })
+
+    const result = await applyPastedConfirmation(
+      'https://abc.supabase.co/auth/v1/verify?token=hash123&type=signup&redirect_to=barberapp%3A%2F%2Fconfirm-email'
+    )
+
+    expect(result.outcome).toBe('confirmed')
+    expect(state.verifyOtp).toHaveBeenCalledWith({ type: 'signup', token_hash: 'hash123' })
+    expect(state.ensureLocalProfile).toHaveBeenCalledTimes(1)
+    expect(state.signOut).toHaveBeenCalledWith({ scope: 'local' })
+  })
+
+  it('does not treat a pasted recovery link as a signup confirmation', async () => {
+    const result = await applyPastedConfirmation(
+      'https://abc.supabase.co/auth/v1/verify?token=hash123&type=recovery'
+    )
+
+    expect(result.outcome).toBe('invalid')
+    expect(state.verifyOtp).not.toHaveBeenCalled()
+  })
+
+  it('reports a rejected pasted token without leaking provider text', async () => {
+    state.verifyOtp.mockResolvedValue({
+      data: { user: null, session: null },
+      error: { message: 'Token has expired or is invalid' },
+    })
+
+    const result = await applyPastedConfirmation(
+      'https://abc.supabase.co/auth/v1/verify?token=hash123&type=signup'
+    )
+
+    expect(result.outcome).toBe('expired')
+    expect(result.message).not.toContain('Token has expired')
+    expect(state.signOut).not.toHaveBeenCalled()
   })
 
   it('resends the confirmation email with the same redirect target', async () => {

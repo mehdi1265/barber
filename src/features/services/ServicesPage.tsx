@@ -19,12 +19,15 @@ import { LoadingScreen } from '@shared/components/ui/LoadingScreen'
 import { formatToman } from '@shared/utils/helpers'
 import type { Service } from '@shared/types'
 import type { ServiceFormData } from './services.schemas'
+import { userMessageFor } from '@shared/utils/user-message'
 import styles from './ServicesPage.module.css'
 
 export default function ServicesPage() {
   const [showAdd, setShowAdd] = useState(false)
   const [editingService, setEditingService] = useState<Service | null>(null)
   const [deactivatingId, setDeactivatingId] = useState<string | null>(null)
+  const [formError, setFormError] = useState<string | null>(null)
+  const [deactivateError, setDeactivateError] = useState<string | null>(null)
 
   const { data: services, isLoading } = useServices(true)
   const createMutation = useCreateService()
@@ -32,20 +35,36 @@ export default function ServicesPage() {
   const deactivateMutation = useDeactivateService()
 
   const handleCreate = async (data: ServiceFormData) => {
-    await createMutation.mutateAsync(data)
-    setShowAdd(false)
+    setFormError(null)
+    try {
+      await createMutation.mutateAsync(data)
+      setShowAdd(false)
+    } catch (err) {
+      setFormError(userMessageFor(err, 'ثبت خدمت انجام نشد. دوباره تلاش کنید.'))
+    }
   }
 
   const handleUpdate = async (data: ServiceFormData) => {
     if (!editingService) return
-    await updateMutation.mutateAsync({ id: editingService.id, input: data })
-    setEditingService(null)
+    setFormError(null)
+    try {
+      await updateMutation.mutateAsync({ id: editingService.id, input: data })
+      setEditingService(null)
+    } catch (err) {
+      setFormError(userMessageFor(err, 'ذخیره تغییرات انجام نشد. دوباره تلاش کنید.'))
+    }
   }
 
   const handleDeactivate = async () => {
     if (!deactivatingId) return
-    await deactivateMutation.mutateAsync(deactivatingId)
-    setDeactivatingId(null)
+    setDeactivateError(null)
+    try {
+      await deactivateMutation.mutateAsync(deactivatingId)
+      setDeactivatingId(null)
+    } catch (err) {
+      setDeactivatingId(null)
+      setDeactivateError(userMessageFor(err, 'غیرفعال کردن خدمت انجام نشد. دوباره تلاش کنید.'))
+    }
   }
 
   if (isLoading) return <LoadingScreen message="در حال بارگذاری خدمات…" />
@@ -56,18 +75,39 @@ export default function ServicesPage() {
         title="خدمات"
         backTo="/settings"
         actions={
-          <Button size="sm" onClick={() => setShowAdd(true)}>
+          <Button
+            size="sm"
+            onClick={() => {
+              setFormError(null)
+              setShowAdd(true)
+            }}
+          >
             + خدمت
           </Button>
         }
       />
+
+      {deactivateError && (
+        <div className={styles.serverError} role="alert">
+          {deactivateError}
+        </div>
+      )}
 
       {!services || services.length === 0 ? (
         <EmptyState
           icon="💇"
           title="هنوز خدمتی ندارید"
           description="خدمات خود را اضافه کنید تا در ثبت نوبت پیشنهاد داده شوند"
-          action={<Button onClick={() => setShowAdd(true)}>+ خدمت جدید</Button>}
+          action={
+            <Button
+              onClick={() => {
+                setFormError(null)
+                setShowAdd(true)
+              }}
+            >
+              + خدمت جدید
+            </Button>
+          }
         />
       ) : (
         <ul className={styles.list} role="list">
@@ -89,7 +129,10 @@ export default function ServicesPage() {
               <div className={styles.itemActions}>
                 <button
                   className={styles.editBtn}
-                  onClick={() => setEditingService(service)}
+                  onClick={() => {
+                    setFormError(null)
+                    setEditingService(service)
+                  }}
                   aria-label={`ویرایش ${service.name}`}
                 >
                   ✏️
@@ -113,6 +156,7 @@ export default function ServicesPage() {
           onSubmit={handleCreate}
           onCancel={() => setShowAdd(false)}
           submitLabel="افزودن خدمت"
+          error={formError}
         />
       </Modal>
 
@@ -124,6 +168,7 @@ export default function ServicesPage() {
             onSubmit={handleUpdate}
             onCancel={() => setEditingService(null)}
             submitLabel="ذخیره تغییرات"
+            error={formError}
           />
         )}
       </Modal>

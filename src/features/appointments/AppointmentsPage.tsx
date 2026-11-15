@@ -23,6 +23,7 @@ import {
 } from '@shared/utils/jalali'
 import { STATUS_LABELS, STATUS_COLORS, type AppointmentFormData } from './appointments.schemas'
 import { addLocalDays, localDateISO, parseLocalDate } from '@shared/utils/datetime'
+import { userMessageFor } from '@shared/utils/user-message'
 import styles from './AppointmentsPage.module.css'
 
 type ViewMode = 'day' | 'week'
@@ -62,7 +63,7 @@ export default function AppointmentsPage() {
       })
       setShowAddModal(false)
     } catch (err) {
-      setFormError(err instanceof Error ? err.message : 'خطایی رخ داد')
+      setFormError(userMessageFor(err, 'ثبت نوبت انجام نشد. دوباره تلاش کنید.'))
     }
   }
 

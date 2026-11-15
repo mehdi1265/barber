@@ -7,6 +7,7 @@ import { useCreateVisit } from './finance.hooks'
 import { QuickSaleForm } from './QuickSaleForm'
 import type { QuickSaleFormData } from './finance.schemas'
 import { PageHeader } from '@shared/components/ui/PageHeader'
+import { userMessageFor } from '@shared/utils/user-message'
 import styles from './QuickSalePage.module.css'
 
 export default function QuickSalePage() {
@@ -34,7 +35,7 @@ export default function QuickSalePage() {
       })
       void navigate('/finance')
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'خطایی در ثبت فروش رخ داد')
+      setError(userMessageFor(err, 'ثبت فروش انجام نشد. دوباره تلاش کنید.'))
     }
   }
 

@@ -17,10 +17,12 @@
 import { Capacitor } from '@capacitor/core'
 import { CapacitorSQLite, SQLiteConnection, SQLiteDBConnection } from '@capacitor-community/sqlite'
 import { ensureWebSqlite } from './web-store'
+import { withTimeout } from '@shared/utils/timeout'
 
 const DB_NAME = 'barber_app'
 const DB_VERSION = 1
 const FOREIGN_KEYS_PRAGMA = 'PRAGMA foreign_keys = ON;'
+const OPEN_TIMEOUT_MS = 15_000
 
 // Singleton connection
 let _db: SQLiteDBConnection | null = null
@@ -77,7 +79,15 @@ function registerWebPersistence(): void {
 }
 
 export async function getDatabase(): Promise<SQLiteDBConnection> {
-  if (_db) return _db
+  // A native plugin call can stay pending forever (for example a SQLCipher
+  // connection that never opens). Every caller gets a bounded wait with a real
+  // error instead of a promise that never settles; the shared attempt keeps
+  // running in the background, so a later call still succeeds if it recovers.
+  return withTimeout(ensureOpening(), OPEN_TIMEOUT_MS, 'Database initialisation timed out')
+}
+
+function ensureOpening(): Promise<SQLiteDBConnection> {
+  if (_db) return Promise.resolve(_db)
   if (opening) return opening
 
   opening = openDatabase().finally(() => {

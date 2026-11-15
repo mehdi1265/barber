@@ -5,6 +5,7 @@ import { Providers } from './app/providers'
 import { router } from './app/router'
 import { bootstrapApp } from './app/bootstrap'
 import { DatabaseStatusBanner } from './app/DatabaseStatusBanner'
+import { ActionErrorBanner } from './app/ActionErrorBanner'
 import { ErrorBoundary } from './app/ErrorBoundary'
 import { registerAppUrlHandling } from './app/deep-links'
 import { errorDetails, logger } from '@shared/utils/logger'
@@ -52,6 +53,7 @@ function start(): void {
       <ErrorBoundary>
         <Providers>
           <DatabaseStatusBanner />
+          <ActionErrorBanner />
           <RouterProvider router={router} />
         </Providers>
       </ErrorBoundary>

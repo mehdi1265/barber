@@ -60,13 +60,15 @@ describe('bootstrap resilience', () => {
     expect(useDatabaseStore.getState().status).toBe('ready')
   })
 
-  it('records an error when the database call hangs', async () => {
+  // The connection's own bounded wait is covered in database.test.ts; here the
+  // migration step is the one that must not hang the boot.
+  it('records an error when migrations hang', async () => {
     vi.useFakeTimers()
-    state.getDatabase.mockReturnValue(new Promise(() => {}))
+    state.runMigrations.mockReturnValue(new Promise(() => {}))
 
     try {
       const pending = initializeDatabase()
-      await vi.advanceTimersByTimeAsync(15_000)
+      await vi.advanceTimersByTimeAsync(20_000)
       await pending
     } finally {
       vi.useRealTimers()

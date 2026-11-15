@@ -52,6 +52,10 @@ export default function RegisterPage() {
           </div>
 
           <div className={styles.footer}>
+            <Link to="/confirm-email" className={styles.link}>
+              لینک را باز نکردید؟ همین‌جا تأیید کنید
+            </Link>
+            <br />
             <Link to="/login" className={styles.link}>
               بازگشت به ورود
             </Link>

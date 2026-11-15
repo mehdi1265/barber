@@ -12,6 +12,8 @@ interface CustomerFormProps {
   onSubmit: (data: CustomerFormData) => Promise<void>
   onCancel: () => void
   submitLabel?: string
+  /** Failure from the caller's save attempt; rendered above the actions. */
+  error?: string | null
 }
 
 export function CustomerForm({
@@ -19,6 +21,7 @@ export function CustomerForm({
   onSubmit,
   onCancel,
   submitLabel = 'ذخیره',
+  error,
 }: CustomerFormProps) {
   const {
     register,
@@ -79,6 +82,12 @@ export function CustomerForm({
           </p>
         )}
       </div>
+
+      {error && (
+        <div className={styles.serverError} role="alert">
+          {error}
+        </div>
+      )}
 
       <div className={styles.actions}>
         <Button type="button" variant="ghost" onClick={onCancel} fullWidth>

@@ -122,6 +122,50 @@ export function parseConfirmLink(url: string): ConfirmLink {
   return { kind: 'none' }
 }
 
+export type PastedConfirm =
+  | { kind: 'url'; url: string }
+  | { kind: 'token_hash'; tokenHash: string; type: 'signup' | 'email' }
+  | { kind: 'none' }
+
+/** The `/auth/v1/verify` endpoint Supabase's default email template links to. */
+function isVerifyPath(path: string): boolean {
+  return /\/auth\/v1\/verify\/?$/.test(path)
+}
+
+/**
+ * Reads a confirmation link the user copied out of the email.
+ *
+ * Mail clients often open links in a webview that cannot hand a custom scheme
+ * to the app, so the button appears dead. The pasted text is either the
+ * `barberapp://confirm-email#…` redirect (implicit tokens) or the provider's
+ * original `https://…/auth/v1/verify?token=…&type=signup` link, whose `token`
+ * is the hash `verifyOtp` accepts. Both are shape-checked here; nothing is used
+ * before that.
+ */
+export function parsePastedConfirmation(text: string): PastedConfirm {
+  const candidates = text
+    .replace(/&amp;/g, '&')
+    .replace(/[\u200e\u200f]/g, '')
+    .split(/\s+/)
+    .filter(Boolean)
+
+  for (const candidate of candidates) {
+    if (isConfirmTarget(candidate)) return { kind: 'url', url: candidate }
+  }
+
+  for (const candidate of candidates) {
+    const params = readParams(candidate)
+    if (!params || params.protocol !== 'https:' || !isVerifyPath(params.path)) continue
+    const type = params.query.get('type')
+    if (type !== 'signup' && type !== 'email') continue
+    const tokenHash = params.query.get('token_hash') ?? params.query.get('token')
+    if (!tokenHash) continue
+    return { kind: 'token_hash', tokenHash, type }
+  }
+
+  return { kind: 'none' }
+}
+
 /** Maps a Supabase Auth error message to a user-facing outcome. */
 export function outcomeFromAuthError(message: string): ConfirmOutcome {
   const lower = message.toLowerCase()
