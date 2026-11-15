@@ -5,10 +5,110 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>barber-app</title>
+    <style>
+      /* Inline so it applies even when the app bundle never runs. */
+      #boot {
+        position: fixed;
+        inset: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 0.75rem;
+        padding: 2rem;
+        text-align: center;
+        font-family: 'Vazirmatn', Tahoma, system-ui, sans-serif;
+        background: #f8fafc;
+        color: #0f172a;
+        z-index: 2147483647;
+      }
+      #boot p {
+        margin: 0;
+      }
+      #boot-detail {
+        color: #64748b;
+        font-size: 0.9rem;
+        max-width: 32rem;
+      }
+      #boot-retry {
+        margin-top: 0.5rem;
+        padding: 0.7rem 1.5rem;
+        border: 0;
+        border-radius: 10px;
+        background: #2563eb;
+        color: #fff;
+        font: inherit;
+        cursor: pointer;
+      }
+    </style>
   </head>
   <body>
     <div id="root"></div>
     <jeep-sqlite autosave="true"></jeep-sqlite>
+    <div id="boot" dir="rtl" role="status" aria-live="polite">
+      <p id="boot-title">در حال آماده‌سازی باربر…</p>
+      <p id="boot-detail">این پیام تا آماده شدن برنامه نمایش داده می‌شود.</p>
+      <button id="boot-retry" type="button" hidden>تلاش دوباره</button>
+    </div>
+    <script>
+      /**
+       * A module that fails to parse, or that throws while being evaluated,
+       * never reaches React: `ErrorBoundary` and `showFatalError` live inside
+       * that module, so the installed app would show nothing at all. This
+       * classic script runs first and turns that case into a visible message.
+       */
+      ;(function () {
+        var panel = document.getElementById('boot')
+        var title = document.getElementById('boot-title')
+        var detail = document.getElementById('boot-detail')
+        var retry = document.getElementById('boot-retry')
+        var failed = false
+
+        function fail(message) {
+          if (failed || !panel) return
+          failed = true
+          title.textContent = 'راه‌اندازی برنامه ممکن نشد'
+          detail.textContent = message
+          retry.hidden = false
+        }
+
+        retry.addEventListener('click', function () {
+          window.location.reload()
+        })
+
+        // Capture phase: a script that fails to load raises an error on the
+        // element itself, which never bubbles up to window.
+        window.addEventListener(
+          'error',
+          function (event) {
+            if (event && event.target && event.target.tagName) {
+              fail('بارگذاری بخشی از فایل‌های برنامه ناموفق بود.')
+              return
+            }
+            var message = event && event.message ? String(event.message) : ''
+            fail(message ? 'خطای اجرا: ' + message : 'اجرای برنامه متوقف شد.')
+          },
+          true
+        )
+
+        window.addEventListener('unhandledrejection', function (event) {
+          var reason = event && event.reason
+          var text = reason && reason.message ? reason.message : String(reason || '')
+          fail(text ? 'خطای اجرا: ' + text : 'اجرای برنامه متوقف شد.')
+        })
+
+        // Called by the app once React has mounted.
+        window.__barberBootDone = function () {
+          if (failed || !panel) return
+          panel.remove()
+          panel = null
+        }
+
+        window.setTimeout(function () {
+          fail('برنامه در زمان مورد انتظار آماده نشد.')
+        }, 15000)
+      })()
+    </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

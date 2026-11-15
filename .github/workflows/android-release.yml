@@ -264,33 +264,56 @@ jobs:
       - name: Test
         run: npm test
 
-      # Vite inlines VITE_* values at build time. If they are absent the Supabase
-      # client throws during module evaluation, React never mounts, and the
-      # installed APK shows a blank white screen. Refuse to build such a bundle.
+      # Vite inlines VITE_* values at build time. Two mistakes produce a
+      # white-screen APK: the variable is missing, or it holds the REST endpoint
+      # instead of the project URL. Either way the Supabase client fails while
+      # the module graph is evaluated, React never mounts, and nothing renders.
       - name: Build web assets
         env:
-          VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
-          VITE_SUPABASE_ANON_KEY: ${{ vars.VITE_SUPABASE_ANON_KEY }}
+          RAW_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
+          RAW_SUPABASE_ANON_KEY: ${{ vars.VITE_SUPABASE_ANON_KEY }}
         run: |
           set -euo pipefail
 
-          for name in VITE_SUPABASE_URL VITE_SUPABASE_ANON_KEY; do
+          for name in RAW_SUPABASE_URL RAW_SUPABASE_ANON_KEY; do
             if [[ -z "${!name:-}" ]]; then
-              echo "::error::Repository variable $name is not set."
-              echo "::error::Without it the bundle ships without Supabase config and the app opens to a blank white screen."
+              echo "::error::Repository variable ${name#RAW_} is not set."
+              echo "::error::Without it the app opens to a blank white screen."
               exit 1
             fi
           done
 
-          npm run build
+          # Tolerate a value pasted with the REST prefix or a trailing slash, but
+          # require the canonical project URL. A wrong value must fail the build,
+          # never ship.
+          supabase_url="${RAW_SUPABASE_URL%/}"
+          supabase_url="${supabase_url%/rest/v1}"
+          supabase_url="${supabase_url%/}"
+          if [[ "$supabase_url" != "$RAW_SUPABASE_URL" ]]; then
+            echo "::warning::VITE_SUPABASE_URL carried a path or trailing slash; using the project base URL."
+          fi
+          if [[ ! "$supabase_url" =~ ^https://[a-z0-9-]+\.supabase\.co$ ]]; then
+            echo "::error::VITE_SUPABASE_URL must look like https://<project-ref>.supabase.co with no path and no trailing slash."
+            exit 1
+          fi
+
+          VITE_SUPABASE_URL="$supabase_url" \
+          VITE_SUPABASE_ANON_KEY="$RAW_SUPABASE_ANON_KEY" \
+            npm run build
 
           # Prove the values reached the bundle instead of trusting Vite silently.
-          for name in VITE_SUPABASE_URL VITE_SUPABASE_ANON_KEY; do
-            if ! grep -rqF -- "${!name}" dist/assets; then
-              echo "::error::$name is absent from dist/assets after the build; Vite did not inline it."
-              exit 1
-            fi
-          done
+          if ! grep -rqF -- "$supabase_url" dist/assets; then
+            echo "::error::VITE_SUPABASE_URL is absent from dist/assets after the build; Vite did not inline it."
+            exit 1
+          fi
+          if grep -rqF -- "$supabase_url/rest/v1" dist/assets; then
+            echo "::error::The bundle still points Supabase at the REST endpoint."
+            exit 1
+          fi
+          if ! grep -rqF -- "$RAW_SUPABASE_ANON_KEY" dist/assets; then
+            echo "::error::VITE_SUPABASE_ANON_KEY is absent from dist/assets after the build; Vite did not inline it."
+            exit 1
+          fi
           echo "Supabase configuration is embedded in the web bundle"
 
       - name: Sync Capacitor Android

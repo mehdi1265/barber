@@ -10,6 +10,13 @@ import { registerAppUrlHandling } from './app/deep-links'
 import { errorDetails, logger } from '@shared/utils/logger'
 import './index.css'
 
+declare global {
+  interface Window {
+    /** Defined by the inline boot script in index.html. */
+    __barberBootDone?: () => void
+  }
+}
+
 /**
  * Last-resort startup failure screen.
  *
@@ -33,6 +40,7 @@ function showFatalError(err: unknown): void {
     </main>
   `
   root.querySelector('button')?.addEventListener('click', () => window.location.reload())
+  window.__barberBootDone?.()
 }
 
 function start(): void {
@@ -49,6 +57,10 @@ function start(): void {
       </ErrorBoundary>
     </StrictMode>
   )
+
+  // Two frames: the second one runs after React has committed the first paint,
+  // so the boot panel never covers the app.
+  requestAnimationFrame(() => requestAnimationFrame(() => window.__barberBootDone?.()))
 
   // Render first: a database plugin that hangs must not leave the user on a
   // blank page. Auth guards show their loading state until this settles.
