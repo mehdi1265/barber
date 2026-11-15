@@ -1,7 +1,7 @@
 /**
- * Registers the `barberapp://reset-password` deep link in the generated
- * Android and iOS projects. `android/` and `ios/` are gitignored, so run this
- * after `npx cap sync` (or via `npm run cap:build`).
+ * Registers the `barberapp://reset-password` and `barberapp://confirm-email`
+ * deep links in the checked-in Android and iOS projects. `npx cap sync` can
+ * rewrite native files, so run this after it (or via `npm run cap:build`).
  *
  * Usage:
  *   node scripts/native-deep-links.ts [--scheme barberapp]
@@ -95,7 +95,9 @@ async function main(): Promise<void> {
   await patch('ios', options.ios, text => applyIosUrlScheme(text, options.scheme))
 
   console.log(
-    `[deep-link] add ${options.scheme}://reset-password to Supabase Auth → URL Configuration → Redirect URLs`
+    `[deep-link] Supabase → Authentication → URL Configuration → Redirect URLs must list:\n` +
+      `  ${options.scheme}://reset-password\n` +
+      `  ${options.scheme}://confirm-email`
   )
 }
 

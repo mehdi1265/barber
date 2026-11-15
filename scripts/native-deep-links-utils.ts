@@ -1,10 +1,12 @@
 /**
- * Patches the generated Capacitor projects so `barberapp://reset-password`
- * links open the app. `android/` and `ios/` are gitignored, so the patches are
- * re-applied by `scripts/native-deep-links.ts` after `npx cap sync`.
+ * Patches the checked-in Capacitor projects so `barberapp://reset-password` and
+ * `barberapp://confirm-email` links open the app. `npx cap sync` can rewrite
+ * native files, so `scripts/native-deep-links.ts` re-applies the patches after
+ * it runs (or via `npm run cap:build`).
  */
 
 export const RECOVERY_HOST = 'reset-password'
+export const CONFIRM_HOST = 'confirm-email'
 
 const SCHEME = /^[a-z][a-z0-9+.-]*$/
 const LINK_START = '<!-- deep-link:begin'
@@ -31,6 +33,7 @@ function androidIntentFilter(scheme: string, indent: string): string {
     `${child}<category android:name="android.intent.category.DEFAULT" />`,
     `${child}<category android:name="android.intent.category.BROWSABLE" />`,
     `${child}<data android:scheme="${scheme}" android:host="${RECOVERY_HOST}" />`,
+    `${child}<data android:scheme="${scheme}" android:host="${CONFIRM_HOST}" />`,
     `${inner}</intent-filter>`,
     `${indent}${LINK_END}`,
     '',
@@ -53,7 +56,13 @@ export function applyAndroidDeepLink(manifest: string, scheme: string): string {
     )
   }
 
-  if (manifest.includes(`android:scheme="${scheme}"`)) return manifest
+  // A hand-written filter cannot be extended safely: adding hosts inside an
+  // existing <data> would change which paths it matches.
+  if (manifest.includes(`android:scheme="${scheme}"`)) {
+    throw new Error(
+      `AndroidManifest.xml already declares ${scheme} outside the managed block; add android:host="${CONFIRM_HOST}" manually`
+    )
+  }
 
   const activity = manifest.indexOf('android:name=".MainActivity"')
   if (activity === -1) throw new Error('MainActivity not found in AndroidManifest.xml')

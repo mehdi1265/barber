@@ -34,7 +34,7 @@ const PLIST = `<?xml version="1.0" encoding="UTF-8"?>
 `
 
 describe('native deep-link patching', () => {
-  it('adds an Android VIEW intent-filter inside MainActivity once', () => {
+  it('adds an Android VIEW intent-filter with both hosts inside MainActivity once', () => {
     const once = applyAndroidDeepLink(MANIFEST, 'barberapp')
     const twice = applyAndroidDeepLink(once, 'barberapp')
 
@@ -42,9 +42,11 @@ describe('native deep-link patching', () => {
     expect(once).toContain('android.intent.category.BROWSABLE')
     expect(once).toContain('android:scheme="barberapp"')
     expect(once).toContain('android:host="reset-password"')
+    expect(once).toContain('android:host="confirm-email"')
     expect(once.indexOf('<intent-filter>')).toBeLessThan(once.indexOf('</activity>'))
     expect(twice).toBe(once)
     expect(twice.match(/android.intent.action.VIEW/g)).toHaveLength(1)
+    expect(twice.match(/android:scheme="barberapp"/g)).toHaveLength(2)
   })
 
   it('replaces the managed block when the scheme changes', () => {
@@ -53,16 +55,18 @@ describe('native deep-link patching', () => {
 
     expect(changed).toContain('android:scheme="barberdev"')
     expect(changed).not.toContain('android:scheme="barberapp"')
-    expect(changed.match(/barberdev/g)).toHaveLength(1)
+    expect(changed.match(/barberdev/g)).toHaveLength(2)
+    expect(changed).toContain('android:host="reset-password"')
+    expect(changed).toContain('android:host="confirm-email"')
   })
 
-  it('is a no-op when the scheme is already registered without markers', () => {
+  it('refuses to patch a hand-written filter that lacks the confirm host', () => {
     const manual = MANIFEST.replace(
       '<intent-filter>',
-      '<intent-filter>\n                <data android:scheme="barberapp" />'
+      '<intent-filter>\n                <data android:scheme="barberapp" android:host="reset-password" />'
     )
 
-    expect(applyAndroidDeepLink(manual, 'barberapp')).toBe(manual)
+    expect(() => applyAndroidDeepLink(manual, 'barberapp')).toThrow('confirm-email')
   })
 
   it('registers CFBundleURLTypes in Info.plist once', () => {
@@ -72,6 +76,9 @@ describe('native deep-link patching', () => {
     expect(once).toContain('<key>CFBundleURLTypes</key>')
     expect(once).toContain('<key>CFBundleURLSchemes</key>')
     expect(once).toContain('<string>barberapp</string>')
+    // iOS matches at scheme level, so one entry already covers both
+    // barberapp://reset-password and barberapp://confirm-email.
+    expect(once).not.toContain('confirm-email')
     expect(once).toContain('<key>CFBundleDevelopmentRegion</key>')
     expect(twice).toBe(once)
     expect(twice.match(/CFBundleURLTypes/g)).toHaveLength(1)

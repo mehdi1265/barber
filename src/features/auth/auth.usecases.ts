@@ -14,6 +14,14 @@ import type { Profile } from '@shared/types'
 import type { LoginFormData, RegisterFormData } from './auth.schemas'
 import { mapAuthError } from './auth.errors'
 import { INVALID_RECOVERY_MESSAGE, NATIVE_RECOVERY_URL, parseRecoveryLink } from './recovery-link'
+import {
+  CONFIRM_MESSAGES,
+  CONFIRM_PATH,
+  NATIVE_CONFIRM_URL,
+  outcomeFromAuthError,
+  parseConfirmLink,
+  type ConfirmOutcome,
+} from './email-confirmation'
 
 export type { RecoveryTokens } from './recovery-link'
 export { parseRecoveryTokens } from './recovery-link'
@@ -107,7 +115,10 @@ export async function registerUseCase(data: RegisterFormData): Promise<RegisterR
     const { data: authData, error } = await supabase.auth.signUp({
       email: data.email,
       password: data.password,
-      options: { data: { display_name: data.display_name.trim() } },
+      options: {
+        data: { display_name: data.display_name.trim() },
+        emailRedirectTo: confirmEmailRedirectUrl(),
+      },
     })
 
     if (error) {
@@ -183,32 +194,39 @@ export async function logoutUseCase(): Promise<SimpleResult> {
 
 /**
  * Optional verified HTTPS redirect configured at build time. When present it
- * replaces the custom scheme for recovery emails, so another installed app
- * cannot intercept the link. The value must be an https URL on the
- * `/reset-password` path (the bare origin is accepted and normalised).
+ * replaces the custom scheme, so another installed app cannot intercept the
+ * link. The value must be an https URL on the given path (the bare origin is
+ * accepted and normalised).
  */
-function configuredRecoveryRedirect(): string | null {
-  const raw = (import.meta.env.VITE_RECOVERY_REDIRECT_URL as string | undefined)?.trim()
-  if (!raw) return null
+function configuredRedirect(raw: string | undefined, path: string): string | null {
+  const value = raw?.trim()
+  if (!value) return null
 
   try {
-    const url = new URL(raw)
+    const url = new URL(value)
     if (url.protocol !== 'https:') {
-      console.error('[auth] VITE_RECOVERY_REDIRECT_URL must use https; ignoring it')
+      console.error(`[auth] redirect override for ${path} must use https; ignoring it`)
       return null
     }
-    if (url.pathname === '/' || url.pathname === '') url.pathname = '/reset-password'
-    if (url.pathname !== '/reset-password' && url.pathname !== '/reset-password/') {
-      console.error('[auth] VITE_RECOVERY_REDIRECT_URL must point at /reset-password; ignoring it')
+    if (url.pathname === '/' || url.pathname === '') url.pathname = path
+    if (url.pathname !== path && url.pathname !== `${path}/`) {
+      console.error(`[auth] redirect override must point at ${path}; ignoring it`)
       return null
     }
     url.search = ''
     url.hash = ''
     return url.toString()
   } catch {
-    console.error('[auth] VITE_RECOVERY_REDIRECT_URL is not a valid URL; ignoring it')
+    console.error(`[auth] redirect override for ${path} is not a valid URL; ignoring it`)
     return null
   }
+}
+
+function configuredRecoveryRedirect(): string | null {
+  return configuredRedirect(
+    import.meta.env.VITE_RECOVERY_REDIRECT_URL as string | undefined,
+    '/reset-password'
+  )
 }
 
 /** Recovery emails go to the verified HTTPS domain when configured. */
@@ -218,6 +236,23 @@ export function recoveryRedirectUrl(): string {
   return Capacitor.isNativePlatform()
     ? NATIVE_RECOVERY_URL
     : `${window.location.origin}/reset-password`
+}
+
+/**
+ * Where the "Confirm your email" button lands.
+ *
+ * Must be listed in Supabase → Authentication → URL Configuration → Redirect
+ * URLs, otherwise Supabase silently falls back to the Site URL.
+ */
+export function confirmEmailRedirectUrl(): string {
+  const configured = configuredRedirect(
+    import.meta.env.VITE_CONFIRM_EMAIL_REDIRECT_URL as string | undefined,
+    CONFIRM_PATH
+  )
+  if (configured) return configured
+  return Capacitor.isNativePlatform()
+    ? NATIVE_CONFIRM_URL
+    : `${window.location.origin}${CONFIRM_PATH}`
 }
 
 export async function requestPasswordResetUseCase(email: string): Promise<SimpleResult> {
@@ -316,4 +351,79 @@ export async function applyRecoveryLink(url: string): Promise<SimpleResult> {
 /** Backwards-compatible hash-based entry point used by the web reset page. */
 export async function applyRecoverySession(hash: string): Promise<SimpleResult> {
   return applyRecoveryLink(hash)
+}
+
+// ── Email confirmation ────────────────────────────────────────────────────────
+
+export interface ConfirmResult {
+  outcome: ConfirmOutcome
+  message: string
+}
+
+/**
+ * Turns a confirmation link into a verified account.
+ *
+ * The implicit flow (the project's actual flow) delivers
+ * `#access_token`/`#refresh_token`; a PKCE `?code=` is exchanged instead when
+ * the project is switched to that flow. The session is then cleared locally
+ * unless the device was already signed in, so the user lands on the login
+ * screen instead of being silently authenticated by an email link.
+ */
+export async function applyConfirmEmailLink(url: string): Promise<ConfirmResult> {
+  const link = parseConfirmLink(url)
+
+  if (link.kind === 'none') return { outcome: 'invalid', message: CONFIRM_MESSAGES.invalid }
+  if (link.kind === 'error') {
+    console.warn('[auth] confirmation link rejected by provider:', link.outcome)
+    return { outcome: link.outcome, message: CONFIRM_MESSAGES[link.outcome] }
+  }
+
+  const hadSession = await hasActiveSession()
+
+  try {
+    const { data, error } =
+      link.kind === 'tokens'
+        ? await supabase.auth.setSession({
+            access_token: link.tokens.accessToken,
+            refresh_token: link.tokens.refreshToken,
+          })
+        : await supabase.auth.exchangeCodeForSession(link.code)
+
+    if (error) {
+      const outcome = outcomeFromAuthError(error.message)
+      return { outcome, message: CONFIRM_MESSAGES[outcome] }
+    }
+
+    if (data.user) await ensureProfile(data.user)
+
+    if (!hadSession) {
+      const { error: signOutError } = await supabase.auth.signOut({ scope: 'local' })
+      if (signOutError) {
+        console.warn('[auth] could not clear the confirmation session:', signOutError.message)
+      }
+    }
+
+    return { outcome: 'confirmed', message: CONFIRM_MESSAGES.confirmed }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'network'
+    console.error('[auth] email confirmation failed:', message)
+    const outcome = outcomeFromAuthError(message)
+    return { outcome, message: CONFIRM_MESSAGES[outcome] }
+  }
+}
+
+/** Re-sends the confirmation email when the original link expired. */
+export async function resendConfirmationUseCase(email: string): Promise<SimpleResult> {
+  try {
+    const { error } = await supabase.auth.resend({
+      type: 'signup',
+      email: email.trim(),
+      options: { emailRedirectTo: confirmEmailRedirectUrl() },
+    })
+    if (error) return { error: { message: mapAuthError(error.message) } }
+    return { error: null }
+  } catch (err) {
+    console.error('[auth] resending the confirmation email failed:', err)
+    return { error: { message: mapAuthError(err instanceof Error ? err.message : 'network') } }
+  }
 }

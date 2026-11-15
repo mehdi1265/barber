@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { loginSchema, type LoginFormData } from './auth.schemas'
 import { loginUseCase } from './auth.usecases'
 import { FormField } from '@shared/components/forms/FormField'
@@ -10,6 +10,8 @@ import styles from './AuthPage.module.css'
 
 export default function LoginPage() {
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
+  const confirmed = searchParams.get('confirmed') === '1'
   const [serverError, setServerError] = useState<string | null>(null)
   const [showPassword, setShowPassword] = useState(false)
 
@@ -42,6 +44,12 @@ export default function LoginPage() {
           <h1 className={styles.title}>ورود به حساب</h1>
           <p className={styles.subtitle}>خوش برگشتی! اطلاعاتت رو وارد کن</p>
         </div>
+
+        {confirmed && (
+          <div className={styles.success} role="status">
+            ایمیل شما تأیید شد. اکنون با ایمیل و رمز عبور وارد شوید.
+          </div>
+        )}
 
         <form
           onSubmit={e => {

@@ -10,6 +10,7 @@ import {
   AppointmentsPage,
   ColorFormulaDetailPage,
   ColorFormulasPage,
+  ConfirmEmailPage,
   CustomerDetailPage,
   CustomersPage,
   DashboardPage,
@@ -69,6 +70,17 @@ export const router = createBrowserRouter([
     element: (
       <SuspenseWrapper>
         <ResetPasswordPage />
+      </SuspenseWrapper>
+    ),
+  },
+
+  // Email-confirmation result. Public for the same reason: the link is opened
+  // before any session exists, and the deep-link handler already verified it.
+  {
+    path: '/confirm-email',
+    element: (
+      <SuspenseWrapper>
+        <ConfirmEmailPage />
       </SuspenseWrapper>
     ),
   },

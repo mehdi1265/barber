@@ -26,6 +26,7 @@ const state = vi.hoisted(() => {
     signUp: vi.fn(),
     signOut: vi.fn(),
     resetPasswordForEmail: vi.fn(),
+    resend: vi.fn(),
     verifyOtp: vi.fn(),
     updateUser: vi.fn(),
     getSession: vi.fn(),
@@ -33,6 +34,7 @@ const state = vi.hoisted(() => {
     exchangeCodeForSession: vi.fn(),
     getDatabase: vi.fn(),
     countPendingOutbox: vi.fn(),
+    isNative: vi.fn(),
   }
 })
 
@@ -43,6 +45,7 @@ vi.mock('@services/supabase/client', () => ({
       signUp: state.signUp,
       signOut: state.signOut,
       resetPasswordForEmail: state.resetPasswordForEmail,
+      resend: state.resend,
       verifyOtp: state.verifyOtp,
       updateUser: state.updateUser,
       getSession: state.getSession,
@@ -64,16 +67,24 @@ vi.mock('@sync/outbox/outbox.repository', () => ({
   countPendingOutbox: state.countPendingOutbox,
 }))
 
+vi.mock('@capacitor/core', () => ({
+  Capacitor: { isNativePlatform: state.isNative },
+}))
+
 import {
+  applyConfirmEmailLink,
   applyRecoveryLink,
   applyRecoverySession,
+  confirmEmailRedirectUrl,
   ensureProfile,
   getPendingOutboxCount,
   loginUseCase,
   logoutUseCase,
   parseRecoveryTokens,
+  recoveryRedirectUrl,
   registerUseCase,
   requestPasswordResetUseCase,
+  resendConfirmationUseCase,
   updatePasswordUseCase,
   verifyRecoveryOtpUseCase,
 } from '@features/auth/auth.usecases'
@@ -109,6 +120,7 @@ describe('auth use cases', () => {
     state.ensureLocalProfile.mockResolvedValue(PROFILE)
     state.getSession.mockResolvedValue({ data: { session: null } })
     state.signOut.mockResolvedValue({ error: null })
+    state.isNative.mockReturnValue(false)
     useAuthStore.setState({ userId: USER.id })
   })
 
@@ -175,7 +187,10 @@ describe('auth use cases', () => {
     expect(state.signUp).toHaveBeenCalledWith({
       email: USER.email,
       password: 'secret123',
-      options: { data: { display_name: 'علی' } },
+      options: {
+        data: { display_name: 'علی' },
+        emailRedirectTo: `${window.location.origin}/confirm-email`,
+      },
     })
   })
 
@@ -392,5 +407,118 @@ describe('auth use cases', () => {
 
     state.getDatabase.mockRejectedValue(new Error('database unavailable'))
     await expect(getPendingOutboxCount()).resolves.toBe(0)
+  })
+
+  // ── Email confirmation ─────────────────────────────────────────────────────
+
+  const CONFIRM_URL = 'barberapp://confirm-email#access_token=at&refresh_token=rt&type=signup'
+
+  it('points the confirmation email at the custom scheme on native', () => {
+    state.isNative.mockReturnValue(true)
+    expect(confirmEmailRedirectUrl()).toBe('barberapp://confirm-email')
+    // Recovery keeps its own, separate target.
+    expect(recoveryRedirectUrl()).toBe('barberapp://reset-password')
+  })
+
+  it('uses an https confirmation redirect when configured', () => {
+    vi.stubEnv('VITE_CONFIRM_EMAIL_REDIRECT_URL', 'https://app.example.com')
+    expect(confirmEmailRedirectUrl()).toBe('https://app.example.com/confirm-email')
+
+    vi.stubEnv('VITE_CONFIRM_EMAIL_REDIRECT_URL', 'https://app.example.com/confirm-email')
+    expect(confirmEmailRedirectUrl()).toBe('https://app.example.com/confirm-email')
+  })
+
+  it('ignores an insecure or off-path confirmation redirect', () => {
+    vi.stubEnv('VITE_CONFIRM_EMAIL_REDIRECT_URL', 'http://app.example.com/confirm-email')
+    expect(confirmEmailRedirectUrl()).toBe(`${window.location.origin}/confirm-email`)
+
+    vi.stubEnv('VITE_CONFIRM_EMAIL_REDIRECT_URL', 'https://app.example.com/reset-password')
+    expect(confirmEmailRedirectUrl()).toBe(`${window.location.origin}/confirm-email`)
+  })
+
+  it('confirms the account, creates the local profile, and clears the new session', async () => {
+    state.setSession.mockResolvedValue({ data: { user: USER, session: {} }, error: null })
+
+    const result = await applyConfirmEmailLink(CONFIRM_URL)
+
+    expect(result.outcome).toBe('confirmed')
+    expect(state.setSession).toHaveBeenCalledWith({ access_token: 'at', refresh_token: 'rt' })
+    expect(state.ensureLocalProfile).toHaveBeenCalledTimes(1)
+    // The email link verifies the account but must not sign the user in.
+    expect(state.signOut).toHaveBeenCalledWith({ scope: 'local' })
+  })
+
+  it('keeps an existing session when a confirmation arrives on a signed-in device', async () => {
+    state.getSession.mockResolvedValue({ data: { session: { user: USER } } })
+    state.setSession.mockResolvedValue({ data: { user: USER, session: {} }, error: null })
+
+    const result = await applyConfirmEmailLink(CONFIRM_URL)
+
+    expect(result.outcome).toBe('confirmed')
+    expect(state.signOut).not.toHaveBeenCalled()
+  })
+
+  it('exchanges a PKCE confirmation code when the link carries one', async () => {
+    state.exchangeCodeForSession.mockResolvedValue({ data: { user: USER }, error: null })
+
+    const result = await applyConfirmEmailLink('barberapp://confirm-email?code=abc')
+
+    expect(result.outcome).toBe('confirmed')
+    expect(state.exchangeCodeForSession).toHaveBeenCalledWith('abc')
+    expect(state.setSession).not.toHaveBeenCalled()
+  })
+
+  it('reports an expired confirmation link without leaking provider text', async () => {
+    const result = await applyConfirmEmailLink(
+      'barberapp://confirm-email#error=access_denied&error_code=otp_expired&error_description=Email+link+is+invalid+or+has+expired'
+    )
+
+    expect(result.outcome).toBe('expired')
+    expect(result.message).not.toContain('Email link')
+    expect(state.setSession).not.toHaveBeenCalled()
+  })
+
+  it('maps a rejected token to a Persian outcome', async () => {
+    state.setSession.mockResolvedValue({
+      data: { user: null },
+      error: { message: 'Invalid Refresh Token: Refresh Token Not Found' },
+    })
+
+    const result = await applyConfirmEmailLink(CONFIRM_URL)
+
+    expect(result.outcome).toBe('expired')
+    expect(result.message).toContain('منقضی')
+    expect(result.message).not.toContain('Refresh Token')
+    expect(state.signOut).not.toHaveBeenCalled()
+  })
+
+  it('treats a network failure during confirmation as retryable', async () => {
+    state.setSession.mockRejectedValue(new Error('Failed to fetch'))
+
+    const result = await applyConfirmEmailLink(CONFIRM_URL)
+
+    expect(result.outcome).toBe('network')
+    expect(result.message).toContain('اینترنت')
+  })
+
+  it('rejects a confirmation URL without credentials', async () => {
+    const result = await applyConfirmEmailLink('barberapp://confirm-email')
+
+    expect(result.outcome).toBe('invalid')
+    expect(state.setSession).not.toHaveBeenCalled()
+    expect(state.exchangeCodeForSession).not.toHaveBeenCalled()
+  })
+
+  it('resends the confirmation email with the same redirect target', async () => {
+    state.resend.mockResolvedValue({ error: null })
+
+    const result = await resendConfirmationUseCase(' ali@example.com ')
+
+    expect(result.error).toBeNull()
+    expect(state.resend).toHaveBeenCalledWith({
+      type: 'signup',
+      email: 'ali@example.com',
+      options: { emailRedirectTo: `${window.location.origin}/confirm-email` },
+    })
   })
 })

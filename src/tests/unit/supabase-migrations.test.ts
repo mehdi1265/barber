@@ -8,7 +8,9 @@ const files = readdirSync(migrationsDir)
   .sort()
 
 function read(file: string): string {
-  return readFileSync(join(migrationsDir, file), 'utf8')
+  // A Windows checkout with core.autocrlf=true rewrites the committed LF
+  // migrations to CRLF; the statements are otherwise identical.
+  return readFileSync(join(migrationsDir, file), 'utf8').replace(/\r\n/g, '\n')
 }
 
 describe('Supabase migrations are re-runnable', () => {

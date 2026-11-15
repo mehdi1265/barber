@@ -30,6 +30,7 @@
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="barberapp" android:host="reset-password" />
+                <data android:scheme="barberapp" android:host="confirm-email" />
             </intent-filter>
         <!-- deep-link:end -->
         </activity>

@@ -1,15 +1,20 @@
 /**
  * Native deep-link handling.
  *
- * Only recovery links are acted on: the URL is turned into a Supabase session
- * through `applyRecoveryLink`, then the app routes to the reset screen. The
- * handler runs for both cold launches (`getLaunchUrl`) and warm links
+ * Two targets are recognised:
+ * - `barberapp://reset-password` → `applyRecoveryLink`, then `/reset-password`
+ * - `barberapp://confirm-email`  → `applyConfirmEmailLink`, then the outcome is
+ *   carried to `/confirm-email` as a query value so the page can show it even
+ *   when the link arrives before React mounts.
+ *
+ * The handler runs for both cold launches (`getLaunchUrl`) and warm links
  * (`appUrlOpen`). Web does not register anything.
  */
 
 import { App } from '@capacitor/app'
 import { Capacitor } from '@capacitor/core'
-import { applyRecoveryLink } from '@features/auth/auth.usecases'
+import { applyConfirmEmailLink, applyRecoveryLink } from '@features/auth/auth.usecases'
+import { CONFIRM_PATH, isConfirmTarget } from '@features/auth/email-confirmation'
 import { isRecoveryTarget, RECOVERY_LINK_EVENT } from '@features/auth/recovery-link'
 
 export type NavigateTo = (path: string) => void
@@ -19,6 +24,12 @@ export interface RecoveryLinkEventDetail {
 }
 
 export async function handleAppUrl(url: string, navigate: NavigateTo): Promise<boolean> {
+  if (isConfirmTarget(url)) {
+    const { outcome } = await applyConfirmEmailLink(url)
+    navigate(`${CONFIRM_PATH}?result=${outcome}`)
+    return true
+  }
+
   if (!isRecoveryTarget(url)) return false
 
   const { error } = await applyRecoveryLink(url)
