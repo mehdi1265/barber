@@ -67,6 +67,59 @@
   letter-spacing: 0.03em;
 }
 
+.sectionHeaderRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.sectionHeaderRow .sectionTitle {
+  margin-bottom: var(--space-3);
+}
+
+.sectionAction {
+  background: none;
+  border: none;
+  color: var(--color-primary);
+  font-size: var(--font-size-sm);
+  font-family: inherit;
+  cursor: pointer;
+  padding: 0 0 var(--space-3);
+}
+
+.formulaList {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.formulaBtn {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: var(--space-2) var(--space-3);
+  background: var(--color-surface-raised);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  font-family: inherit;
+  color: inherit;
+  text-align: right;
+}
+
+.formulaTitle {
+  font-size: var(--font-size-base);
+  font-weight: var(--font-weight-medium);
+}
+
+.formulaMeta {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-secondary);
+}
+
 .notes {
   color: var(--color-text);
   font-size: var(--font-size-base);

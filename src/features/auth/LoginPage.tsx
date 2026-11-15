@@ -27,7 +27,7 @@ export default function LoginPage() {
     if (error) {
       setServerError(error.message)
     } else {
-      navigate('/dashboard', { replace: true })
+      void navigate('/dashboard', { replace: true })
     }
   }
 
@@ -36,12 +36,20 @@ export default function LoginPage() {
       <div className={styles.card}>
         {/* Logo / Header */}
         <div className={styles.header}>
-          <div className={styles.logo} aria-hidden="true">✂️</div>
+          <div className={styles.logo} aria-hidden="true">
+            ✂️
+          </div>
           <h1 className={styles.title}>ورود به حساب</h1>
           <p className={styles.subtitle}>خوش برگشتی! اطلاعاتت رو وارد کن</p>
         </div>
 
-        <form onSubmit={handleSubmit(onSubmit)} noValidate className={styles.form}>
+        <form
+          onSubmit={e => {
+            void handleSubmit(onSubmit)(e)
+          }}
+          noValidate
+          className={styles.form}
+        >
           <FormField
             label="ایمیل"
             type="email"
@@ -83,6 +91,10 @@ export default function LoginPage() {
         </form>
 
         <div className={styles.footer}>
+          <Link to="/forgot-password" className={styles.link}>
+            رمز عبور را فراموش کرده‌اید؟
+          </Link>
+          <br />
           <Link to="/register" className={styles.link}>
             حساب ندارم — ثبت‌نام
           </Link>

@@ -11,13 +11,13 @@ export const customerSchema = z.object({
     .max(20, 'شماره تماس خیلی طولانی است')
     .optional()
     .nullable()
-    .transform(v => (v?.trim() === '' ? null : v?.trim() ?? null)),
+    .transform(v => (v?.trim() === '' ? null : (v?.trim() ?? null))),
   notes: z
     .string()
     .max(500, 'یادداشت حداکثر ۵۰۰ کاراکتر می‌تواند باشد')
     .optional()
     .nullable()
-    .transform(v => (v?.trim() === '' ? null : v?.trim() ?? null)),
+    .transform(v => (v?.trim() === '' ? null : (v?.trim() ?? null))),
 })
 
 export type CustomerFormData = z.infer<typeof customerSchema>

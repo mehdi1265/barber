@@ -10,13 +10,12 @@ import {
   matchesSearch,
   normalizeDigits,
 } from '@shared/utils/helpers'
+import { formatMoney } from '@shared/utils/currency'
 
 describe('generateUUID', () => {
   it('تولید UUID معتبر', () => {
     const id = generateUUID()
-    expect(id).toMatch(
-      /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
-    )
+    expect(id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i)
   })
 
   it('هر بار UUID جدید تولید می‌کند', () => {
@@ -87,6 +86,17 @@ describe('formatToman', () => {
   })
 })
 
+describe('formatMoney', () => {
+  it('فقط برچسب واحد پول را عوض می‌کند و عدد ذخیره‌شده را تغییر نمی‌دهد', () => {
+    const toman = formatMoney(12_345_600, 'IRR')
+    const dollar = formatMoney(12_345_600, 'USD')
+
+    expect(toman).toContain('تومان')
+    expect(dollar).toContain('دلار')
+    expect(toman.replace('تومان', '').trim()).toBe(dollar.replace('دلار', '').trim())
+  })
+})
+
 describe('tomanToStorage / storageToToman', () => {
   it('تبدیل رفت و برگشت صحیح است', () => {
     const original = 50000
@@ -130,5 +140,10 @@ describe('matchesSearch', () => {
 
   it('اعداد فارسی در جست‌وجو پشتیبانی می‌شوند', () => {
     expect(matchesSearch('09121234567', '۰۹۱۲')).toBe(true)
+  })
+
+  it('اعداد فارسی داخل متن هم نرمال می‌شوند', () => {
+    expect(matchesSearch('شماره ۰۹۱۲۱۲۳۴۵۶۷', '0912')).toBe(true)
+    expect(matchesSearch('۱۲۳۴۵', '۱۲۳')).toBe(true)
   })
 })

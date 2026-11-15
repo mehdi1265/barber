@@ -22,6 +22,7 @@ import {
   applyTimeToDate,
 } from '@shared/utils/jalali'
 import { STATUS_LABELS, STATUS_COLORS, type AppointmentFormData } from './appointments.schemas'
+import { addLocalDays, localDateISO, parseLocalDate } from '@shared/utils/datetime'
 import styles from './AppointmentsPage.module.css'
 
 type ViewMode = 'day' | 'week'
@@ -33,24 +34,19 @@ export default function AppointmentsPage() {
   const [showAddModal, setShowAddModal] = useState(false)
   const [formError, setFormError] = useState<string | null>(null)
 
-  const weekStart = useMemo(
-    () => getWeekStart(new Date(selectedDate)).toISOString().slice(0, 10),
-    [selectedDate]
-  )
+  const weekStart = useMemo(() => localDateISO(getWeekStart(selectedDate)), [selectedDate])
 
-  const { data: dayAppointments = [], isLoading: dayLoading } =
-    useAppointmentsByDay(selectedDate)
-  const { data: weekAppointments = [], isLoading: weekLoading } =
-    useAppointmentsByWeek(weekStart)
+  const { data: dayAppointments = [], isLoading: dayLoading } = useAppointmentsByDay(selectedDate)
+  const { data: weekAppointments = [], isLoading: weekLoading } = useAppointmentsByWeek(weekStart)
 
   const createMutation = useCreateAppointment()
 
-  const weekDays = useMemo(() => getWeekDays(new Date(weekStart)), [weekStart])
+  const weekDays = useMemo(() => getWeekDays(parseLocalDate(weekStart)), [weekStart])
 
   const handleCreate = async (data: AppointmentFormData) => {
     setFormError(null)
     try {
-      const startISO = applyTimeToDate(`${data.date}T12:00:00Z`, data.time)
+      const startISO = applyTimeToDate(data.date, data.time)
       await createMutation.mutateAsync({
         customer_id: data.customer_id ?? null,
         title: data.title,
@@ -72,14 +68,10 @@ export default function AppointmentsPage() {
 
   const goToday = () => setSelectedDate(todayISO())
   const goPrev = () => {
-    const d = new Date(selectedDate)
-    d.setDate(d.getDate() - (viewMode === 'week' ? 7 : 1))
-    setSelectedDate(d.toISOString().slice(0, 10))
+    setSelectedDate(addLocalDays(selectedDate, viewMode === 'week' ? -7 : -1))
   }
   const goNext = () => {
-    const d = new Date(selectedDate)
-    d.setDate(d.getDate() + (viewMode === 'week' ? 7 : 1))
-    setSelectedDate(d.toISOString().slice(0, 10))
+    setSelectedDate(addLocalDays(selectedDate, viewMode === 'week' ? 7 : 1))
   }
 
   const isLoading = viewMode === 'day' ? dayLoading : weekLoading
@@ -90,7 +82,13 @@ export default function AppointmentsPage() {
       <header className={styles.header}>
         <div className={styles.headerTop}>
           <h1 className={styles.title}>تقویم</h1>
-          <Button size="sm" onClick={() => { setFormError(null); setShowAddModal(true) }}>
+          <Button
+            size="sm"
+            onClick={() => {
+              setFormError(null)
+              setShowAddModal(true)
+            }}
+          >
             + نوبت
           </Button>
         </div>
@@ -113,18 +111,24 @@ export default function AppointmentsPage() {
 
         {/* Navigation */}
         <div className={styles.nav}>
-          <button className={styles.navBtn} onClick={goPrev} aria-label="قبلی">‹</button>
+          <button className={styles.navBtn} onClick={goPrev} aria-label="قبلی">
+            ‹
+          </button>
           <div className={styles.dateDisplay}>
             {viewMode === 'day'
               ? formatJalaliDateFull(selectedDate)
               : formatJalaliMonthYear(selectedDate)}
           </div>
-          <button className={styles.navBtn} onClick={goNext} aria-label="بعدی">›</button>
+          <button className={styles.navBtn} onClick={goNext} aria-label="بعدی">
+            ›
+          </button>
         </div>
 
         {/* Today button */}
         {selectedDate !== todayISO() && (
-          <button className={styles.todayBtn} onClick={goToday}>امروز</button>
+          <button className={styles.todayBtn} onClick={goToday}>
+            امروز
+          </button>
         )}
       </header>
 
@@ -132,7 +136,7 @@ export default function AppointmentsPage() {
       {viewMode === 'week' && (
         <div className={styles.weekStrip}>
           {weekDays.map(day => {
-            const iso = day.toISOString().slice(0, 10)
+            const iso = localDateISO(day)
             const isSelected = iso === selectedDate
             const isToday = iso === todayISO()
             const hasAppts = weekAppointments.some(a => isSameDayUtil(a.start_at, day))
@@ -164,7 +168,12 @@ export default function AppointmentsPage() {
               icon="📅"
               title="نوبتی برای این روز ندارید"
               action={
-                <Button onClick={() => { setFormError(null); setShowAddModal(true) }}>
+                <Button
+                  onClick={() => {
+                    setFormError(null)
+                    setShowAddModal(true)
+                  }}
+                >
                   + ثبت نوبت
                 </Button>
               }
@@ -175,7 +184,9 @@ export default function AppointmentsPage() {
                 <li key={appt.id} className={styles.apptItem}>
                   <button
                     className={styles.apptCard}
-                    onClick={() => navigate(`/appointments/${appt.id}`)}
+                    onClick={() => {
+                      void navigate(`/appointments/${appt.id}`)
+                    }}
                     aria-label={`نوبت ${appt.title}`}
                   >
                     {/* Time column */}
@@ -195,14 +206,15 @@ export default function AppointmentsPage() {
                         <span className={styles.apptTitle}>{appt.title}</span>
                         <span
                           className={styles.statusBadge}
-                          style={{ background: STATUS_COLORS[appt.status] + '22', color: STATUS_COLORS[appt.status] }}
+                          style={{
+                            background: STATUS_COLORS[appt.status] + '22',
+                            color: STATUS_COLORS[appt.status],
+                          }}
                         >
                           {STATUS_LABELS[appt.status]}
                         </span>
                       </div>
-                      <span className={styles.apptDuration}>
-                        ⏱ {appt.duration_minutes} دقیقه
-                      </span>
+                      <span className={styles.apptDuration}>⏱ {appt.duration_minutes} دقیقه</span>
                     </div>
                   </button>
                 </li>
@@ -213,11 +225,7 @@ export default function AppointmentsPage() {
       )}
 
       {/* Add appointment modal */}
-      <Modal
-        isOpen={showAddModal}
-        onClose={() => setShowAddModal(false)}
-        title="نوبت جدید"
-      >
+      <Modal isOpen={showAddModal} onClose={() => setShowAddModal(false)} title="نوبت جدید">
         <AppointmentForm
           defaultDate={selectedDate}
           onSubmit={handleCreate}

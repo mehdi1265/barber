@@ -1,0 +1,129 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality-gates:
+    name: Quality gates
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Type-check
+        run: npm run type-check
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Check formatting
+        run: npm run format:check
+
+      - name: Test
+        run: npm test
+
+      - name: Coverage thresholds
+        run: npx vitest run --coverage
+
+      - name: Audit production dependencies
+        # Accepted exception: zod < 4.6.6 (memory exhaustion on oversized
+        # collections). Fixing it requires a breaking zod 4 migration; it is
+        # tracked in docs/11-release-runbook.md. Gate on critical until then.
+        run: npm audit --omit=dev --audit-level=critical
+
+      - name: Build
+        run: npm run build
+
+  rls-postgres:
+    name: RLS on ephemeral Postgres
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: barber
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      PGPASSWORD: postgres
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/barber
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
+
+      - name: Bootstrap Supabase stubs
+        run: >-
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1
+          -f supabase/tests/postgres_bootstrap.sql
+
+      - name: Apply migrations twice (idempotency)
+        # Directory-driven so a new migration cannot be omitted here.
+        # The client-side SQLite set (src/database/migrations/001-006) is
+        # applied by the migration-runner test in `npm test`, not by Postgres.
+        run: |
+          set -euo pipefail
+          mapfile -t migrations < <(ls -1 supabase/migrations/*.sql | sort)
+          printf 'migrations: %s\n' "${migrations[*]}"
+          for pass in first second; do
+            for file in "${migrations[@]}"; do
+              psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f "$file" > /dev/null
+            done
+            echo "migration pass '$pass' OK (${#migrations[@]} files)"
+          done
+
+      - name: Legacy ownership mismatches (must be none)
+        run: |
+          set -euo pipefail
+          output=$(psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -t -A \
+            -f supabase/tests/legacy_ownership_mismatches.sql)
+          if [ -n "$output" ]; then
+            echo "$output"
+            echo "cross-tenant references found; do not VALIDATE constraints"
+            exit 1
+          fi
+          echo "no cross-tenant references"
+
+      - name: Seed two test identities
+        run: |
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 <<'SQL'
+          insert into auth.users (id, email) values
+            ('11111111-1111-4111-8111-111111111111', 'rls-a@example.test'),
+            ('22222222-2222-4222-8222-222222222222', 'rls-b@example.test');
+          SQL
+
+      - name: Two-user RLS check
+        run: >-
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1
+          -v email_a=rls-a@example.test
+          -v email_b=rls-b@example.test
+          -f supabase/tests/rls_two_user_check.sql

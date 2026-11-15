@@ -3,18 +3,16 @@
  */
 import { useFieldArray, useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
-import { useState } from 'react'
+import { useEffect, useRef, useState, type ChangeEvent } from 'react'
 import { appointmentSchema, type AppointmentFormData } from './appointments.schemas'
 import { FormField } from '@shared/components/forms/FormField'
+import { JalaliDateInput } from '@shared/components/forms/JalaliDateInput'
 import { Button } from '@shared/components/ui/Button'
 import { useCustomers } from '@features/customers/customers.hooks'
 import { useServices } from '@features/services/services.hooks'
-import {
-  todayISO,
-  formatTime,
-  applyTimeToDate,
-} from '@shared/utils/jalali'
+import { todayISO, formatTime, applyTimeToDate } from '@shared/utils/jalali'
 import { calcEndAt, storageToToman } from '@shared/utils/helpers'
+import { localDateISO } from '@shared/utils/datetime'
 import styles from './AppointmentForm.module.css'
 
 // raw form field types (strings from inputs)
@@ -33,8 +31,23 @@ interface RawFormValues {
   }>
 }
 
+export interface AppointmentFormInitial {
+  customer_id: string | null
+  title: string
+  start_at: string
+  duration_minutes: number
+  notes: string | null
+  services: Array<{
+    service_id: string | null
+    service_name_snapshot: string
+    price: number // storage value (Toman × 100)
+    duration_minutes: number | null
+  }>
+}
+
 interface AppointmentFormProps {
-  defaultDate?: string   // YYYY-MM-DD
+  defaultDate?: string // YYYY-MM-DD
+  initial?: AppointmentFormInitial
   onSubmit: (data: AppointmentFormData) => Promise<void>
   onCancel: () => void
   submitLabel?: string
@@ -43,6 +56,7 @@ interface AppointmentFormProps {
 
 export function AppointmentForm({
   defaultDate,
+  initial,
   onSubmit,
   onCancel,
   submitLabel = 'ذخیره نوبت',
@@ -51,6 +65,7 @@ export function AppointmentForm({
   const { data: customers = [] } = useCustomers()
   const { data: services = [] } = useServices(true)
   const [previewEnd, setPreviewEnd] = useState<string | null>(null)
+  const submitLock = useRef(false)
 
   const {
     register,
@@ -61,15 +76,32 @@ export function AppointmentForm({
     formState: { errors, isSubmitting },
   } = useForm<RawFormValues>({
     resolver: zodResolver(appointmentSchema) as never,
-    defaultValues: {
-      customer_id: '',
-      title: '',
-      date: defaultDate ?? todayISO(),
-      time: '09:00',
-      duration_minutes: '60',
-      notes: '',
-      services: [{ service_id: '', service_name_snapshot: '', price: '', duration_minutes: '' }],
-    },
+    defaultValues: initial
+      ? {
+          customer_id: initial.customer_id ?? '',
+          title: initial.title,
+          date: localDateISO(initial.start_at),
+          time: formatTime(initial.start_at),
+          duration_minutes: String(initial.duration_minutes),
+          notes: initial.notes ?? '',
+          services: initial.services.map(svc => ({
+            service_id: svc.service_id ?? '',
+            service_name_snapshot: svc.service_name_snapshot,
+            price: String(storageToToman(svc.price)),
+            duration_minutes: svc.duration_minutes ? String(svc.duration_minutes) : '',
+          })),
+        }
+      : {
+          customer_id: '',
+          title: '',
+          date: defaultDate ?? todayISO(),
+          time: '09:00',
+          duration_minutes: '60',
+          notes: '',
+          services: [
+            { service_id: '', service_name_snapshot: '', price: '', duration_minutes: '' },
+          ],
+        },
   })
 
   const { fields, append, remove } = useFieldArray({ control, name: 'services' })
@@ -78,15 +110,20 @@ export function AppointmentForm({
   const watchDate = watch('date')
   const watchTime = watch('time')
   const watchDuration = watch('duration_minutes')
-  const updatePreview = () => {
+
+  useEffect(() => {
+    const duration = parseInt(watchDuration, 10)
+    if (!watchDate || !watchTime || isNaN(duration) || duration <= 0) {
+      setPreviewEnd(null)
+      return
+    }
     try {
-      const startISO = applyTimeToDate(`${watchDate}T12:00:00Z`, watchTime)
-      const dur = parseInt(watchDuration, 10)
-      if (!isNaN(dur) && dur > 0) {
-        setPreviewEnd(formatTime(calcEndAt(startISO, dur)))
-      }
-    } catch { /* ignore */ }
-  }
+      const startISO = applyTimeToDate(watchDate, watchTime)
+      setPreviewEnd(formatTime(calcEndAt(startISO, duration)))
+    } catch {
+      setPreviewEnd(null)
+    }
+  }, [watchDate, watchTime, watchDuration])
 
   // When service is selected from dropdown, fill name + price
   const handleServiceSelect = (index: number, serviceId: string) => {
@@ -104,7 +141,19 @@ export function AppointmentForm({
 
   return (
     <form
-      onSubmit={handleSubmit(data => onSubmit(data as unknown as AppointmentFormData))}
+      onSubmit={e => {
+        void handleSubmit(async data => {
+          // Ignore repeats while the first submit is in flight. This covers
+          // double taps that land before React disables the button.
+          if (submitLock.current) return
+          submitLock.current = true
+          try {
+            await onSubmit(data as unknown as AppointmentFormData)
+          } finally {
+            submitLock.current = false
+          }
+        })(e)
+      }}
       noValidate
       className={styles.form}
     >
@@ -114,7 +163,9 @@ export function AppointmentForm({
         <select className={styles.select} {...register('customer_id')}>
           <option value="">— بدون مشتری —</option>
           {customers.map(c => (
-            <option key={c.id} value={c.id}>{c.name}</option>
+            <option key={c.id} value={c.id}>
+              {c.name}
+            </option>
           ))}
         </select>
       </div>
@@ -131,18 +182,18 @@ export function AppointmentForm({
 
       {/* Date + Time row */}
       <div className={styles.row}>
-        <FormField
+        <JalaliDateInput
           label="تاریخ"
-          type="date"
           required
-          {...register('date', { onChange: updatePreview })}
-          error={errors.date}
+          value={watchDate}
+          onChange={next => setValue('date', next, { shouldValidate: true })}
+          error={errors.date?.message}
         />
         <FormField
           label="ساعت شروع"
           type="time"
           required
-          {...register('time', { onChange: updatePreview })}
+          {...register('time')}
           error={errors.time}
         />
       </div>
@@ -156,8 +207,8 @@ export function AppointmentForm({
             inputMode="numeric"
             min={1}
             required
-            {...register('duration_minutes', { onChange: updatePreview })}
-            error={errors.duration_minutes as never}
+            {...register('duration_minutes')}
+            error={errors.duration_minutes}
           />
         </div>
         {previewEnd && (
@@ -190,12 +241,15 @@ export function AppointmentForm({
               <select
                 className={styles.select}
                 {...register(`services.${index}.service_id`, {
-                  onChange: e => handleServiceSelect(index, e.target.value),
+                  onChange: (e: ChangeEvent<HTMLSelectElement>) =>
+                    handleServiceSelect(index, e.target.value),
                 })}
               >
                 <option value="">— انتخاب خدمت —</option>
                 {services.map(s => (
-                  <option key={s.id} value={s.id}>{s.name}</option>
+                  <option key={s.id} value={s.id}>
+                    {s.name}
+                  </option>
                 ))}
               </select>
             </div>
@@ -209,7 +263,7 @@ export function AppointmentForm({
             />
             {errors.services?.[index]?.service_name_snapshot && (
               <p className={styles.fieldError}>
-                {errors.services[index]!.service_name_snapshot!.message}
+                {errors.services[index].service_name_snapshot.message}
               </p>
             )}
 
@@ -242,7 +296,9 @@ export function AppointmentForm({
 
       {/* Notes */}
       <div className={styles.field}>
-        <label htmlFor="appt-notes" className={styles.label}>یادداشت</label>
+        <label htmlFor="appt-notes" className={styles.label}>
+          یادداشت
+        </label>
         <textarea
           id="appt-notes"
           className={styles.textarea}
@@ -255,7 +311,9 @@ export function AppointmentForm({
 
       {/* Server error */}
       {error && (
-        <div className={styles.serverError} role="alert">{error}</div>
+        <div className={styles.serverError} role="alert">
+          {error}
+        </div>
       )}
 
       {/* Actions */}

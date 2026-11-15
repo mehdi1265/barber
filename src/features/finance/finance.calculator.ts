@@ -13,6 +13,12 @@
  */
 
 import type { VisitService, Payment, Expense, DailyReport, FinancialSummary } from '@shared/types'
+import {
+  localDayRange,
+  localMonthRange,
+  localWeekRange,
+  type DateRange,
+} from '@shared/utils/datetime'
 
 export interface VisitWithServices {
   visitId: string
@@ -22,32 +28,18 @@ export interface VisitWithServices {
 }
 
 // ── Period helpers ────────────────────────────────────────────────────────────
+// All ranges are local-calendar based and end-exclusive, matching the queries.
 
-export function dayRange(dateISO: string): { start: string; end: string } {
-  return {
-    start: `${dateISO}T00:00:00.000Z`,
-    end:   `${dateISO}T23:59:59.999Z`,
-  }
+export function dayRange(dateISO: string, timeZone?: string): DateRange {
+  return localDayRange(dateISO, timeZone)
 }
 
-export function weekRange(mondayISO: string): { start: string; end: string } {
-  const end = new Date(mondayISO)
-  end.setDate(end.getDate() + 7)
-  return {
-    start: `${mondayISO}T00:00:00.000Z`,
-    end:   end.toISOString(),
-  }
+export function weekRange(weekStartISO: string, timeZone?: string): DateRange {
+  return localWeekRange(weekStartISO, timeZone)
 }
 
-export function monthRange(yearMonth: string): { start: string; end: string } {
-  // yearMonth = "YYYY-MM"
-  const [y, m] = yearMonth.split('-').map(Number)
-  const start = new Date(y, m - 1, 1)
-  const end = new Date(y, m, 1) // first day of next month
-  return {
-    start: start.toISOString(),
-    end:   end.toISOString(),
-  }
+export function monthRange(yearMonth: string, timeZone?: string): DateRange {
+  return localMonthRange(yearMonth, timeZone)
 }
 
 // ── Core calculations ─────────────────────────────────────────────────────────
@@ -77,8 +69,8 @@ export function calcDebt(visitsWithServices: VisitWithServices[]): number {
   let totalDebt = 0
   for (const visit of visitsWithServices) {
     const serviceTotal = visit.services.reduce((s, vs) => s + vs.line_total, 0)
-    const paidTotal    = visit.payments.reduce((s, p) => s + p.amount, 0)
-    const balance      = serviceTotal - paidTotal
+    const paidTotal = visit.payments.reduce((s, p) => s + p.amount, 0)
+    const balance = serviceTotal - paidTotal
     if (balance > 0) totalDebt += balance
   }
   return totalDebt
@@ -109,20 +101,20 @@ export function buildDailyReport(
   expenses: Expense[]
 ): DailyReport {
   const totalServiceAmount = calcServiceAmount(visitServices)
-  const totalReceived      = calcReceived(paymentsInPeriod)
-  const totalDebt          = calcDebt(visitsWithServices)
-  const totalExpenses      = calcExpenses(expenses)
-  const net                = calcNet(totalReceived, totalExpenses)
+  const totalReceived = calcReceived(paymentsInPeriod)
+  const totalDebt = calcDebt(visitsWithServices)
+  const totalExpenses = calcExpenses(expenses)
+  const net = calcNet(totalReceived, totalExpenses)
 
   return {
     date: dateISO,
-    visit_count:           visitsWithServices.length,
-    service_count:         visitServices.length,
-    total_service_amount:  totalServiceAmount,
-    total_received:        totalReceived,
-    total_debt:            totalDebt,
-    total_expenses:        totalExpenses,
-    net_after_expenses:    net,
+    visit_count: visitsWithServices.length,
+    service_count: visitServices.length,
+    total_service_amount: totalServiceAmount,
+    total_received: totalReceived,
+    total_debt: totalDebt,
+    total_expenses: totalExpenses,
+    net_after_expenses: net,
   }
 }
 
@@ -135,12 +127,12 @@ export function buildFinancialSummary(
   expenses: Expense[]
 ): FinancialSummary {
   return {
-    period_start:         periodStart,
-    period_end:           periodEnd,
+    period_start: periodStart,
+    period_end: periodEnd,
     total_service_amount: calcServiceAmount(visitServices),
-    total_received:       calcReceived(paymentsInPeriod),
-    total_debt:           calcDebt(visitsWithServices),
-    total_expenses:       calcExpenses(expenses),
-    net_after_expenses:   calcNet(calcReceived(paymentsInPeriod), calcExpenses(expenses)),
+    total_received: calcReceived(paymentsInPeriod),
+    total_debt: calcDebt(visitsWithServices),
+    total_expenses: calcExpenses(expenses),
+    net_after_expenses: calcNet(calcReceived(paymentsInPeriod), calcExpenses(expenses)),
   }
 }

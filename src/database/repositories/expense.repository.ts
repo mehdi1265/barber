@@ -2,12 +2,14 @@ import type { SQLiteDBConnection } from '@capacitor-community/sqlite'
 import type { Expense, UUID } from '@shared/types'
 import { generateUUID, nowISO, tomanToStorage } from '@shared/utils/helpers'
 import { addToOutbox } from '@sync/outbox/outbox.repository'
+import { withTransaction } from '@database/sqlite/transaction'
+import { localDayRange } from '@shared/utils/datetime'
 
 export interface CreateExpenseInput {
   title: string
   category?: string | null
-  amount: number         // Toman (display)
-  spent_at?: string      // ISO-8601; defaults to today
+  amount: number // Toman (display)
+  spent_at?: string // ISO-8601; defaults to today
   note?: string | null
 }
 
@@ -19,7 +21,7 @@ export class ExpenseRepository {
 
   async findById(id: UUID): Promise<Expense | null> {
     const result = await this.db.query(
-      `SELECT * FROM expenses WHERE id = ? AND user_id = ? LIMIT 1`,
+      `SELECT * FROM expenses WHERE id = ? AND user_id = ? AND deleted_at IS NULL LIMIT 1`,
       [id, this.userId]
     )
     return (result.values?.[0] as Expense) ?? null
@@ -28,7 +30,7 @@ export class ExpenseRepository {
   async findByDateRange(startISO: string, endISO: string): Promise<Expense[]> {
     const result = await this.db.query(
       `SELECT * FROM expenses
-       WHERE user_id = ? AND spent_at >= ? AND spent_at <= ?
+       WHERE user_id = ? AND spent_at >= ? AND spent_at < ? AND deleted_at IS NULL
        ORDER BY spent_at DESC`,
       [this.userId, startISO, endISO]
     )
@@ -36,10 +38,8 @@ export class ExpenseRepository {
   }
 
   async findByDay(dateISO: string): Promise<Expense[]> {
-    return this.findByDateRange(
-      `${dateISO}T00:00:00.000Z`,
-      `${dateISO}T23:59:59.999Z`
-    )
+    const { start, end } = localDayRange(dateISO)
+    return this.findByDateRange(start, end)
   }
 
   async create(input: CreateExpenseInput): Promise<Expense> {
@@ -56,22 +56,31 @@ export class ExpenseRepository {
       updated_at: now,
     }
 
-    await this.db.run(
-      `INSERT INTO expenses
-        (id, user_id, title, category, amount, spent_at, note, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [
-        expense.id, expense.user_id, expense.title, expense.category,
-        expense.amount, expense.spent_at, expense.note,
-        expense.created_at, expense.updated_at,
-      ]
-    )
+    await withTransaction(this.db, async () => {
+      await this.db.run(
+        `INSERT INTO expenses
+          (id, user_id, title, category, amount, spent_at, note, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          expense.id,
+          expense.user_id,
+          expense.title,
+          expense.category,
+          expense.amount,
+          expense.spent_at,
+          expense.note,
+          expense.created_at,
+          expense.updated_at,
+        ]
+      )
 
-    await addToOutbox(this.db, {
-      entity_type: 'expenses',
-      entity_id: expense.id,
-      operation: 'insert',
-      payload: JSON.stringify(expense),
+      await addToOutbox(this.db, {
+        user_id: this.userId,
+        entity_type: 'expenses',
+        entity_id: expense.id,
+        operation: 'insert',
+        payload: JSON.stringify(expense),
+      })
     })
 
     return expense
@@ -92,33 +101,55 @@ export class ExpenseRepository {
       updated_at: now,
     }
 
-    await this.db.run(
-      `UPDATE expenses
-       SET title = ?, category = ?, amount = ?, spent_at = ?, note = ?, updated_at = ?
-       WHERE id = ? AND user_id = ?`,
-      [updated.title, updated.category, updated.amount, updated.spent_at, updated.note, updated.updated_at, id, this.userId]
-    )
+    await withTransaction(this.db, async () => {
+      await this.db.run(
+        `UPDATE expenses
+         SET title = ?, category = ?, amount = ?, spent_at = ?, note = ?, updated_at = ?
+         WHERE id = ? AND user_id = ?`,
+        [
+          updated.title,
+          updated.category,
+          updated.amount,
+          updated.spent_at,
+          updated.note,
+          updated.updated_at,
+          id,
+          this.userId,
+        ]
+      )
 
-    await addToOutbox(this.db, {
-      entity_type: 'expenses',
-      entity_id: id,
-      operation: 'update',
-      payload: JSON.stringify(updated),
+      await addToOutbox(this.db, {
+        user_id: this.userId,
+        entity_type: 'expenses',
+        entity_id: id,
+        operation: 'update',
+        payload: JSON.stringify(updated),
+      })
     })
 
     return updated
   }
 
+  /** Soft delete — keeps a tombstone so the deletion can propagate to other devices */
   async delete(id: UUID): Promise<void> {
-    await this.db.run(
-      `DELETE FROM expenses WHERE id = ? AND user_id = ?`,
-      [id, this.userId]
-    )
-    await addToOutbox(this.db, {
-      entity_type: 'expenses',
-      entity_id: id,
-      operation: 'delete',
-      payload: JSON.stringify({ id }),
+    const existing = await this.findById(id)
+    if (!existing) return
+
+    const now = nowISO()
+    const tombstone = { ...existing, deleted_at: now, updated_at: now }
+
+    await withTransaction(this.db, async () => {
+      await this.db.run(
+        `UPDATE expenses SET deleted_at = ?, updated_at = ? WHERE id = ? AND user_id = ?`,
+        [now, now, id, this.userId]
+      )
+      await addToOutbox(this.db, {
+        user_id: this.userId,
+        entity_type: 'expenses',
+        entity_id: id,
+        operation: 'delete',
+        payload: JSON.stringify(tombstone),
+      })
     })
   }
 }

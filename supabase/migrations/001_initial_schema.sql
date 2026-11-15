@@ -19,6 +19,7 @@ CREATE TABLE IF NOT EXISTS public.profiles (
 
 ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "profiles: owner only" ON public.profiles;
 CREATE POLICY "profiles: owner only" ON public.profiles
   USING (auth.uid() = user_id)
   WITH CHECK (auth.uid() = user_id);
@@ -50,10 +51,11 @@ CREATE TABLE IF NOT EXISTS public.customers (
   updated_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
   deleted_at  TIMESTAMPTZ
 );
-CREATE INDEX idx_customers_user_id    ON public.customers(user_id);
-CREATE INDEX idx_customers_user_name  ON public.customers(user_id, name);
+CREATE INDEX IF NOT EXISTS idx_customers_user_id    ON public.customers(user_id);
+CREATE INDEX IF NOT EXISTS idx_customers_user_name  ON public.customers(user_id, name);
 
 ALTER TABLE public.customers ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "customers: owner only" ON public.customers;
 CREATE POLICY "customers: owner only" ON public.customers
   USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
 
@@ -68,9 +70,10 @@ CREATE TABLE IF NOT EXISTS public.services (
   created_at                 TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at                 TIMESTAMPTZ NOT NULL DEFAULT now()
 );
-CREATE INDEX idx_services_user_id ON public.services(user_id);
+CREATE INDEX IF NOT EXISTS idx_services_user_id ON public.services(user_id);
 
 ALTER TABLE public.services ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "services: owner only" ON public.services;
 CREATE POLICY "services: owner only" ON public.services
   USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
 
@@ -90,10 +93,11 @@ CREATE TABLE IF NOT EXISTS public.appointments (
   updated_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
   deleted_at        TIMESTAMPTZ
 );
-CREATE INDEX idx_appointments_user_id    ON public.appointments(user_id);
-CREATE INDEX idx_appointments_user_start ON public.appointments(user_id, start_at);
+CREATE INDEX IF NOT EXISTS idx_appointments_user_id    ON public.appointments(user_id);
+CREATE INDEX IF NOT EXISTS idx_appointments_user_start ON public.appointments(user_id, start_at);
 
 ALTER TABLE public.appointments ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "appointments: owner only" ON public.appointments;
 CREATE POLICY "appointments: owner only" ON public.appointments
   USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
 
@@ -110,6 +114,7 @@ CREATE TABLE IF NOT EXISTS public.appointment_services (
   updated_at            TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 ALTER TABLE public.appointment_services ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "appt_services: owner only" ON public.appointment_services;
 CREATE POLICY "appt_services: owner only" ON public.appointment_services
   USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
 
@@ -125,10 +130,11 @@ CREATE TABLE IF NOT EXISTS public.visits (
   created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 );
-CREATE INDEX idx_visits_user_id   ON public.visits(user_id);
-CREATE INDEX idx_visits_user_date ON public.visits(user_id, visited_at);
+CREATE INDEX IF NOT EXISTS idx_visits_user_id   ON public.visits(user_id);
+CREATE INDEX IF NOT EXISTS idx_visits_user_date ON public.visits(user_id, visited_at);
 
 ALTER TABLE public.visits ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "visits: owner only" ON public.visits;
 CREATE POLICY "visits: owner only" ON public.visits
   USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
 
@@ -148,6 +154,7 @@ CREATE TABLE IF NOT EXISTS public.visit_services (
   updated_at            TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 ALTER TABLE public.visit_services ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "visit_services: owner only" ON public.visit_services;
 CREATE POLICY "visit_services: owner only" ON public.visit_services
   USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
 
@@ -164,9 +171,10 @@ CREATE TABLE IF NOT EXISTS public.payments (
   created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
-CREATE INDEX idx_payments_user_date ON public.payments(user_id, paid_at);
+CREATE INDEX IF NOT EXISTS idx_payments_user_date ON public.payments(user_id, paid_at);
 
 ALTER TABLE public.payments ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "payments: owner only" ON public.payments;
 CREATE POLICY "payments: owner only" ON public.payments
   USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
 
@@ -182,9 +190,10 @@ CREATE TABLE IF NOT EXISTS public.expenses (
   created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
-CREATE INDEX idx_expenses_user_date ON public.expenses(user_id, spent_at);
+CREATE INDEX IF NOT EXISTS idx_expenses_user_date ON public.expenses(user_id, spent_at);
 
 ALTER TABLE public.expenses ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "expenses: owner only" ON public.expenses;
 CREATE POLICY "expenses: owner only" ON public.expenses
   USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
 
@@ -206,6 +215,7 @@ CREATE TABLE IF NOT EXISTS public.color_formulas (
   updated_at          TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 ALTER TABLE public.color_formulas ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "color_formulas: owner only" ON public.color_formulas;
 CREATE POLICY "color_formulas: owner only" ON public.color_formulas
   USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
 
@@ -222,6 +232,7 @@ CREATE TABLE IF NOT EXISTS public.color_formula_items (
   updated_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 ALTER TABLE public.color_formula_items ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "formula_items: owner only" ON public.color_formula_items;
 CREATE POLICY "formula_items: owner only" ON public.color_formula_items
   USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
 
@@ -242,24 +253,29 @@ CREATE TABLE IF NOT EXISTS public.customer_photos (
   deleted_at    TIMESTAMPTZ
 );
 ALTER TABLE public.customer_photos ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "photos: owner only" ON public.customer_photos;
 CREATE POLICY "photos: owner only" ON public.customer_photos
   USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
 
 -- ── Storage bucket ────────────────────────────────────────────
--- Run in Supabase dashboard → Storage → New Bucket
--- Name: customer-photos, Private: true
--- Or via API:
--- INSERT INTO storage.buckets (id, name, public) VALUES ('customer-photos', 'customer-photos', false);
+-- Private bucket; created here so a fresh project does not need a
+-- manual dashboard step and a re-run stays a no-op.
+INSERT INTO storage.buckets (id, name, public)
+VALUES ('customer-photos', 'customer-photos', false)
+ON CONFLICT (id) DO NOTHING;
 
 -- RLS for storage
+DROP POLICY IF EXISTS "photos bucket: owner only - select" ON storage.objects;
 CREATE POLICY "photos bucket: owner only - select"
   ON storage.objects FOR SELECT
   USING (bucket_id = 'customer-photos' AND auth.uid()::text = (storage.foldername(name))[1]);
 
+DROP POLICY IF EXISTS "photos bucket: owner only - insert" ON storage.objects;
 CREATE POLICY "photos bucket: owner only - insert"
   ON storage.objects FOR INSERT
   WITH CHECK (bucket_id = 'customer-photos' AND auth.uid()::text = (storage.foldername(name))[1]);
 
+DROP POLICY IF EXISTS "photos bucket: owner only - delete" ON storage.objects;
 CREATE POLICY "photos bucket: owner only - delete"
   ON storage.objects FOR DELETE
   USING (bucket_id = 'customer-photos' AND auth.uid()::text = (storage.foldername(name))[1]);

@@ -22,14 +22,14 @@ interface AuthState {
 
 export const useAuthStore = create<AuthState>()(
   persist(
-    (set) => ({
+    set => ({
       user: null,
       session: null,
       userId: null,
       isAuthenticated: false,
       isLoading: true,
 
-      setSession: (session) =>
+      setSession: session =>
         set({
           session,
           user: session?.user ?? null,
@@ -37,14 +37,14 @@ export const useAuthStore = create<AuthState>()(
           isAuthenticated: !!session?.user,
         }),
 
-      setUser: (user) =>
+      setUser: user =>
         set({
           user,
           userId: user?.id ?? null,
           isAuthenticated: !!user,
         }),
 
-      setLoading: (isLoading) => set({ isLoading }),
+      setLoading: isLoading => set({ isLoading }),
 
       clearAuth: () =>
         set({
@@ -58,7 +58,7 @@ export const useAuthStore = create<AuthState>()(
     {
       name: 'barber-auth',
       // Only persist minimal non-sensitive state
-      partialize: (state) => ({
+      partialize: state => ({
         userId: state.userId,
         isAuthenticated: state.isAuthenticated,
       }),

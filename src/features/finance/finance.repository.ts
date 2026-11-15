@@ -11,6 +11,15 @@ import {
   type VisitWithServices,
 } from './finance.calculator'
 import type { DailyReport, FinancialSummary } from '@shared/types'
+import { localDayRange } from '@shared/utils/datetime'
+
+/** Outstanding balance aggregated per customer (null = walk-in visits). */
+export interface CustomerDebt {
+  customer_id: UUID | null
+  customer_name: string | null
+  total_debt: number
+  visit_count: number
+}
 
 export class FinanceRepository {
   constructor(
@@ -24,7 +33,7 @@ export class FinanceRepository {
     const result = await this.db.query(
       `SELECT vs.* FROM visit_services vs
        JOIN visits v ON vs.visit_id = v.id
-       WHERE vs.user_id = ? AND v.visited_at >= ? AND v.visited_at <= ?`,
+       WHERE vs.user_id = ? AND v.visited_at >= ? AND v.visited_at < ?`,
       [this.userId, start, end]
     )
     return (result.values as VisitService[]) ?? []
@@ -32,7 +41,7 @@ export class FinanceRepository {
 
   private async getPaymentsInRange(start: string, end: string): Promise<Payment[]> {
     const result = await this.db.query(
-      `SELECT * FROM payments WHERE user_id = ? AND paid_at >= ? AND paid_at <= ?`,
+      `SELECT * FROM payments WHERE user_id = ? AND paid_at >= ? AND paid_at < ?`,
       [this.userId, start, end]
     )
     return (result.values as Payment[]) ?? []
@@ -40,7 +49,7 @@ export class FinanceRepository {
 
   private async getExpensesInRange(start: string, end: string): Promise<Expense[]> {
     const result = await this.db.query(
-      `SELECT * FROM expenses WHERE user_id = ? AND spent_at >= ? AND spent_at <= ?`,
+      `SELECT * FROM expenses WHERE user_id = ? AND spent_at >= ? AND spent_at < ? AND deleted_at IS NULL`,
       [this.userId, start, end]
     )
     return (result.values as Expense[]) ?? []
@@ -52,7 +61,7 @@ export class FinanceRepository {
   ): Promise<VisitWithServices[]> {
     // Get visits in range
     const visitsResult = await this.db.query(
-      `SELECT id, visited_at FROM visits WHERE user_id = ? AND visited_at >= ? AND visited_at <= ?`,
+      `SELECT id, visited_at FROM visits WHERE user_id = ? AND visited_at >= ? AND visited_at < ?`,
       [this.userId, start, end]
     )
     const visits = (visitsResult.values as { id: string; visited_at: string }[]) ?? []
@@ -69,10 +78,10 @@ export class FinanceRepository {
         [visit.id, this.userId]
       )
       result.push({
-        visitId:   visit.id,
+        visitId: visit.id,
         visitedAt: visit.visited_at,
-        services:  (svcsResult.values as VisitService[]) ?? [],
-        payments:  (paymentsResult.values as Payment[]) ?? [],
+        services: (svcsResult.values as VisitService[]) ?? [],
+        payments: (paymentsResult.values as Payment[]) ?? [],
       })
     }
 
@@ -82,37 +91,29 @@ export class FinanceRepository {
   // ── Report builders ───────────────────────────────────────────────────────
 
   async getDailyReport(dateISO: string): Promise<DailyReport> {
-    const start = `${dateISO}T00:00:00.000Z`
-    const end   = `${dateISO}T23:59:59.999Z`
+    const { start, end } = localDayRange(dateISO)
 
-    const [visitServices, paymentsInPeriod, visitsWithServices, expenses] =
-      await Promise.all([
-        this.getVisitServicesInRange(start, end),
-        this.getPaymentsInRange(start, end),
-        this.getVisitsWithServicesInRange(start, end),
-        this.getExpensesInRange(start, end),
-      ])
+    const [visitServices, paymentsInPeriod, visitsWithServices, expenses] = await Promise.all([
+      this.getVisitServicesInRange(start, end),
+      this.getPaymentsInRange(start, end),
+      this.getVisitsWithServicesInRange(start, end),
+      this.getExpensesInRange(start, end),
+    ])
 
-    return buildDailyReport(
-      dateISO,
-      visitServices,
-      paymentsInPeriod,
-      visitsWithServices,
-      expenses
-    )
+    return buildDailyReport(dateISO, visitServices, paymentsInPeriod, visitsWithServices, expenses)
   }
 
   async getSummary(start: string, end: string): Promise<FinancialSummary> {
-    const [visitServices, paymentsInPeriod, visitsWithServices, expenses] =
-      await Promise.all([
-        this.getVisitServicesInRange(start, end),
-        this.getPaymentsInRange(start, end),
-        this.getVisitsWithServicesInRange(start, end),
-        this.getExpensesInRange(start, end),
-      ])
+    const [visitServices, paymentsInPeriod, visitsWithServices, expenses] = await Promise.all([
+      this.getVisitServicesInRange(start, end),
+      this.getPaymentsInRange(start, end),
+      this.getVisitsWithServicesInRange(start, end),
+      this.getExpensesInRange(start, end),
+    ])
 
     return buildFinancialSummary(
-      start, end,
+      start,
+      end,
       visitServices,
       paymentsInPeriod,
       visitsWithServices,
@@ -139,5 +140,32 @@ export class FinanceRepository {
 
     const rows = (result.values as { service_total: number; paid_total: number }[]) ?? []
     return rows.reduce((sum, r) => sum + (r.service_total - r.paid_total), 0)
+  }
+
+  /** Open debts aggregated per customer, largest first. */
+  async getOpenDebts(): Promise<CustomerDebt[]> {
+    const result = await this.db.query(
+      `SELECT v.customer_id,
+              c.name AS customer_name,
+              SUM(
+                COALESCE((
+                  SELECT SUM(vs.line_total) FROM visit_services vs
+                  WHERE vs.visit_id = v.id AND vs.user_id = v.user_id
+                ), 0)
+                - COALESCE((
+                  SELECT SUM(p.amount) FROM payments p
+                  WHERE p.visit_id = v.id AND p.user_id = v.user_id
+                ), 0)
+              ) AS total_debt,
+              COUNT(*) AS visit_count
+       FROM visits v
+       LEFT JOIN customers c ON c.id = v.customer_id AND c.user_id = v.user_id
+       WHERE v.user_id = ?
+       GROUP BY v.customer_id
+       HAVING total_debt > 0
+       ORDER BY total_debt DESC`,
+      [this.userId]
+    )
+    return (result.values as CustomerDebt[]) ?? []
   }
 }

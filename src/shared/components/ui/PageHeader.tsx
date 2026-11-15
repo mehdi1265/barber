@@ -16,7 +16,9 @@ export function PageHeader({ title, backTo, actions }: PageHeaderProps) {
       {backTo && (
         <button
           className={styles.back}
-          onClick={() => navigate(backTo)}
+          onClick={() => {
+            void navigate(backTo)
+          }}
           aria-label="بازگشت"
         >
           ←

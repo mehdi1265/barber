@@ -1,0 +1,247 @@
+# BUGS AND TECHNICAL DEBT — Barber App
+
+> **Question answered:** what is broken, how bad is it, how do we reproduce and verify a fix, and what structural debt will slow every future task?
+> **Baseline:** `877ebde`. **Companion:** [`DATABASE_AUDIT.md`](./DATABASE_AUDIT.md) (DB-xx defects), [`DEVELOPMENT_BACKLOG.md`](./DEVELOPMENT_BACKLOG.md) (task IDs).
+
+---
+
+## Severity definitions
+
+| Level | Meaning | Examples |
+|---|---|---|
+| **P0** | App cannot start, data can be lost/corrupted, money is wrong, or a security control is ineffective | boot hang, missing transaction, wrong day boundary |
+| **P1** | A required flow is unusable or misleading, but data is not corrupted | no delete button, no logout, dead quick-sale form |
+| **P2** | Cosmetic, performance, or maintainability issue | unused code, missing index, untranslated error |
+
+**Repro notation:** `[code]` = proven by reading code and dependency internals; `[test]` = reproduced by a failing/absent test; `[env]` = requires device/network and is marked for later verification.
+
+---
+
+## 1. P0 bugs
+
+### BUG-01 — Web bootstrap never resolves; the app never renders
+
+- **Evidence:** `src/database/sqlite/database.ts:53` calls `sqlite.initWebStore()` when `Capacitor.getPlatform() === 'web'`. The plugin's web implementation awaits `customElements.whenDefined('jeep-sqlite')`; `index.html` contains only `<div id="root">` and the module script.
+- **Impact:** `bootstrapApp()` never resolves → `.then()` in `main.tsx:10-11` never runs → blank page in `npm run dev`. Every browser-based test/demo is impossible.
+- **Repro:** `npm ci && npm run dev`, open the URL, observe an empty page and no error. `[code]`
+- **Fix:** either (a) load the `jeep-sqlite` package and add `<jeep-sqlite>` + `defineCustomElements` in `index.html`/`main.tsx` for web, or (b) skip SQLite on web and use an in-memory repository adapter. Decide in T02; document the choice.
+- **Verify:** `npm run dev` shows `/login`; creating a customer and reloading keeps it (see BUG-10).
+
+### BUG-02 — SQLCipher initialization is wrong on both platforms
+
+- **Evidence:** `database.ts:63-74` calls `createConnection(DB_NAME, true /* encrypted */, 'secret', …)`, then `open()`, then `execute("PRAGMA key = '…'")`. Native SQLCipher requires the secret before opening (`setEncryptionSecret`); the plugin's web build does not support encrypted databases at all.
+- **Impact:** native DB open fails or is silently unencrypted; web DB cannot open even after BUG-01 is fixed. R-43 is nominal only.
+- **Repro:** `[env]` open on Android with the current code and inspect the plugin error; `[code]` for the web unsupported case.
+- **Fix:** in T02 — use `sqlite.setEncryptionSecret(passphrase)` before `open()` on native; create the web connection **unencrypted** and document the limitation; move the key out of `localStorage` (T16).
+- **Verify:** DB file cannot be opened by another SQLite tool; app reopens after kill/restart; key is not present in `localStorage` on device.
+
+### BUG-03 — `npm run build` fails
+
+- **Evidence:** `src/features/finance/finance.hooks.ts:7` imports `todayISO` but never uses it; `tsc -b` reports TS6133 and exits 1.
+- **Impact:** no production artifact; no CI signal; `cap:build` cannot run.
+- **Repro:** `npm run build` → one error. `[test]` (reproduced).
+- **Fix:** remove the import (or use it where intended). Ship as the first commit of T01.
+- **Verify:** `npm run build` exits 0 and emits `dist/`. **Status: resolved in T01 (2026-11-12).**
+
+### BUG-04 — Outbox completion writes a non-existent column
+
+- **Evidence:** `src/sync/outbox/outbox.repository.ts:51` — `UPDATE sync_outbox SET status='done', updated_at=?`; `sync_outbox` has no `updated_at` (`001_initial.sql:203-214`).
+- **Impact:** the first successful push throws, leaving rows `processing`; sync can never complete.
+- **Repro:** `[code]`; `[test]` add an integration test against real SQLite (current mocks interpret SQL loosely and miss it).
+- **Fix:** in T03 either add `processed_at`/`updated_at` via migration `002`, or change the SQL. Prefer `processed_at` + `last_attempt_at` for backoff.
+- **Verify:** test that `markOutboxDone`/`markOutboxFailed` execute against real SQLite and update expected columns.
+- **Status: resolved in T03 (2026-11-13).** Migration `002_outbox_hardening.sql` adds `processed_at`, `last_attempt_at`, `client_op_id`; the `markOutbox*` methods write those columns and `attempt_count`/`last_error`. Covered by `outbox.integration.test.ts` against real SQLite.
+
+### BUG-05 — Local-day boundary uses UTC
+
+- **Evidence:** `todayISO()` returns `new Date().toISOString().slice(0,10)` (`jalali.ts:54-56`). Day queries build `T00:00:00.000Z`…`T23:59:59.999Z` (`appointment.repository.ts:72-74,79-80,267`; `finance.repository.ts:85-86`; same pattern in visit/expense). `toDateString()` (`helpers.ts:37-39`) is also UTC.
+- **Impact (proven):** at 00:30 Asia/Tehran on 2026-11-12, `todayISO()` returns `2026-11-11`. Appointments and daily totals are filed under the wrong day for the first 3.5 hours of every day.
+- **Repro:** `[code]`; run `node -e "process.env.TZ='Asia/Tehran'; console.log(new Date('2026-11-12T00:30:00+03:30').toISOString().slice(0,10))"` → `2026-11-11`.
+- **Fix:** T04 — add `localDateISO(date)` and `localDayRange(dateISO)` using an explicit timezone (device local by default), replace all four repositories and the finance calculator; keep storage in UTC.
+- **Verify:** unit tests at 00:00, 00:30, 23:59, and a DST-observing zone; daily totals equal the sum of rows whose **local** day matches.
+- **Status: resolved in T04 (2026-11-13).** `src/shared/utils/datetime.ts` builds day/week/month boundaries from an explicit IANA zone; every repository, the finance calculator, and the agenda page use it. `datetime.test.ts` covers 00:30 Tehran, 23:59, and New York spring-forward/fall-back.
+
+### BUG-06 — Multi-table writes are not transactional
+
+- **Evidence:** `appointment.repository.ts:151-183` (appointment + N services + outbox), `visit.repository.ts:107-198` (visit + N services + payment + outbox). `beginTransaction`/`commitTransaction` appear **nowhere** in `src/`.
+- **Impact:** a crash or validation error mid-loop leaves partial records that cannot be repaired deterministically; totals diverge from line items.
+- **Repro:** `[code]`; simulate by throwing after the first `run()` in a test.
+- **Fix:** T03 — add `withTransaction(db, fn)` and wrap every multi-table write; enqueue all outbox rows inside the same transaction.
+- **Verify:** injected failure at each step leaves zero rows; success leaves all rows.
+- **Status: resolved in T03 (2026-11-13).** `src/database/sqlite/transaction.ts` (non-reentrant) wraps appointment/visit/customer/service/expense/profile writes. `appointment.repository.test.ts` injects a failure at steps 1–8 and asserts zero parent/child/outbox rows.
+
+### BUG-07 — Child rows are never enqueued for sync
+
+- **Evidence:** appointment/visit outbox payloads contain only the parent row (`appointment.repository.ts:178-185`, `visit.repository.ts:155-162`); `appointment_services`, `visit_services`, `color_formula_items` never call `addToOutbox`.
+- **Impact:** a new-device restore would recover appointments/visits but lose every service line, price, and therefore all revenue detail.
+- **Repro:** `[code]`.
+- **Fix:** T03 — enqueue child rows (operation + full payload) or embed them in the parent payload and have the push layer upsert children; define the rule in `IMPLEMENTATION_DRAFT.md` and test it.
+- **Verify:** outbox row count equals 1 parent + N children for a 3-service appointment; simulated pull reconstructs identical totals.
+- **Status: resolved in T03 (2026-11-13).** Chosen rule: **one outbox row per row**, `entity_type` = table name (see `docs/10-decisions-log.md` D-24). A 3-service appointment produces 4 outbox rows (`appointments` + 3× `appointment_services`); visit create is covered by `write-integrity.integration.test.ts`. `color_formula_items` follows the same rule when T11 adds the table.
+
+### BUG-08 — The outbox has no consumer (nothing ever syncs)
+
+- **Evidence:** `getPendingOutbox` has zero callers; no `supabase.from/storage/rpc` call in `src/` (`services/supabase/client.ts` is auth-only); `sync.store` setters are never called.
+- **Impact:** the product's core promise (cloud backup/recovery) is absent; all data is device-local. A lost phone means lost business history.
+- **Repro:** `[code]`; after using the app, all outbox rows remain `pending` forever.
+- **Fix:** T09 (push) + T10 (pull); this is a missing feature, registered here because it invalidates the product claim.
+- **Verify:** end-to-end test with two devices (or one device + wiped DB) restores all data.
+- **Status: resolved locally in T09/T10 (2026-11-13).** `pushOutbox` drains the queue and `pullFromCloud` restores it; `SyncManager` triggers both. Verified with an injected `SyncClient` and real SQLite (18 sync tests). No Supabase project exists, so the network path is **not** verified end-to-end.
+
+### BUG-09 — Foreign keys are not enforced per connection
+
+- **Evidence:** `PRAGMA foreign_keys = ON` exists only at `001_initial.sql:7`; `getDatabase()` never sets it. Migrations are skipped after first run, so the pragma is not executed on later launches.
+- **Impact:** orphan `appointment_services`/`visit_services`/`payments` rows are accepted; `ON DELETE CASCADE` never fires.
+- **Repro:** `[code]`; on a fresh DB, insert a payment with a random `visit_id` and observe success.
+- **Fix:** T02 — execute the pragma immediately after `open()` (and after `retrieveConnection`).
+- **Verify:** integration test asserts an FK violation is thrown.
+
+### BUG-10 — Web data is not persisted across reload
+
+- **Evidence:** web uses `jeep-sqlite`; the code never calls `sqlite.saveToStore(DB_NAME)` after writes or `loadFromStore` on boot.
+- **Impact:** browser testing always starts from an empty DB; any web deployment loses data on refresh.
+- **Repro:** `[env]` after BUG-01 is fixed: create a customer, reload, list is empty.
+- **Fix:** T02 — either persist the store explicitly after each mutation (acceptable for dev) or document web as ephemeral and never deploy it as a product. Do not silently claim web support.
+- **Verify:** reload preserves rows; a documented decision exists.
+
+### BUG-11 — Logout is unreachable and its warning is invisible
+
+- **Evidence:** `logoutUseCase` (`auth.usecases.ts:72-90`) has no caller; `AppShell` has no account menu; pending changes produce `console.warn` only.
+- **Impact:** users cannot sign out or switch accounts on a shared device; on logout, unsynced work is silently stranded.
+- **Repro:** `[code]`.
+- **Fix:** **Resolved in T05 (2026-11-13).** `AccountMenu` in `AppShell` + confirm dialog showing the real outbox count; sign-out falls back to local scope and never deletes rows.
+- **Verify:** `account-menu.test.tsx` covers the count, confirm, cancel, and a failed count. Device-level row retention is unverified.
+
+### BUG-12 — Profiles are never ensured for existing users
+
+- **Evidence:** `createProfile` is called only inside `registerUseCase` (`auth.usecases.ts:51-66`); `bootstrapApp` does not check. The Supabase trigger creates the server row, but the local row is missing.
+- **Impact:** a user who logs in on a new device has no local profile → settings/currency dependent features cannot read it; the "profile can be created on next sync" comment is false (no pull).
+- **Repro:** `[code]`; log in with an account created outside the app, then query `profiles` → empty.
+- **Fix:** **Resolved in T05 (2026-11-13).** `ensureProfile()` runs on login, registration, bootstrap, and `SIGNED_IN`; it returns the existing row or creates one and never throws.
+- **Verify:** `auth.usecases.test.ts` covers create-once and database-unavailable paths. Device restart repair is unverified.
+
+---
+
+## 2. P1 bugs
+
+| ID | Bug | Evidence | Impact | Fix / verify |
+|---|---|---|---|---|
+| BUG-13 | Appointment delete action is suppressed | `AppointmentDetailPage.tsx` (`void handleDelete`) | Repository + hook exist but users cannot delete | **Resolved in T06:** confirm-gated delete navigates back; soft delete covered by the query regression test |
+| BUG-14 | Editing an appointment cannot change its services | `appointment.repository.ts` (`update` updated the parent only) | Rescheduling works only via status/notes; service changes impossible | **Resolved in T06:** services are replaced in the same transaction with child tombstones/inserts; conflict re-checked inside |
+| BUG-15 | Quick sale form is dead and imports a missing CSS module | `QuickSaleForm.tsx:7` → `./FinanceForm.module.css` (absent); no route | Routing it would break the Vite build | **Resolved in T07:** `FinanceForm.module.css` exists, `/finance/quick-sale` is routed, and the sale is one transactional visit + service + payment with a submit lock. Build is green |
+| BUG-16 | Services page is unreachable from the UI | `/settings/services` exists; `SettingsPage` has no link | Owners cannot manage services in a normal flow | **Resolved (2026-11-14):** `SettingsPage.tsx:424` links to `/settings/services`; route and navigation test exist. Device rendering not exercised |
+| BUG-17 | Date inputs are Gregorian | `AppointmentForm.tsx` uses `<input type="date">`; display is Jalali | Inconsistent UX; users must convert dates mentally | **Resolved in T04 (2026-11-13):** `JalaliDateInput` (year/month/day selects) replaces the only date input |
+| BUG-18 | Notification permission is never requested; edits do not reschedule | `requestNotificationPermission` has no caller; `appointments.hooks.ts:115,134,191` schedule on create and cancel on cancel/delete only | On Android 13+ scheduling can fail silently; a rescheduled appointment reminds at the old time | **Resolved in code (2026-11-14):** permission is requested from `SettingsPage.tsx:134,156` and `ReminderPermissionBanner`; `appointments.hooks.ts:183` reschedules on update. Real-device Android 13+ behavior remains unverified |
+| BUG-19 | No error boundary; bootstrap leaks raw errors | `main.tsx:23-31` writes `String(err)` into the page; no React boundary | One render error blanks the app; errors may expose internals | **Resolved (2026-11-14):** `main.tsx:44-49` wraps the app in `app/ErrorBoundary` with a Persian fallback; raw errors go to the local log buffer |
+| BUG-20 | Session token and DB passphrase live in `localStorage` | `client.ts:18-26`; `database.ts:24-46` | Extractable on device; contradicts R-43 intent | **Resolved on native (2026-11-14):** `secure-session-storage.ts` uses `@aparajita/capacitor-secure-storage` (Keystore/Keychain) when `Capacitor.isNativePlatform()`; `localStorage` remains only for the documented web/demo path (D-21). Native store not exercised on a device |
+| BUG-21 | Over-payment is accepted | `visit.repository.ts:165-198` has no sum check | Paid > total; reports show negative debt | **Resolved in T07:** `OverpaymentError` is thrown inside the transaction for initial and later payments (ownership + remainder re-read); nothing is written. Covered by repository tests |
+| BUG-22 | Double submit can duplicate records | client-op ids are not reused across retries | Duplicate appointments/customers | **Resolved (2026-11-14, final pass):** every form passes react-hook-form `isSubmitting` to `Button`, whose `disabled={disabled \|\| loading}` blocks a second submit while in flight (`src/shared/components/Button.tsx`). Audit of `features/**/*Form*.tsx` plus auth pages found no unguarded submit. No dedicated double-click UI test exists; repository-level idempotency is covered separately |
+| BUG-23 | Expenses are hard-deleted with no tombstone | `expense.repository.ts:112-123`; server has no `deleted_at` | Deletion cannot propagate to other devices | **Resolved in T09/T10 (2026-11-13):** `004_expense_tombstones.sql` adds `deleted_at`, `delete` writes a tombstone and a full-row delete payload, every read filters `deleted_at IS NULL`, `expenses` is in `SOFT_DELETE_TABLES`, and server migration `002` adds the column |
+| BUG-24 | Cloud migration is not idempotent; bucket and UPDATE policy missing | `001_initial_schema.sql:53-54,57,71,93-94,249-252,255-265` | Re-run fails; uploads error; overwrite denied | **Resolved (2026-11-14, re-audited):** `001` uses `IF NOT EXISTS`, `DROP POLICY/TRIGGER IF EXISTS`, creates the private bucket; `003` adds the UPDATE policy idempotently. Static only — the two-pass run on a hosted project is still NOT RUN |
+| BUG-25 | Server `updated_at` trigger overrides client timestamps | `001_initial_schema.sql:267-289` | LWW conflict resolution based on client time is invalid | **Resolved in T10 (2026-11-13):** pull advances the cursor from the max **server** `updated_at` received (with 5-minute overlap); local pending rows win over remote rows, so client clocks never decide a conflict |
+| BUG-26 | Profile push will conflict with the signup trigger | server trigger inserts profile; client queues `insert` (`profile.repository.ts:51-56`) | First sync of a new account fails on duplicate key | **Resolved in T09 (2026-11-13):** push always upserts by `id`; the existing `profiles` row is updated instead of inserted |
+| BUG-27 | `applyTimeToDate` assumes a UTC-parsed base date | `jalali.ts:98-103` (`new Date('YYYY-MM-DD')` then `setHours`) | Wrong day for negative UTC offsets; harmless for Iran but fragile | **Resolved in T04 (2026-11-13):** builds the instant from explicit year/month/day in the target zone; covered by a New York test |
+| BUG-28 | Sync banner is permanently "idle" | `AppShell.tsx:19-39` reads a store that is never set | Misleads the user about backup status | **Resolved in T09 (2026-11-13):** `sync.manager.ts` sets `syncing/synced/offline/error`, pending and conflict counts; `AppShell` shows an error banner with retry |
+
+### Bugs found and fixed in the 2026-11-13 security & sync pass
+
+| ID | Bug | Evidence | Impact | Fix / verify |
+|---|---|---|---|---|
+| BUG-35 | A sync run is not tied to the account that started it | `sync.manager.ts` mutex returned the in-flight outcome to any caller; `push.ts`/`pull.ts` had no account check between requests | A quick A→logout→B login could send A's queue with B's token, mark rows `done` under the wrong session, or turn a harmless 401 into terminal failures for valid work | **Resolved:** `isAccountCurrent` fences every network call and write in push/pull; `runSync` tracks `runningUserId` and starts a fresh run for a newly signed-in account. Tests: mid-push switch leaves one `processing` + one `pending`, `attempt_count` 0, one network call; no call at all when the switch happened first |
+| BUG-36 | Pull can adopt or transfer a row owned by another account | `pull.ts` `mergeRow` wrote any remote row; upsert on `id` did not check ownership | A session that changed mid-run, or a reused id after a server-side hard delete, could stamp a foreign row as this account's or move an existing local row to another account | **Resolved:** remote `user_id` mismatch is skipped; upsert is `ON CONFLICT(id) DO UPDATE ... WHERE user_id = excluded.user_id`; an aborted pull keeps its cursor. Three real-SQLite tests |
+| BUG-37 | Bootstrap profile placeholder is pushed to the cloud | `ensureProfile` used `createProfile`, which queues an outbox insert | On reinstall or after a local wipe, a placeholder phone/currency could overwrite the canonical cloud profile before the pull restored it | **Resolved:** `ensureLocalProfile` inserts with `INSERT OR IGNORE` and no outbox row; login tests assert no push is queued and an existing row is never replaced |
+| BUG-38 | A terminal outbox row blocks the local-data wipe forever | wipe guard counted every row not `done` | A permanent 4xx (e.g. deleted parent) made device handoff impossible with no way forward | **Resolved:** `countUnsyncedOutbox` counts only pending/processing and failed rows below the attempt cap; retryable failures still block. Two real-SQLite tests |
+| BUG-39 | Production bundle ships full source maps | `vite.config.ts` had `build.sourcemap: true`; `dist/assets` contained 60 `.map` files | The app package exposed the complete source and was 8.0 MB instead of 2.2 MB | **Resolved (2026-11-14, fourteenth pass):** `sourcemap: process.env.SOURCE_MAPS === 'true'`; default builds emit no maps. Rebuild verified: 0 `.map` files, `dist/` = 2.2 MB |
+| BUG-40 | Gradle packages stale web assets | `android/app/src/main/assets/public` was last copied on 2026-11-13 23:09 and still held 60 `.map` files and older bundle hashes while `dist/` was already clean; `assembleDebug`/`bundleRelease` package that copy, not `dist/` | An APK/AAB built with bare Gradle would ship outdated code and the full source maps, defeating BUG-39 | **Resolved procedurally (2026-11-14, fifteenth pass):** ran `npx cap copy android` before rebuilding. All artifacts now contain 0 `.map` files and current hashes (`app-release.aab` 15.2 MB → 13.8 MB). Mandatory sequence and verification added to `docs/11-release-runbook.md` §6.4/§6.5 |
+
+---
+
+## 3. P2 bugs
+
+| ID | Bug | Evidence | Impact |
+|---|---|---|---|
+| BUG-29 | `base.repository.ts` uses CommonJS `require()` | `:19` | Would crash in the browser if ever imported. **Resolved in T01 (ESM import).** |
+| BUG-30 | ~~Dead Vite template component~~ | `src/App.tsx`, `src/App.css` had no importer (`index.html` → `src/main.tsx`) | **Resolved (2026-11-14, closure pass):** both files deleted after owner authorization; no reference existed in `src/`, tests, tsconfig, or build. Gates re-run green |
+| BUG-31 | `matchesSearch` does not normalise the haystack | `helpers.ts` now normalises both sides | Was: Persian-digit matches can miss. **Resolved (2026-11-14):** both haystack and needle are digit-normalised before comparison; `helpers.test.ts` covers Persian digits inside the text (`شماره ۰۹۱۲…` vs `0912`) |
+| BUG-32 | Raw Supabase error messages shown | `LoginPage`/`RegisterPage` | English/technical errors in a Persian UI. **Resolved in T05:** `auth.errors.ts` maps credentials/confirmation/rate-limit/link/password/network failures; raw text is logged only |
+| BUG-33 | `formatToman` treats stored value as "cents" | `helpers.ts:50-53` | Naming confusion only; or `Math.round` hides sub-Toman storage |
+| BUG-34 | No pagination on customer/service lists | repositories `findAll` | Slow with thousands of rows |
+
+---
+
+## 4. "Do not be fooled" list
+
+These green signals are misleading and must not be used as evidence that the app works:
+
+| Signal | Reality |
+|---|---|
+| `npm run type-check` passes | Real since T01, but it only type-checks; runtime/SQL defects still pass |
+| `npm run build` passes | It proves TypeScript and bundling, not that the app boots (BUG-01) |
+| `npx vite build` passes | It does not type-check, and dead code (QuickSaleForm) is not bundled |
+| 177/177 tests pass | Repository tests for appointments/visits/expenses/outbox use real SQLite, but customer/service still use a SQL mock; auth/UI tests mock Supabase and the database; no device, network, or sync coverage |
+| `npm test` is fast | Because no real SQLite/network/device is involved |
+| `npm ci` succeeds | esbuild's postinstall is skipped by npm allow-scripts policy but its binary works today; a clean machine may behave differently |
+| `npm run lint` passes | Static analysis only; it does not prove the app boots or the SQL is valid |
+| RLS SQL exists | It has never been executed against a project |
+| `sync_outbox` has rows | Nothing consumes them |
+
+---
+
+## 5. Technical debt register
+
+| ID | Debt | Evidence | Consequence | Effort | Task |
+|---|---|---|---|---|---|
+| TD-01 | No CI | no `.github/workflows` | Regressions land silently | S | T01 |
+| TD-02 | Lint is unrunnable and the baseline is red | `package.json:9` (`--ext`); 53 errors/16 warnings | No static safety net | M | T01 |
+| TD-03 | Formatting baseline never applied | 92 files fail Prettier | Noisy diffs; reviewer fatigue | S | T01 |
+| TD-04 | `type-check` is vacuous | root tsconfig `files: []` | False confidence | S | T01 |
+| TD-05 | ~~Tests mock SQL instead of executing it~~ | all repository tests now use `src/tests/helpers/sqlite-harness.ts` (`node:sqlite`, migrations 001–006) | ~~SQL defects pass tests~~ — **resolved (2026-11-14):** customer and service suites were the last mocks; both now run real SQL (38 tests). 403/403 overall | M | T01/T03 |
+| TD-06 | ~~No coverage policy~~ | `vitest.config.ts` thresholds (70/60/60/70) + CI step `npx vitest run --coverage` | ~~Money logic unverified~~ — **resolved (2026-11-14):** baseline 73.58% stmts / 66.11% branch / 67.68% funcs / 75.47% lines; finance has dedicated tests | M | T01/T07 |
+| TD-07 | Day-range logic duplicated in 4 places | appointment/visit/expense/finance | Bugs fixed in one place only | S | T04 — **resolved:** all four use `shared/utils/datetime.ts` |
+| TD-08 | No application/use-case layer | hooks call repositories directly | Invariants scattered; hard to transactionalise | L | T03 |
+| TD-09 | Finance repository lives under `features/` | `features/finance/finance.repository.ts` | Inconsistent structure | S | T03 |
+| TD-10 | Two hand-written type sources | `shared/types/index.ts`, `services/supabase/database.types.ts` | Silent drift | M | **Partially resolved in T09:** `sync/engine/payload.ts` is the single explicit mapping between the two shapes, and the Supabase client is typed by the generated `Database`; the shared app types remain hand-written |
+| TD-11 | ~~Substantial dead code~~ | `App.tsx`, `App.css`, `base.repository.ts` (unreferenced); `QuickSaleForm` and outbox readers now in use | **Resolved (2026-11-14, closure pass):** the three dead files were deleted with owner authorization; `rg` across `src/`, tests, tsconfig, and docs found no importer. No other unused module remains | S | done |
+| TD-12 | No error taxonomy or boundary | console-only logging; raw errors | Poor UX and diagnosability | M | T16 |
+| TD-13 | ~~Vite aliases use `URL.pathname`~~ | `vite.config.ts` uses `fileURLToPath(new URL(...))` | ~~Fragile on Windows/file URLs~~ — **resolved** | S | T01 |
+| TD-14 | Hand-written Supabase types | `database.types.ts` | Will drift once data calls exist | S | T09 |
+| TD-15 | No observability | `console.log/warn/error` only | Field issues undiagnosable | M | T16 |
+| TD-16 | No i18n layer; strings inline | feature files | Adding a second language is a rewrite | M | post-MVP |
+| TD-17 | No pagination | `findAll()` everywhere | Scale ceiling | M | post-MVP |
+| TD-18 | ~~Mobile projects not initialised~~ | `android/` (AGP 8.11.1, target 36) and `ios/` (Xcode project, Podfile) exist | **Partially resolved:** projects exist; no CI/CD release pipeline and no signed store build (no Google Maven access, no release keystore, no macOS) | M | T02/T16 |
+| TD-19 | Partial dependency/secret scanning | `.github/dependabot.yml` exists; no CodeQL/secret scanning | Dependency updates are proposed; no static/secret CI scan yet | S | T16 |
+| TD-20 | ~~No root README~~ | `README.md` exists with stack and run instructions | **Resolved** | S | T01 |
+| TD-21 | ~~Server→device deletions are never reconciled~~ | `src/sync/engine/pull.ts` now collects tombstones and deletes child-first in one transaction; `SOFT_DELETE_TABLES` covers all 11 data tables; migration 005 adds `deleted_at` | ~~An offline device resurrects a row deleted elsewhere~~ — **resolved in code (T17/D-46)**; migration 005 still needs to run on the target project and be validated with a two-device test | M | T17 / D-46 |
+| TD-22 | ~~SQLCipher 4.5.3 lacks 16 KB page support~~ | ~~`@capacitor-community/sqlite` 7.0.0 → `android-database-sqlcipher:4.5.3`~~ — **fixed:** plugin 7.0.3 → `net.zetetic:sqlcipher-android:4.10.0` | ~~Play 16 KB requirement on 64-bit Android 15+ devices~~ — **16 KB proven at build/packaging level:** NDK `llvm-readelf` shows `p_align = 0x4000` for all four ABIs (4.5.3 was `0x1000`), and `zipalign -c -P 16` passes for the debug APK, release APK, and the bundletool-generated Play-style APK. Runtime test on a 16 KB device is still **NOT RUN** (Pass 16: **BLOCKED** — no 16 KB device, no bootable or 16 KB system image, and `dl.google.com` returns 404 so no image can be installed). **TD-22 stays open** until that runtime run passes | M | T15 follow-up: device/16 KB runtime test |
+| TD-24 | Plugin encrypted JSON export uses a fixed salt and IV | `UtilsEncryption.java:25` (`SALT = "jeep_capacitor_sqlite"`), `:37` (salt = constant instead of `generateSalt()`), `:45` (GCM IV = first 12 bytes of that constant). Callers: `Database.exportToJson` (:1197,:1235) and `CapacitorSQLite.importFromJson` (:1196-1202) only; these are reachable solely through the plugin's `exportToJson`/`importFromJson` JS bridge | **Closed for this release (2026-11-14, closure pass) — not reachable, verified:** `rg` over `src/`, `services/`, `supabase/`, and `supabase/tests` finds zero calls to `exportToJson`/`importFromJson`; the app never builds a backup/export. The weakness is real but latent: a GCM nonce is reused for every encrypted export made with the same passphrase. **Precondition to reopen:** any backup/export feature must encrypt at the app layer with a random per-file salt and IV (or patch the plugin) and must not reuse this helper | S | precondition for future backup feature |
+
+**T01 status (2026-11-12):** TD-01–TD-04, TD-13, and TD-20 are resolved locally. TD-05, TD-06, and the dead-code cleanup in TD-11 remain open.
+
+**T03 status (2026-11-13):** TD-05 is partially resolved (core repositories execute real SQL). TD-08/TD-09/TD-11 remain open. TD-06 still waits on the finance test suite in T04.
+
+**T04 status (2026-11-13):** TD-07 is resolved. TD-06 is partially resolved — the finance calculator now has a dedicated test file; coverage policy remains open.
+
+**Ninth pass (2026-11-13):** The zod production advisory is closed — `zod` is 4.6.7, `@hookform/resolvers` 7, `react-hook-form` 7.92, and `npm audit --omit=dev` reports zero (D-45). TD-21 (deletion reconciliation) and TD-22 (16 KB SQLCipher) were added and are open.
+
+**Tenth pass (2026-11-14):** TD-21 is resolved in code (D-46): migration 005, tombstone push, two-phase pull, keyset pagination, and real-SQLite tests. The only residual is operational — migration 005 has not been applied to a hosted project and no two-device test exists. The vitest/tinypool critical dev advisories are closed by vitest 5.1.0; 7 moderate `typescript-eslint → minimatch` dev advisories remain with no fixed upstream release. TD-22 remains open.
+
+**Fifteenth pass (2026-11-14) — Android release blockers:** TD-22 is fixed in code: plugin **7.0.3** pulls `sqlcipher-android:4.10.0`, whose four `libsqlcipher.so` files have `p_align = 0x4000` (old 4.5.3: `0x1000`). `assembleDebug`, `assembleRelease`, and `bundleRelease` succeeded; debug and release APKs and the bundletool-generated Play-style APK pass `zipalign -c -P 16`, and the AAB is 13.8 MB with 0 source maps. BUG-40 (stale Capacitor assets) was found and fixed before these artifacts. Google Maven remains unreachable from this network (404 even for `master-index.xml`), so the build used JDK 21 plus a **session-scoped, non-repository mirror**; the artifacts are verification-grade and must be rebuilt from Google Maven before upload. No release keystore exists, so the AAB is unsigned. Device/emulator verification and the eight SQLCipher migration scenarios are **NOT RUN** (all system-image directories are empty and no device is attached). TD-24 records the plugin's fixed-salt/GCM export helper.
+
+**Sixteenth pass (2026-11-14) — verification attempt, status D:** the SQLCipher migration and 16 KB runtime checks were re-attempted and remain **BLOCKED**, so TD-22 stays open and TD-24 stays open. Static re-verification succeeded: the four `libsqlcipher.so` files inside the release APK are byte-for-byte identical to the `sqlcipher-android-4.10.0` AAR (`bc8574…`, `a3d6e1…`, `efd779…`, `482f62…`) and differ from 4.5.3; `p_align = 0x4000` (old: `0x1000`); the dex has 55 `Lnet/zetetic/database/sqlcipher/` references and zero `Lnet/sqlcipher/`; build intermediates resolve `sqlcipher-android:4.10.0` with room 2.6.1, sqlite 2.4.0, security-crypto 1.1.0-alpha06 and no old coordinate; `UtilsSecret`/`GlobalSQLite` are unchanged. None of that substitutes for runtime proof. All eight scenarios are BLOCKED because no database created by 7.0.0 exists anywhere in the environment and creating one to stand in is prohibited; the 16 KB run is BLOCKED because `adb devices` is empty, all `system-images/**` entries are `.installer` placeholders (0 `system.img`), no AVD exists, the `android-36/google_apis_ps16k` image is not installed, and `dl.google.com/android/repository/*.xml` returns 404. The official rebuild is BLOCKED for the same Google Maven 404. Signing was inspected only: no keystore or `keystore.properties` exists and none was created. Supabase stayed untouched (no approved staging refs, no credentials). Gates: type-check/lint/format/build green, **383/383 tests in 52 files**, `npm audit --omit=dev` 0, 7 moderate dev-only. Artifact hashes are unchanged from the fifteenth pass. No commit, push, merge, reset, clean, or upload.
+
+**Seventeenth pass (2026-11-14) — final execution:** BUG-22 is fully resolved (all forms, including customer/service/auth, disable the submit button while `isSubmitting`). BUG-31 is resolved — `matchesSearch` normalises Persian/Arabic digits in both haystack and needle, with a regression test. TD-05 is resolved: the customer and service suites were the last SQL mocks and now run against real `node:sqlite` (38 tests; 403/403 overall). TD-06 is resolved: coverage thresholds (70/60/60/70) are enforced by a new CI step; baseline 73.58% stmts / 66.11% branch / 67.68% funcs / 75.47% lines. TD-13 and TD-20 are confirmed resolved, TD-18/19 are recorded as partial, and TD-11 is partially resolved — `App.tsx` and `base.repository.ts` stay in the tree only because the final-pass rules forbid deleting pre-existing files without explicit owner approval (both are unreachable and absent from the bundle). iOS static audit added the missing `CapacitorCamera`, `CapacitorFilesystem`, and `AparajitaCapacitorSecureStorage` pods to `ios/App/Podfile`; no iOS build was possible (Windows host, no Xcode/pod). Artifact hashes remain unchanged from the fifteenth pass, and the packaged bundle still contains zero `sb_secret_*` tokens. TD-22 and TD-24 remain open. Gates: type-check/lint/format/build green, **403/403 tests in 52 files**, coverage thresholds pass, `npm audit --omit=dev` 0. No commit, push, merge, reset, clean, migration, or hosted write.
+
+**Eighteenth pass (2026-11-14) — final closure:** BUG-30 and TD-11 are closed by deleting `src/App.tsx`, `src/App.css`, and `src/database/repositories/base.repository.ts` after confirming zero importers (owner authorized deletion in this pass). TD-24 is closed **for this release** with evidence: the only callers of `UtilsEncryption` are the plugin's `exportToJson`/`importFromJson` bridge methods, and the app never invokes them; the fixed salt/IV remains a documented precondition for any future backup feature. `android/` and `ios/` are no longer wholesale-ignored — the root `.gitignore` now exposes 69 hand-maintained native files while nested ignore rules keep `build/`, `.gradle/`, `local.properties`, `Pods/`, `public/`, `capacitor.config.json`, keystores, and `.env*` out of Git. Gates: type-check/lint/format/build green, **403/403 tests in 52 files**, 0 source maps, `dist` 2.2 MB, `npm audit --omit=dev` 0. TD-22 remains open (binary evidence only; no 16 KB runtime). No commit, push, merge, reset, clean, migration, or hosted write.
+
+---
+
+## 6. Fix order constraints
+
+- BUG-03 is fixed (T01); CI is now available. Do not regress the gates.
+- BUG-01/BUG-02/BUG-09/BUG-10 must be fixed before any browser or device verification is meaningful (T02).
+- BUG-04/BUG-06/BUG-07/BUG-23 must be fixed before BUG-08's engine is built (T03 before T09).
+- BUG-05 must be fixed before finance/dashboard totals are shown to users (T04 before T07/T08).
+- BUG-25/BUG-26 must be resolved as part of the sync design, not after it (T10/T09).
+- BUG-24/BUG-20 are release blockers (T16).
+
+Resolved locally as of 2026-11-13: BUG-04, BUG-06, BUG-07 (T03), BUG-05, BUG-17, BUG-27 (T04), BUG-08, BUG-23, BUG-25, BUG-26, BUG-28 (T09/T10). Everything else above remains open.

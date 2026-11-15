@@ -25,12 +25,7 @@ export function ConfirmDialog({
   if (!isOpen) return null
 
   return (
-    <div
-      className={styles.overlay}
-      role="alertdialog"
-      aria-modal="true"
-      aria-label={title}
-    >
+    <div className={styles.overlay} role="alertdialog" aria-modal="true" aria-label={title}>
       <div className={styles.dialog}>
         <h3 className={styles.title}>{title}</h3>
         <p className={styles.message}>{message}</p>

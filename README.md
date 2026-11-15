@@ -1,22 +1,110 @@
 # Barber App
 
-اپلیکیشن موبایل برای مدیریت شخصی کارهای روزانه آرایشگر: نوبت‌ها، مشتریان، خدمات، فرمول رنگ، پرداخت‌ها و هزینه‌ها.
+Offline-first barber shop management app for a single barber: appointments, customers, services,
+visit finance, color formulas, and settings. Built with React 19, TypeScript, Vite, Capacitor, and
+SQLite; Supabase is used for authentication only.
 
-**محدوده محصول:** هر آرایشگر حساب مستقل خودش را دارد. نسخه فعلی مدیریت سالن، کارکنان، کمیسیون یا گزارش آرایشگرهای دیگر را شامل نمی‌شود.
+> **Status: pre-alpha.** The application shell, local schema, web bootstrap, and core repositories
+> work; the sync engine is not implemented. See [`audit/PROJECT_STATUS.md`](audit/PROJECT_STATUS.md)
+> for the verified state.
 
-## ترتیب مطالعه
-1. `docs/01-project-brief.md` معرفی محصول
-2. `docs/02-prd.md` نیازمندی‌ها و رفتار امکانات
-3. `docs/03-user-flow.md` مسیرهای استفاده
-4. `docs/04-wireframes.md` چیدمان صفحه‌ها
-5. `docs/05-technical-architecture.md` معماری فنی
-6. `docs/06-database-api-design.md` دیتابیس و ارتباط با سرور
-7. `docs/07-development-roadmap.md` مراحل توسعه
-8. `docs/08-ai-agent-specification.md` مشخصات AI
-9. `docs/09-open-questions.md` موارد باز
-10. `docs/10-decisions-log.md` تصمیم‌های قطعی
+## Stack
 
-## دستور شروع برای ایجنت برنامه‌نویس
-تمام اسناد را پیش از کدنویسی بخوان. تصمیم‌های `10-decisions-log.md` را قطعی در نظر بگیر و موارد `09-open-questions.md` را با فرض‌های موقت آن مدیریت کن. ابتدا کد و وضعیت مخزن را بررسی کن؛ سپس طبق Roadmap مرحله‌به‌مرحله بساز. از بازنویسی بی‌دلیل کد سالم خودداری کن. بعد از هر مرحله تست اجرا کن و نتیجه، فایل‌های تغییرکرده و مشکلات باقی‌مانده را گزارش بده. اگر ابهام روی امنیت، صحت مالی یا ساختار داده اثر دارد، قبل از تصمیم‌گیری سؤال بپرس.
+| Layer        | Technology                                        |
+| ------------ | ------------------------------------------------- |
+| UI           | React 19, React Router 7, TanStack Query, Zustand |
+| Build        | Vite 8, TypeScript 5 (project references)         |
+| Native shell | Capacitor 7 (Android first)                       |
+| Local data   | SQLite via `@capacitor-community/sqlite`          |
+| Auth         | Supabase Auth                                     |
+| Testing      | Vitest 3, Testing Library, jsdom                  |
 
-**اصل معماری:** برنامه Offline-first است. اطلاعات ابتدا در SQLite گوشی ذخیره می‌شود و پس از اتصال اینترنت با Supabase همگام می‌شود.
+## Prerequisites
+
+- Node.js 24 and npm 11 (the CI workflow uses Node 24)
+- For native builds: Android Studio with an Android SDK/emulator
+- A Supabase project **only if** you are working on authentication (see below)
+
+## Setup
+
+```bash
+npm ci
+cp .env.example .env
+# fill VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY with development credentials
+npm run dev
+```
+
+`.env` is git-ignored. Never commit real credentials. `VITE_*` values are embedded in the client
+bundle, so only the Supabase anon key may be used there.
+
+### Platform notes
+
+- **Browser (development only).** SQLite runs through `jeep-sqlite` and IndexedDB. The `predev` and
+  `prebuild` hooks copy `sql-wasm.wasm` from `sql.js`; it must stay at version **1.11.0**, the
+  sql.js build bundled inside `jeep-sqlite` 2.8.0. A different version fails with an Emscripten
+  `LinkError`. Browser storage is for development and demos, not a production security boundary.
+- **Android / iOS.** Native projects are generated locally with `npx cap add android` and
+  `npx cap add ios` because `android/` and `ios/` are git-ignored. SQLCipher is enabled and the key
+  lives in the platform secure store. Building requires Android Studio/SDK for Android, and macOS
+  with Xcode/CocoaPods for iOS; neither build is verified by the Windows CI.
+
+## Quality gates
+
+```bash
+npm run type-check    # tsc -b over tsconfig.app.json + tsconfig.node.json
+npm run lint          # ESLint flat config over the repository
+npm run format:check  # Prettier check for src/**/*.{ts,tsx,css}
+npm test              # Vitest, 82 tests
+npm run build         # tsc -b && vite build
+```
+
+The same commands run in [`.github/workflows/ci.yml`](.github/workflows/ci.yml) on every push and
+pull request. Apply formatting with `npm run format`.
+
+## Scripts
+
+| Script                                | Purpose                                               |
+| ------------------------------------- | ----------------------------------------------------- |
+| `dev`                                 | Start the Vite dev server                             |
+| `build`                               | Type-check and produce a production bundle in `dist/` |
+| `preview`                             | Serve the production bundle                           |
+| `type-check`                          | Type-check all referenced projects                    |
+| `lint`, `lint:fix`                    | Run/fix ESLint                                        |
+| `format`, `format:check`              | Write/check Prettier formatting                       |
+| `test`, `test:watch`, `test:coverage` | Run tests once, in watch mode, or with coverage       |
+| `cap:build`, `cap:android`, `cap:ios` | Build and open a native project                       |
+
+## Project structure
+
+```text
+src/
+  app/          bootstrap, providers, router, route elements
+  database/     SQLite connection, migrations, repositories
+  features/     auth, dashboard, appointments, customers, services, finance,
+                color-formulas, settings
+  services/     Supabase client, local notifications
+  shared/       UI components, hooks, types, Jalali/format helpers
+  state/        Zustand auth and sync stores
+  sync/         outbox repository (push/pull not implemented yet)
+  tests/        Vitest setup and unit tests
+supabase/       PostgreSQL schema, RLS policies, edge-function placeholder
+audit/          read-only technical audit and handover
+docs/           product brief, PRD, flows, architecture, roadmap
+```
+
+## Documentation
+
+- New to the project: read [`audit/AGENT_HANDOVER.md`](audit/AGENT_HANDOVER.md) first.
+- Current defects and debt: [`audit/BUGS_AND_TECHNICAL_DEBT.md`](audit/BUGS_AND_TECHNICAL_DEBT.md).
+- Requirements and acceptance criteria: [`audit/REQUIREMENTS_MATRIX.md`](audit/REQUIREMENTS_MATRIX.md).
+- Next work in dependency order: [`audit/DEVELOPMENT_BACKLOG.md`](audit/DEVELOPMENT_BACKLOG.md).
+- Product source material: [`docs/README.md`](docs/README.md).
+
+## Branches
+
+- `develop` — active development branch.
+- `main` — stable code baseline.
+- `docs` — product documentation baseline.
+
+Do not push or rewrite shared branches without explicit authorization. Keep database migrations
+append-only: never edit an existing migration; add a new numbered file.

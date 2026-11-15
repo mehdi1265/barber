@@ -1,5 +1,6 @@
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
+import { useRef } from 'react'
 import { quickSaleSchema, type QuickSaleFormData, PAYMENT_METHOD_LABELS } from './finance.schemas'
 import { FormField } from '@shared/components/forms/FormField'
 import { Button } from '@shared/components/ui/Button'
@@ -23,6 +24,7 @@ interface QuickSaleFormProps {
 
 export function QuickSaleForm({ onSubmit, onCancel, error }: QuickSaleFormProps) {
   const { data: customers = [] } = useCustomers()
+  const submitLock = useRef(false)
 
   const {
     register,
@@ -45,7 +47,17 @@ export function QuickSaleForm({ onSubmit, onCancel, error }: QuickSaleFormProps)
 
   return (
     <form
-      onSubmit={handleSubmit(d => onSubmit(d as unknown as QuickSaleFormData))}
+      onSubmit={e => {
+        void handleSubmit(async d => {
+          if (submitLock.current) return
+          submitLock.current = true
+          try {
+            await onSubmit(d as unknown as QuickSaleFormData)
+          } finally {
+            submitLock.current = false
+          }
+        })(e)
+      }}
       noValidate
       className={styles.form}
     >
@@ -65,7 +77,7 @@ export function QuickSaleForm({ onSubmit, onCancel, error }: QuickSaleFormProps)
         required
         placeholder="مثلاً: 150000"
         {...register('amount')}
-        error={errors.amount as never}
+        error={errors.amount}
       />
 
       <div className={styles.field}>
@@ -87,7 +99,7 @@ export function QuickSaleForm({ onSubmit, onCancel, error }: QuickSaleFormProps)
         placeholder={watchAmount || 'مثلاً: 100000 (اختیاری)'}
         hint="خالی = کل مبلغ دریافت شده"
         {...register('paid_amount')}
-        error={errors.paid_amount as never}
+        error={errors.paid_amount}
       />
 
       <div className={styles.field}>
@@ -95,7 +107,9 @@ export function QuickSaleForm({ onSubmit, onCancel, error }: QuickSaleFormProps)
         <select className={styles.select} {...register('customer_id')}>
           <option value="">— بدون مشتری —</option>
           {customers.map(c => (
-            <option key={c.id} value={c.id}>{c.name}</option>
+            <option key={c.id} value={c.id}>
+              {c.name}
+            </option>
           ))}
         </select>
       </div>
@@ -108,11 +122,19 @@ export function QuickSaleForm({ onSubmit, onCancel, error }: QuickSaleFormProps)
         error={errors.notes}
       />
 
-      {error && <div className={styles.error} role="alert">{error}</div>}
+      {error && (
+        <div className={styles.error} role="alert">
+          {error}
+        </div>
+      )}
 
       <div className={styles.actions}>
-        <Button type="button" variant="ghost" onClick={onCancel} fullWidth>انصراف</Button>
-        <Button type="submit" fullWidth loading={isSubmitting}>ثبت فروش</Button>
+        <Button type="button" variant="ghost" onClick={onCancel} fullWidth>
+          انصراف
+        </Button>
+        <Button type="submit" fullWidth loading={isSubmitting}>
+          ثبت فروش
+        </Button>
       </div>
     </form>
   )

@@ -66,5 +66,9 @@
   transition: background 0.1s;
 }
 
-.editBtn:hover   { background: var(--color-info-light); }
-.deleteBtn:hover { background: var(--color-error-light); }
+.editBtn:hover {
+  background: var(--color-info-light);
+}
+.deleteBtn:hover {
+  background: var(--color-error-light);
+}

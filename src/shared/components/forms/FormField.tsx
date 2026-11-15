@@ -14,14 +14,7 @@ interface FormFieldProps extends InputHTMLAttributes<HTMLInputElement> {
   endAdornment?: ReactNode
 }
 
-export function FormField({
-  label,
-  error,
-  hint,
-  endAdornment,
-  id,
-  ...inputProps
-}: FormFieldProps) {
+export function FormField({ label, error, hint, endAdornment, id, ...inputProps }: FormFieldProps) {
   const fieldId = id ?? `field-${label.replace(/\s+/g, '-')}`
   const errorId = `${fieldId}-error`
 
@@ -31,7 +24,8 @@ export function FormField({
         {label}
         {inputProps.required && (
           <span className={styles.required} aria-hidden="true">
-            {' '}*
+            {' '}
+            *
           </span>
         )}
       </label>

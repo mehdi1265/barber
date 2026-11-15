@@ -28,7 +28,9 @@
   font-size: var(--font-size-base);
   color: var(--color-text);
   background: var(--color-surface);
-  transition: border-color 0.15s, box-shadow 0.15s;
+  transition:
+    border-color 0.15s,
+    box-shadow 0.15s;
   outline: none;
 }
 

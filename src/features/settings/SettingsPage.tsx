@@ -1,3 +1,489 @@
+/**
+ * SettingsPage — account, sync, and catalog entry points.
+ *
+ * Phase 7 expands this page; for now it exposes the sync controls required by
+ * T09/T10 and the service catalog link.
+ */
+
+import { useEffect, useState } from 'react'
+import { Link, useNavigate } from 'react-router-dom'
+import { useQueryClient } from '@tanstack/react-query'
+import { Capacitor } from '@capacitor/core'
+import { PageHeader } from '@shared/components/ui/PageHeader'
+import { Button } from '@shared/components/ui/Button'
+import { ConfirmDialog } from '@shared/components/ui/ConfirmDialog'
+import { useSyncStore } from '@state/sync.store'
+import { useAuthStore } from '@state/auth.store'
+import { REMINDER_LEAD_OPTIONS, usePreferencesStore } from '@state/preferences.store'
+import { logoutUseCase } from '@features/auth/auth.usecases'
+import { restoreFromCloud, runSync } from '@sync/engine/sync.manager'
+import {
+  getNotificationPermission,
+  requestNotificationPermission,
+  rescheduleAllReminders,
+  type NotificationPermission,
+} from '@services/notifications/local-notifications'
+import { formatJalaliDate, formatTime } from '@shared/utils/jalali'
+import { useProfile, useUpdateProfile } from './settings.hooks'
+import { deleteLocalAccountData, PendingOutboxError } from './local-data'
+import { ProfileSettings } from './ProfileSettings'
+import type { ProfileFormData } from './settings.schemas'
+import styles from './SettingsPage.module.css'
+
+const APP_NAME = envString(import.meta.env.VITE_APP_NAME, 'آرایشگاه')
+const APP_VERSION = envString(import.meta.env.VITE_APP_VERSION, '1.0.0')
+
+function envString(value: unknown, fallback: string): string {
+  return typeof value === 'string' && value.trim() ? value : fallback
+}
+
+const STATUS_LABELS: Record<string, string> = {
+  idle: 'آماده',
+  syncing: 'در حال همگام‌سازی…',
+  synced: 'همگام‌سازی شده',
+  error: 'خطا در همگام‌سازی',
+  offline: 'آفلاین',
+}
+
+const PERMISSION_LABELS: Record<NotificationPermission, string> = {
+  granted: 'اجازه داده شده',
+  denied: 'اجازه داده نشده',
+  prompt: 'هنوز پرسیده نشده',
+}
+
+const LEAD_LABELS: Record<number, string> = {
+  10: '۱۰ دقیقه قبل',
+  30: '۳۰ دقیقه قبل',
+  60: '۱ ساعت قبل',
+}
+
 export default function SettingsPage() {
-  return <div>SettingsPage — Phase 7</div>
+  const navigate = useNavigate()
+  const { status, lastSyncAt, pendingCount, conflicts, errorMessage } = useSyncStore()
+  const userId = useAuthStore(state => state.userId)
+  const user = useAuthStore(state => state.user)
+  const clearAuth = useAuthStore(state => state.clearAuth)
+  const { data: profile, isLoading: profileLoading } = useProfile()
+  const updateProfile = useUpdateProfile()
+  const remindersEnabled = usePreferencesStore(state => state.remindersEnabled)
+  const reminderLeadMinutes = usePreferencesStore(state => state.reminderLeadMinutes)
+  const setRemindersEnabled = usePreferencesStore(state => state.setRemindersEnabled)
+  const setReminderLeadMinutes = usePreferencesStore(state => state.setReminderLeadMinutes)
+  const [busy, setBusy] = useState(false)
+  const [restoreOpen, setRestoreOpen] = useState(false)
+  const [permission, setPermission] = useState<NotificationPermission>('denied')
+  const [reminderBusy, setReminderBusy] = useState(false)
+  const [profileSaved, setProfileSaved] = useState(false)
+  const [profileError, setProfileError] = useState<string | null>(null)
+  const [logoutOpen, setLogoutOpen] = useState(false)
+  const [logoutBusy, setLogoutBusy] = useState(false)
+  const [logoutError, setLogoutError] = useState<string | null>(null)
+  const [wipeOpen, setWipeOpen] = useState(false)
+  const [wipeBusy, setWipeBusy] = useState(false)
+  const [wipeError, setWipeError] = useState<string | null>(null)
+  const [wipeDone, setWipeDone] = useState(false)
+  const queryClient = useQueryClient()
+
+  const native = Capacitor.isNativePlatform()
+
+  useEffect(() => {
+    if (!native) return
+    void getNotificationPermission().then(setPermission)
+  }, [native])
+
+  const handleProfileSave = async (data: ProfileFormData) => {
+    setProfileSaved(false)
+    setProfileError(null)
+    try {
+      await updateProfile.mutateAsync(data)
+      setProfileSaved(true)
+    } catch {
+      setProfileError('ذخیره پروفایل ناموفق بود. دوباره تلاش کنید.')
+    }
+  }
+
+  const handleLogout = async () => {
+    setLogoutBusy(true)
+    setLogoutError(null)
+    try {
+      const { error } = await logoutUseCase()
+      if (error) {
+        // Keep the signed-in UI: clearing it while the stored session survives
+        // would present a false logout and restore the session on next launch.
+        setLogoutError(error.message)
+        return
+      }
+      clearAuth()
+      void navigate('/login', { replace: true })
+    } finally {
+      setLogoutBusy(false)
+      setLogoutOpen(false)
+    }
+  }
+
+  const applyReminderSettings = async () => {
+    if (userId) await rescheduleAllReminders(userId)
+    if (native) setPermission(await getNotificationPermission())
+  }
+
+  const toggleReminders = async (enabled: boolean) => {
+    setReminderBusy(true)
+    try {
+      setRemindersEnabled(enabled)
+      if (enabled && native && permission !== 'granted') {
+        const granted = await requestNotificationPermission()
+        setPermission(granted ? 'granted' : 'denied')
+      }
+      await applyReminderSettings()
+    } finally {
+      setReminderBusy(false)
+    }
+  }
+
+  const changeLead = async (minutes: number) => {
+    setReminderBusy(true)
+    try {
+      setReminderLeadMinutes(minutes)
+      await applyReminderSettings()
+    } finally {
+      setReminderBusy(false)
+    }
+  }
+
+  const requestPermission = async () => {
+    setReminderBusy(true)
+    try {
+      const granted = await requestNotificationPermission()
+      setPermission(granted ? 'granted' : 'denied')
+      await applyReminderSettings()
+    } finally {
+      setReminderBusy(false)
+    }
+  }
+
+  const syncNow = async () => {
+    setBusy(true)
+    try {
+      await runSync('manual')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const confirmRestore = async () => {
+    setBusy(true)
+    try {
+      await restoreFromCloud()
+    } finally {
+      setBusy(false)
+      setRestoreOpen(false)
+    }
+  }
+
+  const confirmWipe = async () => {
+    setWipeBusy(true)
+    setWipeError(null)
+    setWipeDone(false)
+    try {
+      if (!userId) throw new Error('missing user')
+      await deleteLocalAccountData(userId)
+      setWipeDone(true)
+      await queryClient.invalidateQueries()
+    } catch (error) {
+      setWipeError(
+        error instanceof PendingOutboxError
+          ? 'تغییرات ارسال‌نشده دارید؛ ابتدا همگام‌سازی کنید و سپس دوباره تلاش کنید.'
+          : 'حذف داده‌های محلی ناموفق بود. دوباره تلاش کنید.'
+      )
+    } finally {
+      setWipeBusy(false)
+      setWipeOpen(false)
+    }
+  }
+
+  return (
+    <div className={styles.page} dir="rtl">
+      <PageHeader title="تنظیمات" />
+
+      <section className={styles.section} aria-labelledby="profile-heading">
+        <h2 id="profile-heading" className={styles.sectionTitle}>
+          پروفایل
+        </h2>
+
+        <dl className={styles.facts}>
+          <div className={styles.fact}>
+            <dt>ایمیل</dt>
+            <dd dir="ltr">{user?.email ?? '—'}</dd>
+          </div>
+        </dl>
+
+        {profileLoading ? (
+          <p className={styles.note}>در حال بارگذاری پروفایل…</p>
+        ) : (
+          <ProfileSettings
+            profile={profile ?? null}
+            saved={profileSaved}
+            error={profileError}
+            onSave={handleProfileSave}
+          />
+        )}
+      </section>
+
+      <section className={styles.section} aria-labelledby="account-heading">
+        <h2 id="account-heading" className={styles.sectionTitle}>
+          حساب
+        </h2>
+        <p className={styles.note}>
+          خروج فقط نشست را می‌بندد؛ داده‌های محلی و تغییرات ارسال‌نشده روی این دستگاه می‌مانند.
+        </p>
+        <div className={styles.actions}>
+          <Button variant="danger" onClick={() => setLogoutOpen(true)}>
+            خروج از حساب
+          </Button>
+        </div>
+        {logoutError && (
+          <p className={styles.error} role="alert">
+            {logoutError}
+          </p>
+        )}
+      </section>
+
+      <section className={styles.section} aria-labelledby="sync-heading">
+        <h2 id="sync-heading" className={styles.sectionTitle}>
+          همگام‌سازی
+        </h2>
+
+        <dl className={styles.facts}>
+          <div className={styles.fact}>
+            <dt>وضعیت</dt>
+            <dd className={styles[status] ?? ''}>{STATUS_LABELS[status] ?? status}</dd>
+          </div>
+          <div className={styles.fact}>
+            <dt>در انتظار ارسال</dt>
+            <dd>{pendingCount.toLocaleString('fa-IR')} تغییر</dd>
+          </div>
+          {lastSyncAt && (
+            <div className={styles.fact}>
+              <dt>آخرین همگام‌سازی</dt>
+              <dd>
+                {formatJalaliDate(lastSyncAt)} — {formatTime(lastSyncAt)}
+              </dd>
+            </div>
+          )}
+          {conflicts > 0 && (
+            <div className={styles.fact}>
+              <dt>تعارض‌های محلی</dt>
+              <dd>
+                {conflicts.toLocaleString('fa-IR')} ردیف ابری فعلاً اعمال نشد؛ تغییرات محلی
+                ارسال‌نشده اولویت دارند.
+              </dd>
+            </div>
+          )}
+        </dl>
+
+        {errorMessage && (
+          <p className={styles.error} role="alert">
+            {errorMessage}
+          </p>
+        )}
+
+        <div className={styles.actions}>
+          <Button
+            onClick={() => {
+              void syncNow()
+            }}
+            loading={busy}
+            disabled={status === 'syncing'}
+          >
+            همگام‌سازی اکنون
+          </Button>
+          <Button
+            variant="secondary"
+            onClick={() => setRestoreOpen(true)}
+            disabled={busy || status === 'syncing'}
+          >
+            بازیابی کامل از ابر
+          </Button>
+        </div>
+
+        <p className={styles.note}>
+          همه اطلاعات ابتدا روی این دستگاه ذخیره می‌شود. همگام‌سازی در پس‌زمینه و پس از اتصال
+          اینترنت انجام می‌شود. تغییرات ارسال‌نشده در بازیابی حفظ می‌شوند.
+        </p>
+      </section>
+
+      <section className={styles.section} aria-labelledby="local-data-heading">
+        <h2 id="local-data-heading" className={styles.sectionTitle}>
+          داده‌های این دستگاه
+        </h2>
+        <p className={styles.note}>
+          حذف داده‌های محلی فقط نسخه روی این دستگاه را پاک می‌کند؛ داده‌های همگام‌شده در ابر
+          می‌مانند و با «بازیابی کامل از ابر» برمی‌گردند. اگر تغییری ارسال‌نشده وجود داشته باشد این
+          کار انجام نمی‌شود.
+        </p>
+        <div className={styles.actions}>
+          <Button
+            variant="danger"
+            disabled={wipeBusy || status === 'syncing'}
+            onClick={() => {
+              setWipeDone(false)
+              setWipeError(null)
+              setWipeOpen(true)
+            }}
+          >
+            حذف داده‌های این دستگاه
+          </Button>
+        </div>
+        {wipeDone && (
+          <p className={styles.note} role="status">
+            داده‌های محلی حذف شد.
+          </p>
+        )}
+        {wipeError && (
+          <p className={styles.error} role="alert">
+            {wipeError}
+          </p>
+        )}
+      </section>
+
+      <section className={styles.section} aria-labelledby="reminders-heading">
+        <h2 id="reminders-heading" className={styles.sectionTitle}>
+          یادآوری نوبت
+        </h2>
+
+        <label className={styles.toggleRow}>
+          <input
+            type="checkbox"
+            checked={remindersEnabled}
+            disabled={reminderBusy}
+            onChange={event => {
+              void toggleReminders(event.target.checked)
+            }}
+          />
+          <span>یادآوری نوبت‌ها را نمایش بده</span>
+        </label>
+
+        <div className={styles.leadRow}>
+          <span>زمان یادآوری</span>
+          <select
+            className={styles.select}
+            value={reminderLeadMinutes}
+            disabled={!remindersEnabled || reminderBusy}
+            onChange={event => {
+              void changeLead(Number(event.target.value))
+            }}
+            aria-label="زمان یادآوری"
+          >
+            {REMINDER_LEAD_OPTIONS.map(minutes => (
+              <option key={minutes} value={minutes}>
+                {LEAD_LABELS[minutes]}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        {native ? (
+          <>
+            <dl className={styles.facts}>
+              <div className={styles.fact}>
+                <dt>اجازه اعلان</dt>
+                <dd className={permission === 'granted' ? styles.synced : ''}>
+                  {PERMISSION_LABELS[permission]}
+                </dd>
+              </div>
+            </dl>
+            {permission !== 'granted' && (
+              <div className={styles.actions}>
+                <Button
+                  variant="secondary"
+                  loading={reminderBusy}
+                  onClick={() => {
+                    void requestPermission()
+                  }}
+                >
+                  درخواست اجازه اعلان
+                </Button>
+              </div>
+            )}
+            <p className={styles.note}>
+              اعلان‌ها فقط روی این دستگاه ساخته می‌شوند و به اینترنت نیاز ندارند. با تغییر زمان
+              یادآوری، همه نوبت‌های آینده دوباره زمان‌بندی می‌شوند.
+            </p>
+          </>
+        ) : (
+          <p className={styles.note}>
+            یادآوری محلی فقط در نسخه اندروید و iOS کار می‌کند؛ در مرورگر اعلانی ساخته نمی‌شود.
+          </p>
+        )}
+      </section>
+
+      <section className={styles.section} aria-labelledby="catalog-heading">
+        <h2 id="catalog-heading" className={styles.sectionTitle}>
+          خدمات
+        </h2>
+        <Link to="/settings/services" className={styles.linkRow}>
+          <span>مدیریت لیست خدمات</span>
+          <span aria-hidden="true">←</span>
+        </Link>
+      </section>
+
+      <section className={styles.section} aria-labelledby="about-heading">
+        <h2 id="about-heading" className={styles.sectionTitle}>
+          درباره
+        </h2>
+        <dl className={styles.facts}>
+          <div className={styles.fact}>
+            <dt>برنامه</dt>
+            <dd>{APP_NAME}</dd>
+          </div>
+          <div className={styles.fact}>
+            <dt>نسخه</dt>
+            <dd dir="ltr">{APP_VERSION}</dd>
+          </div>
+        </dl>
+        <p className={styles.note}>
+          همه اطلاعات ابتدا روی دستگاه ذخیره می‌شود؛ این نسخه بدون اتصال اینترنت هم قابل استفاده
+          است.
+        </p>
+      </section>
+
+      <ConfirmDialog
+        isOpen={restoreOpen}
+        title="بازیابی کامل از ابر"
+        message="همه ردیف‌های ابری دوباره خوانده و با داده‌های محلی ادغام می‌شوند. هیچ ردیف محلی حذف نمی‌شود و تغییرات ارسال‌نشده اولویت دارند. ادامه می‌دهید؟"
+        confirmLabel="بازیابی"
+        cancelLabel="انصراف"
+        onConfirm={() => {
+          void confirmRestore()
+        }}
+        onCancel={() => setRestoreOpen(false)}
+      />
+
+      <ConfirmDialog
+        isOpen={wipeOpen}
+        title="حذف داده‌های این دستگاه"
+        message="همه مشتریان، نوبت‌ها، داده‌های مالی، فرمول‌ها و عکس‌های ذخیره‌شده روی این دستگاه پاک می‌شوند. تا وقتی تغییر ارسال‌نشده وجود دارد این کار انجام نمی‌شود. این عمل قابل بازگشت نیست، اما داده‌های همگام‌شده با «بازیابی کامل از ابر» برمی‌گردند. ادامه می‌دهید؟"
+        confirmLabel="حذف کن"
+        cancelLabel="انصراف"
+        danger
+        onConfirm={() => {
+          if (!wipeBusy) void confirmWipe()
+        }}
+        onCancel={() => setWipeOpen(false)}
+      />
+
+      <ConfirmDialog
+        isOpen={logoutOpen}
+        title="خروج از حساب"
+        message="از حساب خارج می‌شوید. داده‌های محلی و تغییرات ارسال‌نشده حذف نمی‌شوند و پس از ورود دوباره در دسترس‌اند."
+        confirmLabel="خروج"
+        cancelLabel="انصراف"
+        danger
+        onConfirm={() => {
+          if (!logoutBusy) void handleLogout()
+        }}
+        onCancel={() => setLogoutOpen(false)}
+      />
+    </div>
+  )
 }

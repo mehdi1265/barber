@@ -2,6 +2,7 @@ import type { SQLiteDBConnection } from '@capacitor-community/sqlite'
 import type { Profile, UUID } from '@shared/types'
 import { nowISO } from '@shared/utils/helpers'
 import { addToOutbox } from '@sync/outbox/outbox.repository'
+import { withTransaction } from '@database/sqlite/transaction'
 
 type CreateProfileInput = {
   id: UUID
@@ -11,18 +12,13 @@ type CreateProfileInput = {
   currency_code: string
 }
 
-type UpdateProfileInput = Partial<
-  Pick<Profile, 'display_name' | 'phone' | 'currency_code'>
->
+type UpdateProfileInput = Partial<Pick<Profile, 'display_name' | 'phone' | 'currency_code'>>
 
 export class ProfileRepository {
   constructor(private readonly db: SQLiteDBConnection) {}
 
   async getProfile(userId: UUID): Promise<Profile | null> {
-    const result = await this.db.query(
-      'SELECT * FROM profiles WHERE user_id = ? LIMIT 1',
-      [userId]
-    )
+    const result = await this.db.query('SELECT * FROM profiles WHERE user_id = ? LIMIT 1', [userId])
     return (result.values?.[0] as Profile) ?? null
   }
 
@@ -38,8 +34,59 @@ export class ProfileRepository {
       updated_at: now,
     }
 
+    await withTransaction(this.db, async () => {
+      await this.db.run(
+        `INSERT OR REPLACE INTO profiles
+          (id, user_id, display_name, phone, currency_code, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        [
+          profile.id,
+          profile.user_id,
+          profile.display_name,
+          profile.phone,
+          profile.currency_code,
+          profile.created_at,
+          profile.updated_at,
+        ]
+      )
+
+      await addToOutbox(this.db, {
+        user_id: input.user_id,
+        entity_type: 'profiles',
+        entity_id: profile.id,
+        operation: 'insert',
+        payload: JSON.stringify(profile),
+      })
+    })
+
+    return profile
+  }
+
+  /**
+   * Creates the local row for a signed-in account without queueing a push.
+   *
+   * The account already has a cloud profile (created by the signup trigger).
+   * Pushing this device's placeholder would overwrite the cloud phone and
+   * currency with defaults on a reinstall or after a wipe. The next pull
+   * replaces the placeholder with the canonical row.
+   */
+  async ensureLocalProfile(input: CreateProfileInput): Promise<Profile> {
+    const existing = await this.getProfile(input.user_id)
+    if (existing) return existing
+
+    const now = nowISO()
+    const profile: Profile = {
+      id: input.id,
+      user_id: input.user_id,
+      display_name: input.display_name,
+      phone: input.phone,
+      currency_code: input.currency_code,
+      created_at: now,
+      updated_at: now,
+    }
+
     await this.db.run(
-      `INSERT OR REPLACE INTO profiles
+      `INSERT OR IGNORE INTO profiles
         (id, user_id, display_name, phone, currency_code, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, ?, ?)`,
       [
@@ -53,14 +100,7 @@ export class ProfileRepository {
       ]
     )
 
-    await addToOutbox(this.db, {
-      entity_type: 'profiles',
-      entity_id: profile.id,
-      operation: 'insert',
-      payload: JSON.stringify(profile),
-    })
-
-    return profile
+    return (await this.getProfile(input.user_id)) ?? profile
   }
 
   async updateProfile(userId: UUID, input: UpdateProfileInput): Promise<void> {
@@ -87,19 +127,19 @@ export class ProfileRepository {
     values.push(now)
     values.push(userId)
 
-    await this.db.run(
-      `UPDATE profiles SET ${fields.join(', ')} WHERE user_id = ?`,
-      values
-    )
+    await withTransaction(this.db, async () => {
+      await this.db.run(`UPDATE profiles SET ${fields.join(', ')} WHERE user_id = ?`, values)
 
-    const updated = await this.getProfile(userId)
-    if (updated) {
-      await addToOutbox(this.db, {
-        entity_type: 'profiles',
-        entity_id: updated.id,
-        operation: 'update',
-        payload: JSON.stringify(updated),
-      })
-    }
+      const updated = await this.getProfile(userId)
+      if (updated) {
+        await addToOutbox(this.db, {
+          user_id: userId,
+          entity_type: 'profiles',
+          entity_id: updated.id,
+          operation: 'update',
+          payload: JSON.stringify(updated),
+        })
+      }
+    })
   }
 }

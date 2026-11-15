@@ -1,4 +1,5 @@
 import { useForm } from 'react-hook-form'
+import type { z } from 'zod'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { customerSchema, type CustomerFormData } from './customers.schemas'
 import { FormField } from '@shared/components/forms/FormField'
@@ -23,7 +24,7 @@ export function CustomerForm({
     register,
     handleSubmit,
     formState: { errors, isSubmitting },
-  } = useForm<CustomerFormData>({
+  } = useForm<z.input<typeof customerSchema>, unknown, CustomerFormData>({
     resolver: zodResolver(customerSchema),
     defaultValues: {
       name: defaultValues?.name ?? '',
@@ -33,7 +34,13 @@ export function CustomerForm({
   })
 
   return (
-    <form onSubmit={handleSubmit(onSubmit)} noValidate className={styles.form}>
+    <form
+      onSubmit={e => {
+        void handleSubmit(onSubmit)(e)
+      }}
+      noValidate
+      className={styles.form}
+    >
       <FormField
         label="نام"
         type="text"
@@ -67,7 +74,9 @@ export function CustomerForm({
           dir="auto"
         />
         {errors.notes && (
-          <p className={styles.errorMsg} role="alert">{errors.notes.message}</p>
+          <p className={styles.errorMsg} role="alert">
+            {errors.notes.message}
+          </p>
         )}
       </div>
 
